@@ -10,7 +10,7 @@ import { Badge } from "./ui/badge";
 import {
   ThumbsUp, MessageCircle, Share2, MoreHorizontal,
   UserPlus, UserCheck, Bookmark, BookmarkCheck,
-  Send, Trash2, Check, Link, Image as ImageIcon,
+  Send, Trash2, Check, Link as LinkIcon, Image as ImageIcon,
   Video, X as XIcon, ChevronLeft, ChevronRight,
   Pencil, History, AtSign,
 } from "lucide-react";
@@ -548,26 +548,36 @@ function CommentItem({
     ? `/profile/${comment.author.username}`
     : "/profile";
 
+  // The reply target is always the top-level parent (flat threading)
+  const replyTargetId   = depth === 0 ? comment.id : (topLevelParentId ?? comment.id);
+
+  // Visible replies: depth-0 caps at SUB_REPLY_LIMIT unless expanded
+  const visibleReplies = depth === 0
+    ? (showAllSubReplies ? comment.replies : comment.replies.slice(0, SUB_REPLY_LIMIT))
+    : [];
+  const hasMoreReplies = depth === 0 && comment.replies.length > SUB_REPLY_LIMIT;
+
   return (
     <>
-      <div className={`flex gap-2 group relative ${depth > 0 ? "ml-8" : ""}`}>
-        {/* Vertical connector line for replies */}
-        {depth > 0 && (
-          <div className="absolute -left-4 top-0 bottom-0 flex flex-col items-center" aria-hidden>
-            <div className="w-px flex-1 bg-border/60" />
-          </div>
-        )}
+      {/* ── Comment row ─────────────────────────────────────────────── */}
+      <div className="flex gap-2 group relative">
 
-        <Link to={profileHref} className="flex-shrink-0 mt-0.5 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-          <Avatar className="w-7 h-7">
-            <AvatarImage src={comment.author?.avatarUrl} />
-            <AvatarFallback className="text-[10px]">
-              {comment.author?.name?.[0]}
-            </AvatarFallback>
-          </Avatar>
-        </Link>
+        {/* Avatar column — contains avatar + optional vertical line below it */}
+        <div className="flex flex-col items-center flex-shrink-0">
+          <Link to={profileHref} className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+            <Avatar className="w-7 h-7">
+              <AvatarImage src={comment.author?.avatarUrl} />
+              <AvatarFallback className="text-[10px]">{comment.author?.name?.[0]}</AvatarFallback>
+            </Avatar>
+          </Link>
+          {/* Vertical line: only on depth-0 comments that have replies */}
+          {depth === 0 && comment.replies.length > 0 && (
+            <div className="w-px flex-1 bg-border/50 mt-1" />
+          )}
+        </div>
 
-        <div className="flex-1 min-w-0">
+        {/* Content column */}
+        <div className="flex-1 min-w-0 pb-1">
           {/* Bubble */}
           {isEditing ? (
             <div className="bg-muted rounded-2xl px-3 py-2">
@@ -591,18 +601,8 @@ function CommentItem({
                 }}
               />
               <div className="flex items-center gap-2 mt-1.5">
-                <button
-                  onClick={submitEdit}
-                  className="text-[10px] font-semibold text-primary hover:underline"
-                >
-                  Save
-                </button>
-                <button
-                  onClick={cancelEdit}
-                  className="text-[10px] text-muted-foreground hover:underline"
-                >
-                  Cancel
-                </button>
+                <button onClick={submitEdit} className="text-[10px] font-semibold text-primary hover:underline">Save</button>
+                <button onClick={cancelEdit} className="text-[10px] text-muted-foreground hover:underline">Cancel</button>
                 <span className="text-[10px] text-muted-foreground">Enter to save · Esc to cancel</span>
               </div>
             </div>
@@ -611,27 +611,15 @@ function CommentItem({
               <Link to={profileHref} className="font-semibold text-xs block leading-tight hover:underline">
                 {comment.author?.name}
               </Link>
-
               {comment.mediaUrl && (
                 comment.mediaType === "video" ? (
-                  <video
-                    src={comment.mediaUrl}
-                    controls
-                    className="mt-1 rounded-xl max-h-48 max-w-full"
-                  />
+                  <video src={comment.mediaUrl} controls className="mt-1 rounded-xl max-h-48 max-w-full" />
                 ) : (
-                  <img
-                    src={comment.mediaUrl}
-                    alt=""
-                    className="mt-1 rounded-xl max-h-48 max-w-full object-cover"
-                  />
+                  <img src={comment.mediaUrl} alt="" className="mt-1 rounded-xl max-h-48 max-w-full object-cover" />
                 )
               )}
-
               {comment.content && (
-                <p className="text-sm leading-snug text-foreground break-words">
-                  {comment.content}
-                </p>
+                <p className="text-sm leading-snug text-foreground break-words">{comment.content}</p>
               )}
             </div>
           )}
@@ -646,14 +634,12 @@ function CommentItem({
                 <button
                   onClick={() => setShowHistory(true)}
                   className="text-[10px] text-muted-foreground italic hover:underline flex items-center gap-0.5"
-                  title="This comment was edited"
                 >
-                  <History className="w-2.5 h-2.5" />
-                  Edited
+                  <History className="w-2.5 h-2.5" />Edited
                 </button>
               )}
 
-              {/* Like with reaction picker */}
+              {/* Like / reaction */}
               <Popover open={commentReactionOpen} onOpenChange={setCommentReactionOpen}>
                 <PopoverTrigger asChild>
                   <button
@@ -664,28 +650,22 @@ function CommentItem({
                       localLiked ? likeColor : "text-muted-foreground"
                     }`}
                   >
-                    {selectedReaction ? (
-                      <span className="text-xs leading-none">{selectedReaction.emoji}</span>
-                    ) : null}
+                    {selectedReaction && <span className="text-xs leading-none">{selectedReaction.emoji}</span>}
                     {likeLabel}{localLikes > 0 ? ` · ${localLikes}` : ""}
                   </button>
                 </PopoverTrigger>
                 <PopoverContent
-                  side="top"
-                  align="start"
+                  side="top" align="start"
                   className="w-auto p-1.5 rounded-full shadow-xl border bg-popover"
                   onMouseLeave={handleCommentPickerMouseLeave}
                 >
                   <div className="flex gap-0.5 items-center">
                     {COMMENT_REACTIONS.map((r) => (
                       <button
-                        key={r.label}
-                        title={r.label}
+                        key={r.label} title={r.label}
                         onClick={() => pickCommentReaction(r)}
                         className={`text-xl p-1 rounded-full transition-all duration-150 hover:scale-150 hover:-translate-y-2 ${
-                          selectedReaction?.label === r.label
-                            ? "scale-125 -translate-y-1"
-                            : "scale-100"
+                          selectedReaction?.label === r.label ? "scale-125 -translate-y-1" : "scale-100"
                         }`}
                       >
                         {r.emoji}
@@ -695,16 +675,12 @@ function CommentItem({
                 </PopoverContent>
               </Popover>
 
+              {/* Reply — always targets the top-level parent; @mentions the author when replying to a sub-reply */}
               <button
-                onClick={() => {
-                  // Replies to depth-1 comments attach to the same top-level parent
-                  const targetId   = depth === 0 ? comment.id : (topLevelParentId ?? comment.id);
-                  const targetName = comment.author?.name ?? "";
-                  onReply(targetId, targetName);
-                }}
+                onClick={() => onReply(replyTargetId, comment.author?.name ?? "")}
                 className="text-[10px] font-semibold text-muted-foreground hover:underline"
               >
-                Reply{depth === 0 && comment.replies.length > 0 ? ` · ${comment.replies.length}` : ""}
+                Reply
               </button>
 
               {/* 3-dot menu for own comments */}
@@ -716,17 +692,11 @@ function CommentItem({
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="w-40">
-                    <DropdownMenuItem
-                      onClick={startEdit}
-                      className="gap-2 cursor-pointer text-sm"
-                    >
+                    <DropdownMenuItem onClick={startEdit} className="gap-2 cursor-pointer text-sm">
                       <Pencil className="w-3.5 h-3.5" />Edit
                     </DropdownMenuItem>
                     {(comment.editHistory?.length ?? 0) > 0 && (
-                      <DropdownMenuItem
-                        onClick={() => setShowHistory(true)}
-                        className="gap-2 cursor-pointer text-sm"
-                      >
+                      <DropdownMenuItem onClick={() => setShowHistory(true)} className="gap-2 cursor-pointer text-sm">
                         <History className="w-3.5 h-3.5" />Edit history
                       </DropdownMenuItem>
                     )}
@@ -741,47 +711,44 @@ function CommentItem({
               )}
             </div>
           )}
-
-          {/* Nested replies */}
-          {comment.replies.length > 0 && (
-            <div className="mt-2 relative pl-4">
-              {/* Left border line connecting all replies to parent */}
-              <div className="absolute left-0 top-0 bottom-0 flex flex-col items-center" aria-hidden>
-                <div className="w-px flex-1 bg-border/60" />
-              </div>
-              <div className="flex flex-col gap-2">
-                {(depth === 0
-                  ? (showAllSubReplies ? comment.replies : comment.replies.slice(0, SUB_REPLY_LIMIT))
-                  : comment.replies
-                ).map((reply) => (
-                  <CommentItem
-                    key={reply.id}
-                    comment={reply}
-                    currentUserId={currentUserId}
-                    postId={postId}
-                    onDelete={onDelete}
-                    onReply={onReply}
-                    onLikeToggle={onLikeToggle}
-                    onEdit={onEdit}
-                    depth={depth + 1}
-                    topLevelParentId={depth === 0 ? comment.id : topLevelParentId}
-                  />
-                ))}
-                {depth === 0 && comment.replies.length > SUB_REPLY_LIMIT && (
-                  <button
-                    onClick={() => setShowAllSubReplies((v) => !v)}
-                    className="text-[11px] font-semibold text-primary hover:underline self-start ml-9 mt-0.5"
-                  >
-                    {showAllSubReplies
-                      ? "Show less"
-                      : `View ${comment.replies.length - SUB_REPLY_LIMIT} more repl${comment.replies.length - SUB_REPLY_LIMIT === 1 ? "y" : "ies"}`}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </div>
+
+      {/* ── Replies (flat, only rendered at depth 0) ─────────────────── */}
+      {depth === 0 && comment.replies.length > 0 && (
+        <div className="flex gap-2">
+          {/* Spacer matching avatar width + gap to align replies under content */}
+          <div className="w-7 flex-shrink-0" />
+          <div className="flex-1 min-w-0 flex flex-col gap-2 pt-1">
+            {visibleReplies.map((reply) => (
+              <CommentItem
+                key={reply.id}
+                comment={reply}
+                currentUserId={currentUserId}
+                postId={postId}
+                onDelete={onDelete}
+                onReply={onReply}
+                onLikeToggle={onLikeToggle}
+                onEdit={onEdit}
+                depth={1}
+                topLevelParentId={comment.id}
+              />
+            ))}
+            {hasMoreReplies && (
+              <button
+                onClick={() => setShowAllSubReplies((v) => !v)}
+                className="text-[11px] font-semibold text-primary hover:underline self-start mt-0.5"
+              >
+                {showAllSubReplies
+                  ? "Show less"
+                  : `View ${comment.replies.length - SUB_REPLY_LIMIT} more repl${
+                      comment.replies.length - SUB_REPLY_LIMIT === 1 ? "y" : "ies"
+                    }`}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Edit History Modal */}
       {showHistory && (comment.editHistory?.length ?? 0) > 0 && (
@@ -1629,7 +1596,7 @@ export function PostCard({
                 >
                   {copied
                     ? <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                    : <Link className="w-4 h-4 flex-shrink-0" />}
+                    : <LinkIcon className="w-4 h-4 flex-shrink-0" />}
                   <div>
                     <div className="text-sm font-medium">
                       {copied ? "Link copied!" : "Copy link"}
