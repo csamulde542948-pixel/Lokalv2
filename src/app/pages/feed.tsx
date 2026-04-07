@@ -293,7 +293,38 @@ function PostViewTracker({
     );
 
     observer.observe(el);
-    return () => observer.disconnect();
+
+    // P1 #4: Pause dwell when tab is hidden, resume when visible
+    // Prevents inflated dwell times when users switch tabs
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Tab hidden — flush accumulated dwell time
+        if (enteredAt.current && !firedRef.current) {
+          const dwellMs = Date.now() - enteredAt.current;
+          enteredAt.current = null;
+          if (dwellMs >= 1000) {
+            firedRef.current = true;
+            recordView(postId, dwellMs, position);
+          }
+        }
+      } else {
+        // Tab visible again — restart tracking if post is still intersecting
+        if (!firedRef.current && el) {
+          const rect = el.getBoundingClientRect();
+          const viewportH = window.innerHeight;
+          const visibleRatio = Math.max(0, Math.min(rect.bottom, viewportH) - Math.max(rect.top, 0)) / rect.height;
+          if (visibleRatio >= 0.5) {
+            enteredAt.current = Date.now();
+          }
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [postId, position, recordView]);
 
   return <div ref={ref}>{children}</div>;

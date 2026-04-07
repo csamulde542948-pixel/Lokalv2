@@ -44,8 +44,9 @@ Deno.serve(async (req: Request) => {
     const embedding: number[] = embeddingData.data[0].embedding;
 
     // Store in Post.contentEmbedding (pgvector column)
+    // Table is "posts" (Prisma @@map), NOT "Post"
     const { error } = await supabase
-      .from("Post")
+      .from("posts")
       .update({ contentEmbedding: embedding })
       .eq("id", postId);
 
