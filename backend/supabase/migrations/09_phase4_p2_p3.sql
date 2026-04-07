@@ -45,3 +45,6 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- P2 #8: Index for reaction-weighted aggregation query
 CREATE INDEX IF NOT EXISTS idx_post_likes_reaction
   ON post_likes ("postId", reaction);
+
+-- P3 #13: Position-weighted engagement quality stored on post_views
+ALTER TABLE post_views ADD COLUMN IF NOT EXISTS "engagementWeight" FLOAT;
