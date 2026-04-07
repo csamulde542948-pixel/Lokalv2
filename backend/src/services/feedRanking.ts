@@ -1,20 +1,19 @@
 /**
- * Lokal Feed Ranking Service — Phase 2.5 (Critical Gap Fixes)
- * ─────────────────────────────────────────────────────────────
+ * Lokal Feed Ranking Service — Phase 3 (Feedback Loops & Online Learning)
+ * ─────────────────────────────────────────────────────────────────────────
  * Facebook-inspired scoring pipeline:
  *
  * Stage 1: GetStream delivers raw candidate activities (done in resolvers)
  * Stage 2: Collect signals per post
- * Stage 3: Score each post
+ * Stage 3: Score each post (with full breakdown for FeedScoreLog)
  * Stage 4: Diversity pass (author + type diversification)
- * Stage 5: Return ranked list
+ * Stage 5: Return ranked list + log score breakdowns
  *
- * Improvements over Phase 2:
- * - Semantic relevance via pgvector embeddings (cosine similarity)
- * - Dwell-time quality signal from PostView data
- * - Content-type diversification in diversity pass
- * - Tag affinity decay based on recency
- * - A/B testing support (feedVariant)
+ * Phase 3 additions:
+ * - scorePost returns full breakdown object (for FeedScoreLog)
+ * - Configurable weights via FeedConfig (DB-backed, cached)
+ * - Session-aware semantic boost (low-CTR sessions get extra semantic weight)
+ * - CTR tracking via PostView position/engaged fields
  */
 
 export interface PostSignals {
@@ -36,22 +35,124 @@ export interface PostSignals {
   feedVariant?: "ranked" | "chronological"; // A/B test variant
 }
 
-const TYPE_MULTIPLIER: Record<PostSignals["postType"], number> = {
-  project: 1.4,
-  roast: 1.3,
-  event: 1.2,
-  post: 1.0,
+/** Full score breakdown — logged to feed_score_logs for every ranked post */
+export interface ScoreBreakdown {
+  finalScore: number;
+  engagementScore: number;
+  decayFactor: number;
+  rankBoost: number;
+  socialBoost: number;
+  typeBoost: number;
+  interestBoost: number;
+  followingBoost: number;
+  authorAffinityBoost: number;
+  velocityBoost: number;
+  semanticBoost: number;
+  dwellBoost: number;
+  notInterestedPenalty: number;
+}
+
+/** Externalized weight configuration — loaded from feed_config table, cached in memory */
+export interface FeedWeightConfig {
+  // Engagement weights
+  engagementLikeWeight: number;     // default 1.5
+  engagementCommentWeight: number;  // default 2.0
+  engagementShareWeight: number;    // default 3.0
+  // Type multipliers
+  typeProjectMultiplier: number;    // default 1.4
+  typeRoastMultiplier: number;      // default 1.3
+  typeEventMultiplier: number;      // default 1.2
+  typePostMultiplier: number;       // default 1.0
+  // Boost multipliers
+  followingBoostValue: number;      // default 1.5
+  notInterestedPenaltyValue: number; // default 0.05
+  // Decay
+  decayLambda: number;              // default 0.029 (24h half-life)
+  // Session-aware semantic boost
+  lowCtrSemanticMultiplier: number; // default 1.5 — extra semantic weight when session CTR < 10%
+  lowCtrThreshold: number;          // default 0.10
+}
+
+export const DEFAULT_WEIGHTS: FeedWeightConfig = {
+  engagementLikeWeight: 1.5,
+  engagementCommentWeight: 2.0,
+  engagementShareWeight: 3.0,
+  typeProjectMultiplier: 1.4,
+  typeRoastMultiplier: 1.3,
+  typeEventMultiplier: 1.2,
+  typePostMultiplier: 1.0,
+  followingBoostValue: 1.5,
+  notInterestedPenaltyValue: 0.05,
+  decayLambda: 0.029,
+  lowCtrSemanticMultiplier: 1.5,
+  lowCtrThreshold: 0.10,
 };
+
+// ─── In-memory config cache with TTL ────────────────────────
+
+let cachedWeights: FeedWeightConfig | null = null;
+let cacheExpiry = 0;
+const CACHE_TTL_MS = 60_000; // 60 seconds
+
+/**
+ * Load weight config from DB (feed_config table).
+ * Caches in memory for 60 seconds to avoid DB hit every request.
+ * Falls back to DEFAULT_WEIGHTS on any error.
+ */
+export async function loadWeightConfig(prisma: any): Promise<FeedWeightConfig> {
+  if (cachedWeights && Date.now() < cacheExpiry) {
+    return cachedWeights;
+  }
+  try {
+    const rows: { key: string; value: number }[] = await prisma.feedConfig.findMany();
+    const configMap = new Map(rows.map((r) => [r.key, r.value]));
+    cachedWeights = {
+      engagementLikeWeight: configMap.get("engagementLikeWeight") ?? DEFAULT_WEIGHTS.engagementLikeWeight,
+      engagementCommentWeight: configMap.get("engagementCommentWeight") ?? DEFAULT_WEIGHTS.engagementCommentWeight,
+      engagementShareWeight: configMap.get("engagementShareWeight") ?? DEFAULT_WEIGHTS.engagementShareWeight,
+      typeProjectMultiplier: configMap.get("typeProjectMultiplier") ?? DEFAULT_WEIGHTS.typeProjectMultiplier,
+      typeRoastMultiplier: configMap.get("typeRoastMultiplier") ?? DEFAULT_WEIGHTS.typeRoastMultiplier,
+      typeEventMultiplier: configMap.get("typeEventMultiplier") ?? DEFAULT_WEIGHTS.typeEventMultiplier,
+      typePostMultiplier: configMap.get("typePostMultiplier") ?? DEFAULT_WEIGHTS.typePostMultiplier,
+      followingBoostValue: configMap.get("followingBoostValue") ?? DEFAULT_WEIGHTS.followingBoostValue,
+      notInterestedPenaltyValue: configMap.get("notInterestedPenaltyValue") ?? DEFAULT_WEIGHTS.notInterestedPenaltyValue,
+      decayLambda: configMap.get("decayLambda") ?? DEFAULT_WEIGHTS.decayLambda,
+      lowCtrSemanticMultiplier: configMap.get("lowCtrSemanticMultiplier") ?? DEFAULT_WEIGHTS.lowCtrSemanticMultiplier,
+      lowCtrThreshold: configMap.get("lowCtrThreshold") ?? DEFAULT_WEIGHTS.lowCtrThreshold,
+    };
+    cacheExpiry = Date.now() + CACHE_TTL_MS;
+    return cachedWeights;
+  } catch (err) {
+    console.error("[feedRanking] loadWeightConfig error, using defaults:", err);
+    return DEFAULT_WEIGHTS;
+  }
+}
+
+/** Invalidate the in-memory cache (called when admin updates weights) */
+export function invalidateWeightCache(): void {
+  cachedWeights = null;
+  cacheExpiry = 0;
+}
+
+// ─── Scoring helper functions ───────────────────────────────
+
+function getTypeMultiplier(postType: PostSignals["postType"], weights: FeedWeightConfig): number {
+  switch (postType) {
+    case "project": return weights.typeProjectMultiplier;
+    case "roast": return weights.typeRoastMultiplier;
+    case "event": return weights.typeEventMultiplier;
+    default: return weights.typePostMultiplier;
+  }
+}
 
 /**
  * Exponential time decay.
  * Half-life ≈ 24 hours (suited for dev communities where users check ~daily).
  * A 24h-old post retains 50% score; a 48h-old post retains 25%.
  */
-function timeDecay(createdAt: Date): number {
+function timeDecay(createdAt: Date, lambda: number): number {
   const ageInHours =
     (Date.now() - createdAt.getTime()) / (1000 * 60 * 60);
-  const lambda = 0.029; // decay constant → half-life ≈ 24h (ln(2)/24)
   return Math.exp(-lambda * ageInHours);
 }
 
@@ -114,50 +215,53 @@ function dwellQualityMultiplier(avgDwellMs?: number): number {
 }
 
 /**
- * Core scoring function.
- * Returns a float score — higher is better.
+ * Core scoring function — returns full breakdown for FeedScoreLog.
+ *
+ * Accepts configurable weights (from FeedConfig) and optional session CTR
+ * for session-aware semantic boosting.
  *
  * Uses an additive baseline (1.0) so that a brand-new post
  * with 0 likes/comments/shares doesn't score 0. This ensures context signals
  * (author affinity, tag relevance, etc.) still surface fresh content.
- *
- * Phase 2.5 additions:
- * - Semantic relevance from embedding cosine similarity (1.0–2.0x)
- * - Dwell-time quality signal (1.0–2.0x)
  */
-export function scorePost(signals: PostSignals): number {
-  // A/B test: chronological variant bypasses scoring
-  // (handled in rankPosts — this still scores for logging/analytics)
-
+export function scorePost(
+  signals: PostSignals,
+  weights: FeedWeightConfig = DEFAULT_WEIGHTS,
+  sessionCtr?: number // current session CTR for session-aware semantic boost
+): ScoreBreakdown {
   // Additive baseline ensures fresh posts with 0 engagement don't vanish
   const rawEngagement =
-    signals.likesCount * 1.5 +
-    signals.commentsCount * 2.0 +
-    signals.sharesCount * 3.0;
+    signals.likesCount * weights.engagementLikeWeight +
+    signals.commentsCount * weights.engagementCommentWeight +
+    signals.sharesCount * weights.engagementShareWeight;
   const engagementScore = Math.max(rawEngagement, 1.0);
 
-  const decay = timeDecay(signals.createdAt);
+  const decayFactor = timeDecay(signals.createdAt, weights.decayLambda);
   const rankBoost = authorRankMultiplier(signals.authorXp);
   const socialBoost = socialProofMultiplier(signals.socialProof);
-  const typeBoost = TYPE_MULTIPLIER[signals.postType];
+  const typeBoost = getTypeMultiplier(signals.postType, weights);
   const interestBoost = 1.0 + signals.tagAffinityScore; // 1.0–2.0
-  const followingBoost = signals.isFromFollowing ? 1.5 : 1.0;
+  const followingBoost = signals.isFromFollowing ? weights.followingBoostValue : 1.0;
   const authorAffinityBoost = 1.0 + signals.authorAffinityScore; // 1.0–2.0 (already sigmoid-normalized)
   const velocityBoost = engagementVelocityMultiplier(signals);
 
   // Negative signal: harshly penalize content user marked "not interested"
-  const notInterestedPenalty = signals.notInterested ? 0.05 : 1.0;
+  const notInterestedPenalty = signals.notInterested ? weights.notInterestedPenaltyValue : 1.0;
 
-  // Phase 2.5: Semantic relevance from embedding cosine similarity
-  // 0 means no embedding data → neutral 1.0x; 1.0 means perfect match → 2.0x
-  const semanticBoost = 1.0 + (signals.semanticRelevance ?? 0);
+  // Semantic relevance — session-aware: boost extra if user's session CTR is low
+  // This helps recover users who aren't engaging — show them more relevant content
+  let semanticBase = signals.semanticRelevance ?? 0;
+  if (sessionCtr !== undefined && sessionCtr < weights.lowCtrThreshold && semanticBase > 0) {
+    semanticBase *= weights.lowCtrSemanticMultiplier;
+  }
+  const semanticBoost = 1.0 + Math.min(semanticBase, 2.0); // cap at 3.0x
 
-  // Phase 2.5: Dwell-time quality multiplier (1.0–2.0x)
+  // Dwell-time quality multiplier (1.0–2.0x)
   const dwellBoost = dwellQualityMultiplier(signals.avgDwellMs);
 
-  const score =
+  const finalScore =
     engagementScore
-    * decay
+    * decayFactor
     * rankBoost
     * socialBoost
     * typeBoost
@@ -169,25 +273,54 @@ export function scorePost(signals: PostSignals): number {
     * semanticBoost
     * dwellBoost;
 
-  return score;
+  return {
+    finalScore,
+    engagementScore,
+    decayFactor,
+    rankBoost,
+    socialBoost,
+    typeBoost,
+    interestBoost,
+    followingBoost,
+    authorAffinityBoost,
+    velocityBoost,
+    semanticBoost,
+    dwellBoost,
+    notInterestedPenalty,
+  };
+}
+
+/** Scored post — PostSignals with breakdown attached */
+export interface ScoredPost extends PostSignals {
+  _breakdown: ScoreBreakdown;
 }
 
 /**
  * Score + sort a list of posts.
+ * Returns ScoredPost[] with full breakdown for FeedScoreLog.
  * Supports A/B testing: if feedVariant is "chronological", returns time-sorted (no scoring).
  */
-export function rankPosts(posts: PostSignals[]): PostSignals[] {
+export function rankPosts(
+  posts: PostSignals[],
+  weights: FeedWeightConfig = DEFAULT_WEIGHTS,
+  sessionCtr?: number
+): ScoredPost[] {
   // A/B test: chronological variant — pure reverse-chron, no ranking algorithm
   if (posts.length > 0 && posts[0].feedVariant === "chronological") {
-    return [...posts].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+    return [...posts]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .map((p) => ({
+        ...p,
+        _breakdown: scorePost(p, weights, sessionCtr), // still score for analytics, just don't sort by it
+      }));
   }
 
-  const scored = posts.map((p) => ({ ...p, _score: scorePost(p) }));
-  return scored
-    .sort((a, b) => b._score - a._score)
-    .map(({ _score, ...p }) => p); // strip _score from return value
+  const scored: ScoredPost[] = posts.map((p) => ({
+    ...p,
+    _breakdown: scorePost(p, weights, sessionCtr),
+  }));
+
+  return scored.sort((a, b) => b._breakdown.finalScore - a._breakdown.finalScore);
 }
 
 /**
@@ -199,17 +332,17 @@ export function rankPosts(posts: PostSignals[]): PostSignals[] {
  * - Ensures variety: if we haven't shown a roast/project in 10 posts, inject one
  */
 export function applyDiversityPass(
-  posts: (PostSignals & { rankScore?: number })[],
-  explorePosts: (PostSignals & { rankScore?: number })[]
-): (PostSignals & { rankScore?: number })[] {
-  const result: (PostSignals & { rankScore?: number })[] = [];
+  posts: ScoredPost[],
+  explorePosts: ScoredPost[]
+): ScoredPost[] {
+  const result: ScoredPost[] = [];
   const authorConsecutive: Record<string, number> = {};
   const typeConsecutive: Record<string, number> = {};
   let exploreInserted = 0;
   let slotsSinceNonPostType = 0; // counts slots since last roast/project/event
 
   // Build a pool of deferred posts (bumped due to diversity rules) for re-insertion
-  const deferred: (PostSignals & { rankScore?: number })[] = [];
+  const deferred: ScoredPost[] = [];
 
   for (let i = 0; i < posts.length; i++) {
     const post = posts[i];

@@ -219,6 +219,22 @@ export const typeDefs = gql`
     hasMore: Boolean!
     nextOffset: Int!
     feedVariant: String          # "ranked" | "chronological" — A/B test variant
+    sessionId: String            # Phase 3: feed session ID for CTR tracking
+  }
+
+  # Phase 3: Feed metrics for A/B comparison dashboard
+  type FeedMetrics {
+    rankedAvgCTR: Float!
+    chronologicalAvgCTR: Float!
+    rankedAvgDwell: Float!
+    chronologicalAvgDwell: Float!
+    rankedEngagementRate: Float!
+    chronologicalEngagementRate: Float!
+    totalImpressions: Int!
+    totalEngagements: Int!
+    totalSessions: Int!
+    diversityScore: Float!       # Shannon entropy (0–1, higher = more diverse post types)
+    days: Int!                   # time window in days
   }
 
   # =============================================
@@ -496,6 +512,9 @@ export const typeDefs = gql`
     feed(limit: Int, offset: Int, seenIds: [ID!], feedVariant: String): FeedResult!
     exploreFeed(limit: Int, offset: Int): FeedResult!
 
+    # Feed metrics (Phase 3: A/B comparison dashboard)
+    feedMetrics(days: Int): FeedMetrics!
+
     # Posts
     post(id: ID!): Post
     userPosts(userId: ID!, limit: Int, offset: Int): FeedResult!
@@ -665,7 +684,7 @@ export const typeDefs = gql`
     deleteProfilePhoto(photoId: ID!): Boolean!
 
     # Feed ranking signals
-    recordPostView(postId: ID!, dwellMs: Int!, source: String, feedVariant: String): Boolean!
+    recordPostView(postId: ID!, dwellMs: Int!, source: String, feedVariant: String, position: Int, sessionId: String): ID
     markNotInterestedInPost(postId: ID!): Boolean!
   }
 
