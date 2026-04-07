@@ -76,6 +76,8 @@ export interface OriginalPost {
   imageUrl?: string;
   imageUrls?: string[];
   projectName?: string;
+  postType?: "post" | "roast";
+  tags?: { id: string | number; name: string }[];
   createdAt?: string;
 }
 
@@ -414,56 +416,123 @@ function MediaGrid({ imgs }: { imgs: string[] }) {
 }
 
 /* ─── SharedPostPreview ──────────────────────────────────────────────────── */
-// Renders the original post as a nested card inside a share post.
-// Intentionally NOT recursive — always shows only one level deep.
+// Renders the original post as a proper nested card — roast style or standard
+// style depending on postType. Intentionally NOT recursive (no actions/comments).
 export function SharedPostPreview({ post }: { post: OriginalPost }) {
-  const coverImage = post.imageUrls?.[0] ?? post.imageUrl;
+  const imgs = (post.imageUrls && post.imageUrls.length > 0)
+    ? post.imageUrls
+    : post.imageUrl ? [post.imageUrl] : [];
+  const coverImage = imgs[0];
+
   const profileHref = post.author.username
     ? `/profile/${post.author.username.replace(/^@/, "")}`
     : "/profile";
 
-  // Strip any residual [shared:...] markers from old posts
   const cleanContent = post.content.replace(/\[shared:[^\]]+\]/g, "").trim();
+  const isRoast = post.postType === "roast" ||
+    (post.tags ?? []).some((t) => t.name === "roast");
+  const projectName = post.projectName ?? "Unknown Project";
+  const avatarFallbackUrl = `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(post.author.name)}`;
 
-  return (
-    <div className="border rounded-xl overflow-hidden bg-muted/20 hover:bg-muted/30 transition-colors">
-      {/* Cover image */}
-      {coverImage && (
-        <div className="w-full max-h-60 overflow-hidden">
+  /* ── Roast-style card ─────────────────────────────────────────────── */
+  if (isRoast) {
+    return (
+      <div className="border rounded-xl overflow-hidden bg-card shadow-sm">
+        {/* Flame header bar */}
+        <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border-b px-3 py-2">
+          <div className="flex items-center gap-2">
+            <Link to={profileHref} className="focus:outline-none">
+              <Avatar className="w-7 h-7 border border-border flex-shrink-0">
+                <AvatarImage src={post.author.avatarUrl ?? avatarFallbackUrl} />
+                <AvatarFallback className="text-[9px]">{post.author.name?.[0]}</AvatarFallback>
+              </Avatar>
+            </Link>
+            <div className="flex-1 min-w-0">
+              <Link to={profileHref} className="font-semibold text-xs hover:underline leading-tight block truncate">
+                {post.author.name}
+              </Link>
+              {post.createdAt && (
+                <span className="text-[10px] text-muted-foreground">{timeAgo(post.createdAt)}</span>
+              )}
+            </div>
+            <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px] px-1.5 py-0 h-5 gap-1 flex-shrink-0">
+              🔥 AI Roast
+            </Badge>
+          </div>
+        </div>
+
+        {/* Project name */}
+        <div className="px-3 pt-2 pb-1">
+          <p className="font-bold text-sm">{projectName}</p>
+        </div>
+
+        {/* Cover image */}
+        {coverImage && (
           <img
             src={coverImage}
-            alt=""
-            className="w-full object-cover"
-            style={{ maxHeight: 240 }}
+            alt={projectName}
+            className="w-full aspect-[2/1] object-cover"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
           />
+        )}
+
+        {/* Roast body */}
+        <div className="p-3 bg-gradient-to-b from-transparent to-primary/5">
+          <p className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap line-clamp-5">
+            {cleanContent}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── Standard post card ───────────────────────────────────────────── */
+  const detectedUrl = imgs.length === 0 ? extractFirstUrl(cleanContent) : null;
+
+  return (
+    <div className="border rounded-xl overflow-hidden bg-card shadow-sm">
+
+      {/* Header */}
+      <div className="flex items-center gap-2.5 px-3 py-2.5">
+        <Link to={profileHref} className="rounded-full flex-shrink-0 focus:outline-none">
+          <Avatar className="w-8 h-8 border border-border">
+            <AvatarImage src={post.author.avatarUrl ?? avatarFallbackUrl} />
+            <AvatarFallback className="text-[10px]">{post.author.name?.[0]}</AvatarFallback>
+          </Avatar>
+        </Link>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Link to={profileHref} className="font-semibold text-sm hover:underline leading-tight">
+              {post.author.name}
+            </Link>
+            {post.projectName && (
+              <Badge variant="secondary" className="text-[10px] rounded-md font-normal px-1.5 py-0 h-3.5">
+                {post.projectName}
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-1 text-[10px] text-muted-foreground mt-0.5">
+            {post.createdAt && <span>{timeAgo(post.createdAt)}</span>}
+            {post.createdAt && <span>·</span>}
+            <span className="text-[9px]">🌐</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      {cleanContent && (
+        <div className="px-3 pb-2">
+          <p className="text-sm leading-relaxed whitespace-pre-wrap line-clamp-5">
+            {cleanContent}
+          </p>
         </div>
       )}
 
-      <div className="px-3 py-2.5">
-        {/* Author row */}
-        <Link to={profileHref} className="flex items-center gap-2 mb-1.5 group">
-          <Avatar className="w-6 h-6 flex-shrink-0">
-            <AvatarImage src={post.author.avatarUrl} />
-            <AvatarFallback className="text-[9px]">{post.author.name?.[0]}</AvatarFallback>
-          </Avatar>
-          <div className="min-w-0">
-            <span className="text-xs font-semibold leading-tight group-hover:underline">
-              {post.author.name}
-            </span>
-            {post.projectName && (
-              <span className="text-[10px] text-muted-foreground ml-1.5">· {post.projectName}</span>
-            )}
-          </div>
-        </Link>
+      {/* Link preview (only when no images) */}
+      {detectedUrl && <LinkPreviewCard url={detectedUrl} />}
 
-        {/* Content */}
-        {cleanContent && (
-          <p className="text-sm text-foreground leading-snug line-clamp-4 whitespace-pre-wrap">
-            {cleanContent}
-          </p>
-        )}
-      </div>
+      {/* Media grid */}
+      {imgs.length > 0 && <MediaGrid imgs={imgs} />}
     </div>
   );
 }

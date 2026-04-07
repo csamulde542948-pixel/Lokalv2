@@ -47,6 +47,8 @@ const GET_FEED = gql`
           imageUrl
           imageUrls
           projectName
+          postType
+          tags { id name }
           createdAt
           author {
             id
@@ -146,6 +148,8 @@ const CREATE_POST_MUTATION = gql`
         imageUrl
         imageUrls
         projectName
+        postType
+        tags { id name }
         createdAt
         author {
           id
@@ -516,6 +520,8 @@ function adaptPost(p: any) {
           imageUrl: p.originalPost.imageUrl,
           imageUrls: p.originalPost.imageUrls ?? [],
           projectName: p.originalPost.projectName ?? undefined,
+          postType: (p.originalPost.postType ?? "post") as "post" | "roast",
+          tags: p.originalPost.tags ?? [],
           createdAt: p.originalPost.createdAt,
           author: {
             id: p.originalPost.author?.id,
