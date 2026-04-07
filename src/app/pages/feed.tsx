@@ -16,8 +16,8 @@ import { Fragment } from "react";
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
 
 const GET_FEED = gql`
-  query GetFeed($limit: Int, $offset: Int, $seenIds: [ID!]) {
-    feed(limit: $limit, offset: $offset, seenIds: $seenIds) {
+  query GetFeed($limit: Int, $offset: Int, $seenIds: [ID!], $feedVariant: String) {
+    feed(limit: $limit, offset: $offset, seenIds: $seenIds, feedVariant: $feedVariant) {
       posts {
         id
         content
@@ -114,6 +114,7 @@ const GET_FEED = gql`
       }
       hasMore
       nextOffset
+      feedVariant
     }
   }
 `;
@@ -238,8 +239,8 @@ const UNLIKE_POST_MUTATION = gql`
 `;
 
 const RECORD_POST_VIEW = gql`
-  mutation RecordPostView($postId: ID!, $dwellMs: Int!, $source: String) {
-    recordPostView(postId: $postId, dwellMs: $dwellMs, source: $source)
+  mutation RecordPostView($postId: ID!, $dwellMs: Int!, $source: String, $feedVariant: String) {
+    recordPostView(postId: $postId, dwellMs: $dwellMs, source: $source, feedVariant: $feedVariant)
   }
 `;
 
@@ -614,8 +615,9 @@ export function Feed() {
 
   const recordView = useCallback((postId: string, dwellMs: number) => {
     seenIdsRef.current.add(postId);
-    recordPostViewMutation({ variables: { postId, dwellMs, source: "feed" } }).catch(console.error);
-  }, [recordPostViewMutation]);
+    const variant = data?.feed?.feedVariant ?? undefined;
+    recordPostViewMutation({ variables: { postId, dwellMs, source: "feed", feedVariant: variant } }).catch(console.error);
+  }, [recordPostViewMutation, data?.feed?.feedVariant]);
 
   const serverPosts: ReturnType<typeof adaptPost>[] = (data?.feed?.posts ?? DUMMY).map(adaptPost);
   // Merge: local (optimistic) first, then server (deduped by id)
