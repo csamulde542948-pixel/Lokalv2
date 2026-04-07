@@ -4,6 +4,7 @@ import {
   rankPosts,
   applyDiversityPass,
   PostSignals,
+  sigmoidNormalize,
 } from "../../services/feedRanking";
 import { awardXp } from "../../services/xp";
 
@@ -43,7 +44,26 @@ export const feedResolvers = {
 
       // Filter out already-seen posts to avoid showing duplicates across refreshes
       const seenSet = new Set(seenIds);
-      const freshPostIds = postIds.filter((id) => !seenSet.has(id));
+      let freshPostIds = postIds.filter((id) => !seenSet.has(id));
+
+      // Cold-start: if user has very few candidates (< 5), supplement with trending posts
+      if (freshPostIds.length < 5) {
+        try {
+          const trendingPosts = await prisma.post.findMany({
+            where: {
+              id: { notIn: [...freshPostIds, ...seenIds] },
+              createdAt: { gte: new Date(Date.now() - 72 * 60 * 60 * 1000) }, // last 72h
+            },
+            orderBy: [{ likesCount: "desc" }, { commentsCount: "desc" }],
+            take: 15,
+            select: { id: true },
+          });
+          const trendingIds = trendingPosts.map((p: any) => p.id);
+          freshPostIds = [...freshPostIds, ...trendingIds];
+        } catch (err) {
+          console.error("[feed] cold-start trending fallback error:", err);
+        }
+      }
 
       if (freshPostIds.length === 0) {
         return exploreFeed(limit, offset, prisma);
@@ -99,11 +119,10 @@ export const feedResolvers = {
         socialProofMap.set(like.postId, (socialProofMap.get(like.postId) ?? 0) + 1);
       }
 
-      // Normalize author affinity to 0–1 range (max raw score ~ 50)
+      // Normalize author affinity to 0–1 range using sigmoid (smooth, unbounded input)
       const authorAffinityMap = new Map<string, number>();
-      const maxRawAffinity = 50;
       for (const aff of authorAffinities) {
-        authorAffinityMap.set(aff.authorId, Math.min(aff.score / maxRawAffinity, 1.0));
+        authorAffinityMap.set(aff.authorId, sigmoidNormalize(aff.score));
       }
 
       // 3. Build signals for each post
@@ -114,6 +133,15 @@ export const feedResolvers = {
             (sum: number, tag: string) => sum + ((affinityMap.get(tag) as number) ?? 0),
             0
           ) / Math.max(postTagNames.length, 1);
+
+        // Derive postType from actual data instead of hardcoding
+        const detectedPostType: PostSignals["postType"] = postTagNames.includes("roast")
+          ? "roast"
+          : postTagNames.includes("event")
+            ? "event"
+            : post.projectName || post.projectId
+              ? "project"
+              : "post";
 
         return {
           post,
@@ -128,20 +156,93 @@ export const feedResolvers = {
           socialProof: socialProofMap.get(post.id) ?? 0,
           isFromFollowing: followingSet.has(post.authorId),
           authorAffinityScore: authorAffinityMap.get(post.authorId) ?? 0,
-          postType: "post" as const,
+          postType: detectedPostType,
         };
       });
 
       // 4. Score + sort
       const ranked = rankPosts(signals as PostSignals[]);
 
-      // 5. Diversity pass — no-op for explore in phase 1
-      const diversified = applyDiversityPass(ranked, []);
+      // 5. 2nd-degree candidates: posts liked by people the user follows
+      //    (friends-of-friends discovery — Facebook's key growth loop)
+      let secondDegreeSignals: (PostSignals & { post: any })[] = [];
+      try {
+        if (followingSet.size > 0) {
+          const recentFollowLikes = await prisma.postLike.findMany({
+            where: {
+              profileId: { in: Array.from(followingSet) },
+              post: {
+                authorId: { notIn: [user.id, ...Array.from(followingSet)] }, // outside follow graph
+                createdAt: { gte: new Date(Date.now() - 72 * 60 * 60 * 1000) }, // last 72h
+              },
+            },
+            select: { postId: true },
+            distinct: ["postId"],
+            take: 10,
+          });
+          const secondDegreeIds = recentFollowLikes
+            .map((l) => l.postId)
+            .filter((id) => !seenSet.has(id) && !freshPostIds.includes(id));
 
-      // Reorder posts array to match ranked order
-      const postMap = new Map(posts.map((p: any) => [p.id, p]));
+          if (secondDegreeIds.length > 0) {
+            const sdPosts = await prisma.post.findMany({
+              where: { id: { in: secondDegreeIds } },
+              include: {
+                author: { include: { rank: true } },
+                tags: { include: { tag: true } },
+                _count: { select: { likes: true, comments: true } },
+              },
+            });
+
+            secondDegreeSignals = sdPosts.map((post: any) => {
+              const postTagNames = post.tags.map((pt: any) => pt.tag.name);
+              const tagAff =
+                postTagNames.reduce(
+                  (sum: number, tag: string) => sum + ((affinityMap.get(tag) as number) ?? 0),
+                  0
+                ) / Math.max(postTagNames.length, 1);
+
+              const detectedType: PostSignals["postType"] = postTagNames.includes("roast")
+                ? "roast"
+                : postTagNames.includes("event")
+                  ? "event"
+                  : post.projectName || post.projectId
+                    ? "project"
+                    : "post";
+
+              return {
+                post,
+                postId: post.id,
+                authorId: post.authorId,
+                likesCount: post._count.likes,
+                commentsCount: post._count.comments,
+                sharesCount: post.sharesCount,
+                createdAt: post.createdAt,
+                authorXp: (post.author as any).xp ?? 0,
+                tagAffinityScore: Math.min(tagAff, 1.0),
+                socialProof: socialProofMap.get(post.id) ?? 0,
+                isFromFollowing: false,
+                authorAffinityScore: authorAffinityMap.get(post.authorId) ?? 0,
+                postType: detectedType,
+              };
+            });
+          }
+        }
+      } catch (err) {
+        console.error("[feed] 2nd-degree candidates error:", err);
+      }
+
+      // 6. Diversity pass — inject 2nd-degree explore content
+      const diversified = applyDiversityPass(ranked, secondDegreeSignals as PostSignals[]);
+
+      // Merge post maps for ranking
+      const allPostsMap = new Map(posts.map((p: any) => [p.id, p]));
+      for (const sig of secondDegreeSignals) {
+        allPostsMap.set(sig.postId, sig.post);
+      }
+
       const rankedPosts = diversified
-        .map((s) => postMap.get(s.postId))
+        .map((s) => allPostsMap.get(s.postId))
         .filter(Boolean);
 
       return {
@@ -721,6 +822,47 @@ export const feedResolvers = {
         return true;
       } catch (err) {
         console.error("[recordPostView] error:", err);
+        return false;
+      }
+    },
+
+    /**
+     * "Not interested" — negative ranking signal.
+     * Decreases author affinity so future posts from this author rank lower.
+     * Also updates tag affinity downward for the post's tags.
+     */
+    markNotInterestedInPost: async (
+      _: unknown,
+      { postId }: { postId: string },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+
+      try {
+        const post = await prisma.post.findUnique({
+          where: { id: postId },
+          select: { authorId: true },
+        });
+        if (!post) return false;
+
+        // Decrease author affinity significantly
+        const existing = await prisma.userAuthorAffinity.findUnique({
+          where: { userId_authorId: { userId: user.id, authorId: post.authorId } },
+        });
+        if (existing) {
+          const newScore = Math.max(existing.score - 5.0, 0);
+          await prisma.userAuthorAffinity.update({
+            where: { userId_authorId: { userId: user.id, authorId: post.authorId } },
+            data: { score: newScore },
+          });
+        }
+
+        // Decrease tag affinity for this post's tags
+        updateTagAffinitiesOnEngagement(user.id, postId, -0.3, prisma).catch(console.error);
+
+        return true;
+      } catch (err) {
+        console.error("[markNotInterestedInPost] error:", err);
         return false;
       }
     },

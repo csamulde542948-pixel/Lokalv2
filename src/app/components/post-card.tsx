@@ -12,7 +12,7 @@ import {
   UserPlus, UserCheck, Bookmark, BookmarkCheck,
   Send, Trash2, Image as ImageIcon,
   Video, X as XIcon, ChevronLeft, ChevronRight,
-  Pencil, History, AtSign, Flame,
+  Pencil, History, AtSign, Flame, EyeOff,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import {
@@ -67,6 +67,9 @@ export const DELETE_COMMENT = gql`
 const DELETE_POST = gql`
   mutation DeletePost($id: ID!) { deletePost(id: $id) }
 `;
+const MARK_NOT_INTERESTED = gql`
+  mutation MarkNotInterested($postId: ID!) { markNotInterestedInPost(postId: $postId) }
+`;
 
 /* ─── Types ───────────────────────────────────────────────────────────────── */
 export interface OriginalPost {
@@ -105,6 +108,7 @@ interface PostCardProps {
   onDelete?: () => void;
   isFollowing?: boolean;
   onFollowToggle?: () => void;
+  onNotInterested?: (postId: string) => void;
 }
 
 /* ─── Reactions ───────────────────────────────────────────────────────────── */
@@ -1326,6 +1330,7 @@ export function PostCard({
   onDelete,
   isFollowing = false,
   onFollowToggle,
+  onNotInterested,
 }: PostCardProps) {
   const { user } = useAuth();
 
@@ -1361,6 +1366,8 @@ export function PostCard({
   const [editCommentMutation]   = useMutation(EDIT_COMMENT);
   const [deleteCommentMutation] = useMutation(DELETE_COMMENT);
   const [deletePostMutation]    = useMutation(DELETE_POST);
+  const [notInterestedMutation]  = useMutation(MARK_NOT_INTERESTED);
+  const [hidden, setHidden]      = useState(false);
 
   useEffect(() => {
     setLocalLiked(post.likedByMe ?? false);
@@ -1655,11 +1662,32 @@ export function PostCard({
     }
   }
 
+  async function handleNotInterested() {
+    try {
+      await notInterestedMutation({ variables: { postId: post.id } });
+      setHidden(true);
+      onNotInterested?.(post.id);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   const isOwnPost  = !!user && user.id === post.author.id;
   const reactLabel = selectedReaction?.label ?? "Like";
   const reactColor = selectedReaction
     ? selectedReaction.color
     : "text-muted-foreground hover:text-foreground";
+
+  if (hidden) {
+    return (
+      <Card className="overflow-hidden border bg-card shadow-sm rounded-xl opacity-50 p-4 text-center">
+        <p className="text-sm text-muted-foreground">
+          <EyeOff className="w-4 h-4 inline mr-1 -mt-0.5" />
+          This post has been hidden. We'll show you less like this.
+        </p>
+      </Card>
+    );
+  }
 
   return (
       <Card className="overflow-hidden border bg-card shadow-sm rounded-xl gap-0">
@@ -1736,6 +1764,14 @@ export function PostCard({
                       className="gap-2 text-destructive focus:text-destructive cursor-pointer"
                     >
                       <Trash2 className="w-4 h-4" />Delete post
+                    </DropdownMenuItem>
+                  )}
+                  {!isOwnPost && (
+                    <DropdownMenuItem
+                      onClick={() => handleNotInterested()}
+                      className="gap-2 cursor-pointer"
+                    >
+                      <EyeOff className="w-4 h-4" />Not interested
                     </DropdownMenuItem>
                   )}
                 </DropdownMenuContent>

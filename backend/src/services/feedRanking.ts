@@ -1,6 +1,6 @@
 /**
- * Lokal Feed Ranking Service
- * ──────────────────────────
+ * Lokal Feed Ranking Service — Phase 2
+ * ─────────────────────────────────────
  * Facebook-inspired scoring pipeline:
  *
  * Stage 1: GetStream delivers raw candidate activities (done in resolvers)
@@ -8,6 +8,13 @@
  * Stage 3: Score each post
  * Stage 4: Diversity pass (no 2 posts from same author in top 5, mix types)
  * Stage 5: Return ranked list
+ *
+ * Phase 2 improvements:
+ * - Additive baseline so brand-new 0-engagement posts don't score 0
+ * - 24h half-life time decay (dev communities check ~once/day)
+ * - Engagement velocity signal (trending detection)
+ * - Sigmoid normalization for author affinity
+ * - Negative signal support (notInterested penalty)
  */
 
 export interface PostSignals {
@@ -17,12 +24,13 @@ export interface PostSignals {
   commentsCount: number;
   sharesCount: number;
   createdAt: Date;
-  authorXp: number;         // author's XP/rank score
-  tagAffinityScore: number; // cosine sim between user interests & post tags
-  socialProof: number;      // how many of the user's follows liked this
-  isFromFollowing: boolean; // is this from someone the user follows?
-  authorAffinityScore: number; // composite author affinity (0–1 normalized)
-  postType: "post" | "roast" | "project" | "event"; // content type multiplier
+  authorXp: number;             // author's XP/rank score
+  tagAffinityScore: number;     // cosine sim between user interests & post tags
+  socialProof: number;          // how many of the user's follows liked this
+  isFromFollowing: boolean;     // is this from someone the user follows?
+  authorAffinityScore: number;  // composite author affinity (sigmoid-normalized 0–1)
+  postType: "post" | "roast" | "project" | "event";
+  notInterested?: boolean;      // user explicitly marked "not interested"
 }
 
 const TYPE_MULTIPLIER: Record<PostSignals["postType"], number> = {
@@ -33,13 +41,14 @@ const TYPE_MULTIPLIER: Record<PostSignals["postType"], number> = {
 };
 
 /**
- * Exponential time decay — same formula used by Reddit's "Hot" algorithm.
- * More recent posts decay less. Half-life ≈ 12 hours.
+ * Exponential time decay.
+ * Half-life ≈ 24 hours (suited for dev communities where users check ~daily).
+ * A 24h-old post retains 50% score; a 48h-old post retains 25%.
  */
 function timeDecay(createdAt: Date): number {
   const ageInHours =
     (Date.now() - createdAt.getTime()) / (1000 * 60 * 60);
-  const lambda = 0.058; // decay constant → half-life ≈ 12h
+  const lambda = 0.029; // decay constant → half-life ≈ 24h (ln(2)/24)
   return Math.exp(-lambda * ageInHours);
 }
 
@@ -63,14 +72,47 @@ function socialProofMultiplier(socialProof: number): number {
 }
 
 /**
+ * Engagement velocity — measures how fast a post is gaining traction.
+ * A post with 50 likes in 2 hours is much more "hot" than 50 likes in 30 days.
+ * Returns a 1.0–3.0x multiplier.
+ */
+function engagementVelocityMultiplier(signals: PostSignals): number {
+  const ageInHours = Math.max(
+    (Date.now() - signals.createdAt.getTime()) / (1000 * 60 * 60),
+    1 // min 1h to avoid division by zero on brand-new posts
+  );
+  const totalEngagements =
+    signals.likesCount + signals.commentsCount * 2 + signals.sharesCount * 3;
+  const velocity = totalEngagements / ageInHours;
+
+  // Sigmoid scaling: velocity of ~10/h → 2.0x, ~50/h → ~2.8x
+  return 1.0 + 2.0 * (1.0 / (1.0 + Math.exp(-0.15 * (velocity - 5))));
+}
+
+/**
+ * Sigmoid normalization for author affinity.
+ * Maps raw composite score (0–∞) smoothly to 0–1 range.
+ * midpoint = 15 (casual interaction), steepness = 0.15
+ */
+export function sigmoidNormalize(raw: number, midpoint = 15, steepness = 0.15): number {
+  return 1.0 / (1.0 + Math.exp(-steepness * (raw - midpoint)));
+}
+
+/**
  * Core scoring function.
  * Returns a float score — higher is better.
+ *
+ * KEY FIX (Phase 2): Uses an additive baseline (1.0) so that a brand-new post
+ * with 0 likes/comments/shares doesn't score 0. This ensures context signals
+ * (author affinity, tag relevance, etc.) still surface fresh content.
  */
 export function scorePost(signals: PostSignals): number {
-  const engagementScore =
+  // Additive baseline ensures fresh posts with 0 engagement don't vanish
+  const rawEngagement =
     signals.likesCount * 1.5 +
     signals.commentsCount * 2.0 +
     signals.sharesCount * 3.0;
+  const engagementScore = Math.max(rawEngagement, 1.0);
 
   const decay = timeDecay(signals.createdAt);
   const rankBoost = authorRankMultiplier(signals.authorXp);
@@ -78,10 +120,23 @@ export function scorePost(signals: PostSignals): number {
   const typeBoost = TYPE_MULTIPLIER[signals.postType];
   const interestBoost = 1.0 + signals.tagAffinityScore; // 1.0–2.0
   const followingBoost = signals.isFromFollowing ? 1.5 : 1.0;
-  const authorAffinityBoost = 1.0 + Math.min(signals.authorAffinityScore, 1.0); // 1.0–2.0
+  const authorAffinityBoost = 1.0 + signals.authorAffinityScore; // 1.0–2.0 (already sigmoid-normalized)
+  const velocityBoost = engagementVelocityMultiplier(signals);
+
+  // Negative signal: harshly penalize content user marked "not interested"
+  const notInterestedPenalty = signals.notInterested ? 0.05 : 1.0;
 
   const score =
-    engagementScore * decay * rankBoost * socialBoost * typeBoost * interestBoost * followingBoost * authorAffinityBoost;
+    engagementScore
+    * decay
+    * rankBoost
+    * socialBoost
+    * typeBoost
+    * interestBoost
+    * followingBoost
+    * authorAffinityBoost
+    * velocityBoost
+    * notInterestedPenalty;
 
   return score;
 }

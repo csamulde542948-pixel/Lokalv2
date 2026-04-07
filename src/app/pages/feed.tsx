@@ -243,6 +243,12 @@ const RECORD_POST_VIEW = gql`
   }
 `;
 
+const MARK_NOT_INTERESTED = gql`
+  mutation MarkNotInterested($postId: ID!) {
+    markNotInterestedInPost(postId: $postId)
+  }
+`;
+
 // ─── Post view tracking ──────────────────────────────────────────────────────
 
 /**
@@ -604,6 +610,7 @@ export function Feed() {
   const [likePost] = useMutation(LIKE_POST_MUTATION);
   const [unlikePost] = useMutation(UNLIKE_POST_MUTATION);
   const [recordPostViewMutation] = useMutation(RECORD_POST_VIEW);
+  const [notInterestedMutation] = useMutation(MARK_NOT_INTERESTED);
 
   const recordView = useCallback((postId: string, dwellMs: number) => {
     seenIdsRef.current.add(postId);
@@ -739,6 +746,9 @@ export function Feed() {
                         }}
                         isFollowing={followedUsers.has(post.author.username)}
                         onFollowToggle={() => handleFollowToggle(post.author.username)}
+                        onNotInterested={() => {
+                          notInterestedMutation({ variables: { postId: post.id } }).catch(console.error);
+                        }}
                       />
                     )}
                   </PostViewTracker>
