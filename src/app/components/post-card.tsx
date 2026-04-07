@@ -10,7 +10,7 @@ import { Badge } from "./ui/badge";
 import {
   ThumbsUp, MessageCircle, Share2, MoreHorizontal,
   UserPlus, UserCheck, Bookmark, BookmarkCheck,
-  Send, Trash2, Check, Link as LinkIcon, Image as ImageIcon,
+  Send, Trash2, Image as ImageIcon,
   Video, X as XIcon, ChevronLeft, ChevronRight,
   Pencil, History, AtSign,
 } from "lucide-react";
@@ -19,6 +19,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { useAuth } from "../../contexts/AuthContext";
+import { SharePostDialog } from "./share-post-dialog";
 
 /* ─── GraphQL ─────────────────────────────────────────────────────────────── */
 export const COMMENT_ON_POST = gql`
@@ -1127,8 +1128,9 @@ export function PostCard({
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
 
   // UI
-  const [bookmarked, setBookmarked] = useState(false);
-  const [copied,     setCopied]     = useState(false);
+  const [bookmarked,  setBookmarked]  = useState(false);
+  const [shareOpen,   setShareOpen]   = useState(false);
+  const [localShares, setLocalShares] = useState(post.shares);
 
   const hoverTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cardInputRef = useRef<HTMLTextAreaElement>(null);
@@ -1434,12 +1436,6 @@ export function PostCard({
     }
   }
 
-  function copyLink() {
-    navigator.clipboard
-      .writeText(`${window.location.origin}/posts/${post.id}`)
-      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
-  }
-
   const isOwnPost  = !!user && user.id === post.author.id;
   const reactLabel = selectedReaction?.label ?? "Like";
   const reactColor = selectedReaction
@@ -1563,7 +1559,7 @@ export function PostCard({
           })()}
 
           {/* ── Reaction / comment / share count bar ────────────────────── */}
-          {(localLikes > 0 || localCommentCount > 0 || post.shares > 0) && (
+          {(localLikes > 0 || localCommentCount > 0 || localShares > 0) && (
             <div className="px-4 py-2 flex items-center justify-between">
               {localLikes > 0 ? (
                 <span className="flex items-center gap-1 text-[12px] text-muted-foreground">
@@ -1584,9 +1580,9 @@ export function PostCard({
                     {localCommentCount === 1 ? "comment" : "comments"}
                   </button>
                 )}
-                {post.shares > 0 && (
+                {localShares > 0 && (
                   <span className="text-[12px] text-muted-foreground">
-                    {post.shares} {post.shares === 1 ? "share" : "shares"}
+                    {localShares} {localShares === 1 ? "share" : "shares"}
                   </span>
                 )}
               </div>
@@ -1657,48 +1653,30 @@ export function PostCard({
             <div className="w-px bg-border self-stretch" />
 
             {/* Share */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex-1 flex items-center justify-center gap-2 py-2 hover:bg-muted transition-colors text-muted-foreground hover:text-foreground font-medium text-[13px] rounded-none">
-                  <Share2 className="w-[18px] h-[18px]" strokeWidth={2} />
-                  <span>Share</span>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="center" side="top" className="w-52">
-                <DropdownMenuItem
-                  onClick={copyLink}
-                  className="gap-2.5 cursor-pointer py-2.5"
-                >
-                  {copied
-                    ? <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                    : <LinkIcon className="w-4 h-4 flex-shrink-0" />}
-                  <div>
-                    <div className="text-sm font-medium">
-                      {copied ? "Link copied!" : "Copy link"}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Share anywhere</div>
-                  </div>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() =>
-                    window.open(
-                      `https://twitter.com/intent/tweet?url=${encodeURIComponent(
-                        `${window.location.origin}/posts/${post.id}`
-                      )}`,
-                      "_blank"
-                    )
-                  }
-                  className="gap-2.5 cursor-pointer py-2.5"
-                >
-                  <Share2 className="w-4 h-4 flex-shrink-0" />
-                  <div>
-                    <div className="text-sm font-medium">Share to X</div>
-                    <div className="text-xs text-muted-foreground">Post on X / Twitter</div>
-                  </div>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <button
+              onClick={() => setShareOpen(true)}
+              className="flex-1 flex items-center justify-center gap-2 py-2 hover:bg-muted transition-colors text-muted-foreground hover:text-foreground font-medium text-[13px] rounded-none"
+            >
+              <Share2 className="w-[18px] h-[18px]" strokeWidth={2} />
+              <span>Share</span>
+            </button>
           </div>
+
+          {/* ── Share dialog ─────────────────────────────────────────────── */}
+          <SharePostDialog
+            post={{
+              id: post.id,
+              author: post.author,
+              content: post.content,
+              images: post.images,
+              image: post.image,
+              projectName: post.projectName,
+              timestamp: post.timestamp,
+            }}
+            open={shareOpen}
+            onOpenChange={setShareOpen}
+            onShared={() => setLocalShares((v) => v + 1)}
+          />
 
           {/* ── Comment section (collapsible) ────────────────────────────── */}
           {showComments && (
