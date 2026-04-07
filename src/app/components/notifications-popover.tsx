@@ -1,217 +1,233 @@
-import { useState } from "react";
+import { useEffect, useRef } from "react";
+import { gql } from "@apollo/client/core";
+import { useQuery, useMutation } from "@apollo/client/react";
+import { useNavigate } from "react-router";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Button } from "./ui/button";
-import { Badge } from "./ui/badge";
 import { Separator } from "./ui/separator";
-import { 
-  Heart, 
-  MessageCircle, 
-  UserPlus, 
-  Share2,
-  Trophy,
-  Rocket,
-  Settings as SettingsIcon
+import {
+  Heart, MessageCircle, UserPlus, Share2,
+  Trophy, Rocket, AtSign, Bell, Settings as SettingsIcon, Loader2,
 } from "lucide-react";
 
-interface Notification {
-  id: string;
-  type: "like" | "comment" | "follow" | "share" | "achievement" | "launch";
-  user?: {
-    name: string;
-    avatar: string;
-    username: string;
-  };
-  content: string;
-  timestamp: string;
-  read: boolean;
+/* ─── GQL ─────────────────────────────────────────────────────────────────── */
+const GET_NOTIFICATIONS = gql`
+  query GetNotifications($limit: Int, $offset: Int) {
+    notifications(limit: $limit, offset: $offset) {
+      unreadCount
+      notifications {
+        id
+        type
+        message
+        isRead
+        createdAt
+        entityId
+        actor {
+          id
+          name
+          username
+          avatarUrl
+        }
+      }
+    }
+  }
+`;
+
+const MARK_READ = gql`
+  mutation MarkNotificationRead($notificationId: ID!) {
+    markNotificationRead(notificationId: $notificationId) { id isRead }
+  }
+`;
+
+const MARK_ALL_READ = gql`
+  mutation MarkAllNotificationsRead { markAllNotificationsRead }
+`;
+
+/* ─── Helpers ─────────────────────────────────────────────────────────────── */
+type NotifType = "LIKE" | "COMMENT" | "FOLLOW" | "PROJECT_ROAST" | "JOB_APPLICATION"
+  | "EVENT_REMINDER" | "LAUNCHPAD_INTEREST" | "XP_LEVELUP" | "MENTION" | string;
+
+function getIcon(type: NotifType) {
+  switch (type) {
+    case "LIKE":               return <Heart         className="w-3 h-3 text-red-500"    strokeWidth={2} fill="currentColor" />;
+    case "COMMENT":            return <MessageCircle className="w-3 h-3 text-blue-500"   strokeWidth={2} />;
+    case "FOLLOW":             return <UserPlus      className="w-3 h-3 text-green-500"  strokeWidth={2} />;
+    case "MENTION":            return <AtSign        className="w-3 h-3 text-sky-500"    strokeWidth={2} />;
+    case "PROJECT_ROAST":      return <Rocket        className="w-3 h-3 text-primary"    strokeWidth={2} />;
+    case "XP_LEVELUP":         return <Trophy        className="w-3 h-3 text-yellow-500" strokeWidth={2} fill="currentColor" />;
+    case "LAUNCHPAD_INTEREST": return <Rocket        className="w-3 h-3 text-primary"    strokeWidth={2} />;
+    default:                   return <Share2        className="w-3 h-3 text-purple-500" strokeWidth={2} />;
+  }
 }
 
-const mockNotifications: Notification[] = [
-  {
-    id: "1",
-    type: "like",
-    user: {
-      name: "Angela Torres",
-      avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop",
-      username: "@angelat",
-    },
-    content: "liked your post",
-    timestamp: "5m",
-    read: false,
-  },
-  {
-    id: "2",
-    type: "comment",
-    user: {
-      name: "Carlos Reyes",
-      avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop",
-      username: "@carlosr",
-    },
-    content: "commented on your project",
-    timestamp: "15m",
-    read: false,
-  },
-  {
-    id: "3",
-    type: "follow",
-    user: {
-      name: "Maria Santos",
-      avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop",
-      username: "@mariasantos",
-    },
-    content: "started following you",
-    timestamp: "1h",
-    read: false,
-  },
-  {
-    id: "4",
-    type: "achievement",
-    content: "You've reached 1,000 points!",
-    timestamp: "2h",
-    read: true,
-  },
-  {
-    id: "5",
-    type: "share",
-    user: {
-      name: "Juan dela Cruz",
-      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop",
-      username: "@juandc",
-    },
-    content: "shared your project",
-    timestamp: "3h",
-    read: true,
-  },
-];
+function timeAgo(iso: string) {
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60)    return "Just now";
+  if (s < 3600)  return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
 
-const getNotificationIcon = (type: Notification["type"]) => {
+function navTarget(type: NotifType, entityId?: string | null): string | null {
+  if (!entityId) return null;
   switch (type) {
-    case "like":
-      return <Heart className="w-3 h-3 text-red-500" strokeWidth={2} fill="currentColor" />;
-    case "comment":
-      return <MessageCircle className="w-3 h-3 text-blue-500" strokeWidth={2} />;
-    case "follow":
-      return <UserPlus className="w-3 h-3 text-green-500" strokeWidth={2} />;
-    case "share":
-      return <Share2 className="w-3 h-3 text-purple-500" strokeWidth={2} />;
-    case "achievement":
-      return <Trophy className="w-3 h-3 text-yellow-500" strokeWidth={2} fill="currentColor" />;
-    case "launch":
-      return <Rocket className="w-3 h-3 text-primary" strokeWidth={2} />;
-    default:
-      return null;
+    case "LIKE":
+    case "COMMENT":
+    case "MENTION":            return `/posts/${entityId}`;
+    case "FOLLOW":             return `/profile/${entityId}`;
+    case "PROJECT_ROAST":      return `/projects/${entityId}`;
+    case "LAUNCHPAD_INTEREST": return `/launchpad`;
+    default: return null;
   }
-};
+}
 
+/* ─── Component ──────────────────────────────────────────────────────────── */
 interface NotificationsPopoverProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Called with the live unread count so the layout bell badge stays in sync */
+  onUnreadCount?: (count: number) => void;
 }
 
-export function NotificationsPopover({ isOpen, onClose }: NotificationsPopoverProps) {
-  const [notifications, setNotifications] = useState(mockNotifications);
-  
-  const unreadCount = notifications.filter(n => !n.read).length;
+export function NotificationsPopover({ isOpen, onClose, onUnreadCount }: NotificationsPopoverProps) {
+  const navigate = useNavigate();
+  const panelRef = useRef<HTMLDivElement>(null);
 
-  const markAllAsRead = () => {
-    setNotifications(notifications.map(n => ({ ...n, read: true })));
-  };
+  const { data, loading, refetch } = useQuery(GET_NOTIFICATIONS, {
+    variables: { limit: 30, offset: 0 },
+    skip: !isOpen,
+    fetchPolicy: "cache-and-network",
+    pollInterval: isOpen ? 30_000 : 0,
+  });
+
+  const [markRead]    = useMutation(MARK_READ);
+  const [markAllRead] = useMutation(MARK_ALL_READ);
+
+  const notifications: any[] = data?.notifications?.notifications ?? [];
+  const unreadCount: number  = data?.notifications?.unreadCount   ?? 0;
+
+  useEffect(() => { onUnreadCount?.(unreadCount); }, [unreadCount, onUnreadCount]);
+  useEffect(() => { if (isOpen) refetch(); }, [isOpen, refetch]);
+
+  async function handleMarkAllRead() {
+    await markAllRead();
+    refetch();
+  }
+
+  async function handleClick(notif: any) {
+    if (!notif.isRead) {
+      await markRead({ variables: { notificationId: notif.id } });
+    }
+    const target = navTarget(notif.type, notif.entityId);
+    if (target) { navigate(target); onClose(); }
+  }
 
   if (!isOpen) return null;
 
   return (
     <>
       {/* Backdrop */}
-      <div 
-        className="fixed inset-0 z-40" 
-        onClick={onClose}
-      />
+      <div className="fixed inset-0 z-40" onClick={onClose} />
 
-      {/* Notifications Panel */}
-      <div className="fixed top-16 right-4 z-50 w-96 max-h-[calc(100vh-5rem)] bg-card border rounded-lg shadow-2xl flex flex-col">
+      {/* Panel */}
+      <div
+        ref={panelRef}
+        className="fixed top-16 right-4 z-50 w-96 max-h-[calc(100vh-5rem)] bg-card border rounded-xl shadow-2xl flex flex-col"
+      >
         {/* Header */}
         <div className="p-4 border-b">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-1">
             <h2 className="font-semibold text-base">Notifications</h2>
-            <Button 
-              variant="ghost" 
-              size="icon" 
+            <Button
+              variant="ghost"
+              size="icon"
               className="h-8 w-8 rounded-full"
+              onClick={() => { navigate("/settings"); onClose(); }}
             >
               <SettingsIcon className="w-4 h-4" strokeWidth={2} />
             </Button>
           </div>
           {unreadCount > 0 && (
-            <Button
-              variant="link"
-              size="sm"
-              className="h-auto p-0 text-primary text-xs"
-              onClick={markAllAsRead}
+            <button
+              onClick={handleMarkAllRead}
+              className="text-xs text-primary hover:underline font-medium"
             >
               Mark all as read
-            </Button>
+            </button>
           )}
         </div>
 
-        {/* Notifications List */}
+        {/* List */}
         <div className="flex-1 overflow-y-auto">
-          {notifications.map((notification, index) => (
-            <div key={notification.id}>
-              <div
-                className={`p-3 hover:bg-muted cursor-pointer transition-colors ${
-                  !notification.read ? "bg-primary/5" : ""
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  {/* Icon or Avatar */}
-                  <div className="flex-shrink-0">
-                    {notification.user ? (
-                      <div className="relative">
-                        <Avatar className="w-10 h-10 border-2 border-border">
-                          <AvatarImage src={notification.user.avatar} />
-                          <AvatarFallback>{notification.user.name[0]}</AvatarFallback>
-                        </Avatar>
-                        <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-card rounded-full flex items-center justify-center border border-border">
-                          {getNotificationIcon(notification.type)}
+          {loading && notifications.length === 0 ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : notifications.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-14 gap-3 text-muted-foreground">
+              <Bell className="w-10 h-10 opacity-20" strokeWidth={1.5} />
+              <p className="text-sm">No notifications yet</p>
+            </div>
+          ) : (
+            notifications.map((n: any, i: number) => (
+              <div key={n.id}>
+                <button
+                  onClick={() => handleClick(n)}
+                  className={`w-full text-left p-3 hover:bg-muted/60 transition-colors ${!n.isRead ? "bg-primary/5" : ""}`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0">
+                      {n.actor ? (
+                        <div className="relative">
+                          <Avatar className="w-10 h-10 border-2 border-border">
+                            <AvatarImage src={n.actor.avatarUrl} />
+                            <AvatarFallback>{n.actor.name?.[0]?.toUpperCase()}</AvatarFallback>
+                          </Avatar>
+                          <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-card rounded-full flex items-center justify-center border border-border">
+                            {getIcon(n.type)}
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
-                        {getNotificationIcon(notification.type)}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm leading-snug">
-                      {notification.user && (
-                        <span className="font-semibold">{notification.user.name} </span>
-                      )}
-                      <span className={!notification.read ? "font-medium" : "text-muted-foreground"}>
-                        {notification.content}
-                      </span>
-                    </p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-primary">{notification.timestamp}</span>
-                      {!notification.read && (
-                        <div className="w-2 h-2 rounded-full bg-primary" />
+                      ) : (
+                        <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
+                          {getIcon(n.type)}
+                        </div>
                       )}
                     </div>
+
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm leading-snug">
+                        {n.actor && (
+                          <span className="font-semibold">{n.actor.name} </span>
+                        )}
+                        <span className={!n.isRead ? "font-medium" : "text-muted-foreground"}>
+                          {n.message}
+                        </span>
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs text-primary">{timeAgo(n.createdAt)}</span>
+                        {!n.isRead && <div className="w-2 h-2 rounded-full bg-primary" />}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                </button>
+                {i < notifications.length - 1 && <Separator />}
               </div>
-              {index < notifications.length - 1 && <Separator />}
-            </div>
-          ))}
+            ))
+          )}
         </div>
 
         {/* Footer */}
-        <div className="p-2 border-t">
-          <Button variant="ghost" className="w-full text-sm text-primary h-9">
-            See all notifications
-          </Button>
-        </div>
+        {notifications.length > 0 && (
+          <div className="p-2 border-t">
+            <Button
+              variant="ghost"
+              className="w-full text-sm text-primary h-9"
+              onClick={() => { navigate("/settings"); onClose(); }}
+            >
+              Notification settings
+            </Button>
+          </div>
+        )}
       </div>
     </>
   );
