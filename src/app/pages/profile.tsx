@@ -161,7 +161,7 @@ export function Profile() {
   const [activeTab, setActiveTab] = useState<Tab>("posts");
 
   // Own profile
-  const { data: meData, loading: loading } = useQuery(GET_ME, {
+  const { data: meData, loading: meLoading } = useQuery(GET_ME, {
     skip: !user || isOtherUser,
     fetchPolicy: "cache-and-network",
   });
@@ -174,7 +174,7 @@ export function Profile() {
   });
 
   const profile = isOtherUser ? profileData?.profile : meData?.me;
-  const loading  = isOtherUser ? profileLoading : loading;
+  const loading  = isOtherUser ? profileLoading : meLoading;
 
   const { data: postsData, loading: postsLoading } = useQuery(GET_USER_POSTS, {
     skip: !profile?.id,
