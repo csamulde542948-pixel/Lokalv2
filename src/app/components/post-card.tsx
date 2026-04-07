@@ -12,7 +12,7 @@ import {
   UserPlus, UserCheck, Bookmark, BookmarkCheck,
   Send, Trash2, Image as ImageIcon,
   Video, X as XIcon, ChevronLeft, ChevronRight,
-  Pencil, History, AtSign,
+  Pencil, History, AtSign, Flame,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import {
@@ -416,9 +416,11 @@ function MediaGrid({ imgs }: { imgs: string[] }) {
 }
 
 /* ─── SharedPostPreview ──────────────────────────────────────────────────── */
-// Renders the original post as a proper nested card — roast style or standard
-// style depending on postType. Intentionally NOT recursive (no actions/comments).
+// Renders the original post as a nested card — roast or standard layout.
+// Pixel-perfect match of the real card inner layouts. Not recursive.
 export function SharedPostPreview({ post }: { post: OriginalPost }) {
+  const [expanded, setExpanded] = useState(false);
+
   const imgs = (post.imageUrls && post.imageUrls.length > 0)
     ? post.imageUrls
     : post.imageUrl ? [post.imageUrl] : [];
@@ -436,53 +438,132 @@ export function SharedPostPreview({ post }: { post: OriginalPost }) {
 
   /* ── Roast-style card ─────────────────────────────────────────────── */
   if (isRoast) {
+    // Extract URL/domain from content for favicon
+    const urlMatch = cleanContent.match(/https?:\/\/[^\s\)\]>"']+/i);
+    const projectUrl = urlMatch?.[0] ?? null;
+    const projectDomain = projectUrl
+      ? (() => { try { return new URL(projectUrl).hostname.replace(/^www\./, ""); } catch { return null; } })()
+      : null;
+    const faviconUrl = projectUrl
+      ? (() => { try { return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(new URL(projectUrl).origin)}&sz=64`; } catch { return null; } })()
+      : null;
+
+    const COLLAPSE_LIMIT = 280;
+    const needsReadMore = cleanContent.length > COLLAPSE_LIMIT;
+    const displayText = needsReadMore && !expanded
+      ? cleanContent.slice(0, COLLAPSE_LIMIT).trimEnd() + "…"
+      : cleanContent;
+
+    const authorAvatar = post.author.avatarUrl
+      ?? avatarFallbackUrl;
+
     return (
-      <div className="border rounded-xl overflow-hidden bg-card shadow-sm">
-        {/* Flame header bar */}
-        <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border-b px-3 py-2">
-          <div className="flex items-center gap-2">
-            <Link to={profileHref} className="focus:outline-none">
-              <Avatar className="w-7 h-7 border border-border flex-shrink-0">
-                <AvatarImage src={post.author.avatarUrl ?? avatarFallbackUrl} />
-                <AvatarFallback className="text-[9px]">{post.author.name?.[0]}</AvatarFallback>
+      <Card className="overflow-hidden border border-primary/20 bg-gradient-to-br from-card via-card to-primary/5 shadow-sm rounded-xl gap-0">
+        <CardContent className="p-0 [&:last-child]:pb-0">
+
+          {/* Author header — matches RoastedProjectCard header exactly */}
+          <div className="flex items-center gap-3 px-4 py-3">
+            <Link to={profileHref} className="flex-shrink-0 focus:outline-none">
+              <Avatar className="w-10 h-10 border-2 border-border">
+                <AvatarImage src={authorAvatar} />
+                <AvatarFallback>{post.author.name[0]?.toUpperCase()}</AvatarFallback>
               </Avatar>
             </Link>
             <div className="flex-1 min-w-0">
-              <Link to={profileHref} className="font-semibold text-xs hover:underline leading-tight block truncate">
-                {post.author.name}
-              </Link>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Link to={profileHref} className="font-semibold text-sm hover:underline leading-tight">
+                  {post.author.name}
+                </Link>
+                <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px] px-1.5 py-0 h-4 gap-1">
+                  <Flame className="w-2.5 h-2.5" strokeWidth={2.5} />
+                  Got Roasted
+                </Badge>
+              </div>
               {post.createdAt && (
-                <span className="text-[10px] text-muted-foreground">{timeAgo(post.createdAt)}</span>
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5">
+                  <span>{timeAgo(post.createdAt)}</span>
+                  <span>·</span>
+                  <span className="text-[10px]">🌐</span>
+                </div>
               )}
             </div>
-            <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px] px-1.5 py-0 h-5 gap-1 flex-shrink-0">
-              🔥 AI Roast
-            </Badge>
           </div>
-        </div>
 
-        {/* Project name */}
-        <div className="px-3 pt-2 pb-1">
-          <p className="font-bold text-sm">{projectName}</p>
-        </div>
+          {/* Inner roast card — matches the mx-4 mb-3 inner card exactly */}
+          <div className="mx-4 mb-3 border-2 border-primary/25 rounded-xl overflow-hidden bg-card shadow-sm">
 
-        {/* Cover image */}
-        {coverImage && (
-          <img
-            src={coverImage}
-            alt={projectName}
-            className="w-full aspect-[2/1] object-cover"
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-          />
-        )}
+            {/* Project header */}
+            <div className="bg-gradient-to-r from-primary/12 via-primary/8 to-primary/4 border-b border-primary/20 px-4 py-3">
+              <div className="flex items-center gap-3">
 
-        {/* Roast body */}
-        <div className="p-3 bg-gradient-to-b from-transparent to-primary/5">
-          <p className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap line-clamp-5">
-            {cleanContent}
-          </p>
-        </div>
-      </div>
+                {/* Favicon / brand logo */}
+                <div className="relative w-8 h-8 flex-shrink-0">
+                  {faviconUrl && (
+                    <img
+                      src={faviconUrl}
+                      alt=""
+                      className="w-8 h-8 rounded-md object-contain bg-muted/30 p-0.5 absolute inset-0"
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                    />
+                  )}
+                  <div className={`w-8 h-8 rounded-md bg-primary/20 flex items-center justify-center ${faviconUrl ? "opacity-0" : "opacity-100"}`}>
+                    <Flame className="w-4 h-4 text-primary" strokeWidth={2.5} />
+                  </div>
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  {projectUrl ? (
+                    <a
+                      href={projectUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-bold text-sm truncate hover:underline text-foreground block"
+                    >
+                      {projectName}
+                    </a>
+                  ) : (
+                    <span className="font-bold text-sm truncate block">{projectName}</span>
+                  )}
+                  {projectDomain && (
+                    <span className="text-[11px] text-muted-foreground truncate block">{projectDomain}</span>
+                  )}
+                </div>
+
+                <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px] px-1.5 py-0 h-5 gap-1 flex-shrink-0">
+                  <Flame className="w-2.5 h-2.5" strokeWidth={2.5} />
+                  AI Roast
+                </Badge>
+              </div>
+            </div>
+
+            {/* Cover image */}
+            {coverImage && (
+              <img
+                src={coverImage}
+                alt={projectName}
+                className="w-full aspect-[2/1] object-cover"
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+              />
+            )}
+
+            {/* Roast body */}
+            <div className="p-4 bg-gradient-to-b from-transparent to-primary/5">
+              <p className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap">
+                {displayText}
+              </p>
+              {needsReadMore && (
+                <button
+                  onClick={() => setExpanded((v) => !v)}
+                  className="text-xs font-semibold text-primary hover:underline mt-1 block"
+                >
+                  {expanded ? "Show less" : "Read more"}
+                </button>
+              )}
+            </div>
+          </div>
+
+        </CardContent>
+      </Card>
     );
   }
 
@@ -490,50 +571,53 @@ export function SharedPostPreview({ post }: { post: OriginalPost }) {
   const detectedUrl = imgs.length === 0 ? extractFirstUrl(cleanContent) : null;
 
   return (
-    <div className="border rounded-xl overflow-hidden bg-card shadow-sm">
+    <Card className="overflow-hidden border bg-card shadow-sm rounded-xl gap-0">
+      <CardContent className="p-0 [&:last-child]:pb-0">
 
-      {/* Header */}
-      <div className="flex items-center gap-2.5 px-3 py-2.5">
-        <Link to={profileHref} className="rounded-full flex-shrink-0 focus:outline-none">
-          <Avatar className="w-8 h-8 border border-border">
-            <AvatarImage src={post.author.avatarUrl ?? avatarFallbackUrl} />
-            <AvatarFallback className="text-[10px]">{post.author.name?.[0]}</AvatarFallback>
-          </Avatar>
-        </Link>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <Link to={profileHref} className="font-semibold text-sm hover:underline leading-tight">
-              {post.author.name}
-            </Link>
-            {post.projectName && (
-              <Badge variant="secondary" className="text-[10px] rounded-md font-normal px-1.5 py-0 h-3.5">
-                {post.projectName}
-              </Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-1 text-[10px] text-muted-foreground mt-0.5">
-            {post.createdAt && <span>{timeAgo(post.createdAt)}</span>}
-            {post.createdAt && <span>·</span>}
-            <span className="text-[9px]">🌐</span>
+        {/* Header — matches PostCard header exactly */}
+        <div className="flex items-center gap-3 px-4 py-3">
+          <Link to={profileHref} className="rounded-full flex-shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+            <Avatar className="w-10 h-10 border-2 border-border">
+              <AvatarImage src={post.author.avatarUrl ?? avatarFallbackUrl} />
+              <AvatarFallback>{post.author.name?.[0]?.toUpperCase()}</AvatarFallback>
+            </Avatar>
+          </Link>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Link to={profileHref} className="font-semibold text-sm hover:underline leading-tight">
+                {post.author.name}
+              </Link>
+              {post.projectName && (
+                <Badge variant="secondary" className="text-xs rounded-md font-normal px-2 py-0 h-4">
+                  {post.projectName}
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5">
+              {post.createdAt && <span>{timeAgo(post.createdAt)}</span>}
+              {post.createdAt && <span>·</span>}
+              <span className="text-[10px]">🌐</span>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Content */}
-      {cleanContent && (
-        <div className="px-3 pb-2">
-          <p className="text-sm leading-relaxed whitespace-pre-wrap line-clamp-5">
-            {cleanContent}
-          </p>
-        </div>
-      )}
+        {/* Content */}
+        {cleanContent && (
+          <div className="px-4 pb-3">
+            <p className="text-sm leading-relaxed whitespace-pre-wrap line-clamp-5">
+              {cleanContent}
+            </p>
+          </div>
+        )}
 
-      {/* Link preview (only when no images) */}
-      {detectedUrl && <LinkPreviewCard url={detectedUrl} />}
+        {/* Link preview (only when no images) */}
+        {detectedUrl && <LinkPreviewCard url={detectedUrl} />}
 
-      {/* Media grid */}
-      {imgs.length > 0 && <MediaGrid imgs={imgs} />}
-    </div>
+        {/* Media grid */}
+        {imgs.length > 0 && <MediaGrid imgs={imgs} />}
+
+      </CardContent>
+    </Card>
   );
 }
 
