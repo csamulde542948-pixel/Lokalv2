@@ -455,29 +455,7 @@ function adaptComment(c: any): any {
       username: c.author?.username ?? "",
       avatarUrl: c.author?.avatarUrl,
     },
-    replies: (c.replies ?? []).map((r: any) => ({
-      id: r.id,
-      content: r.content,
-      likesCount: r.likesCount ?? 0,
-      likedByMe: r.likedByMe ?? false,
-      myReaction: r.myReaction ?? null,
-      parentId: r.parentId ?? null,
-      mentions: r.mentions ?? [],
-      isEdited: r.isEdited ?? false,
-      editHistory: (r.editHistory ?? []).map((e: any) => ({
-        id: e.id,
-        previousContent: e.previousContent,
-        editedAt: e.editedAt,
-      })),
-      createdAt: r.createdAt,
-      author: {
-        id: r.author?.id,
-        name: r.author?.name ?? "Unknown",
-        username: r.author?.username ?? "",
-        avatarUrl: r.author?.avatarUrl,
-      },
-      replies: [],
-    })),
+    replies: (c.replies ?? []).map(adaptComment),
   };
 }
 
