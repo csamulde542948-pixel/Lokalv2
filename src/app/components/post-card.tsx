@@ -436,6 +436,7 @@ function CommentItem({
   onEdit,
   depth = 0,
   topLevelParentId,
+  depth1ParentId,
 }: {
   comment: CommentData;
   currentUserId?: string;
@@ -446,6 +447,7 @@ function CommentItem({
   onEdit: (commentId: string, newContent: string) => void;
   depth?: number;
   topLevelParentId?: string; // id of the root (depth-0) comment this thread belongs to
+  depth1ParentId?: string;   // id of the depth-1 ancestor (set when depth === 2)
 }) {
   const isOwn = comment.author?.id === currentUserId;
   const [localLiked, setLocalLiked] = useState(comment.likedByMe);
@@ -550,8 +552,14 @@ function CommentItem({
 
   // API parent: where the reply is stored (always top-level for flat storage)
   const replyApiParentId = depth === 0 ? comment.id : (topLevelParentId ?? comment.id);
-  // Visual parent: depth-1 items pass themselves so reply is nested under them visually
-  const replyVisualParentId = depth === 1 ? comment.id : undefined;
+  // Visual parent: ensures the new reply is nested under the correct depth-1 item
+  //   depth-0 reply  → no visual parent needed (goes flat into top-level.replies[])
+  //   depth-1 reply  → visual parent = this comment (nest under me)
+  //   depth-2 reply  → visual parent = my depth-1 ancestor (stay in same thread)
+  const replyVisualParentId =
+    depth === 1 ? comment.id
+    : depth === 2 ? (depth1ParentId ?? undefined)
+    : undefined;
 
   // Visible replies: cap at SUB_REPLY_LIMIT for depth < 2
   const visibleReplies = depth < 2
@@ -734,6 +742,7 @@ function CommentItem({
                 onEdit={onEdit}
                 depth={depth + 1}
                 topLevelParentId={depth === 0 ? comment.id : topLevelParentId}
+                depth1ParentId={depth === 0 ? reply.id : comment.id}
               />
             ))}
             {hasMoreReplies && (
