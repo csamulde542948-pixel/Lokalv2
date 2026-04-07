@@ -665,6 +665,7 @@ export const typeDefs = gql`
 
     # Feed ranking signals
     recordPostView(postId: ID!, dwellMs: Int!, source: String): Boolean!
+    markNotInterestedInPost(postId: ID!): Boolean!
   }
 
   # =============================================
