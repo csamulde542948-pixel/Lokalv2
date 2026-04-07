@@ -115,6 +115,7 @@ const GET_FEED = gql`
       hasMore
       nextOffset
       feedVariant
+      sessionId
     }
   }
 `;
@@ -239,8 +240,8 @@ const UNLIKE_POST_MUTATION = gql`
 `;
 
 const RECORD_POST_VIEW = gql`
-  mutation RecordPostView($postId: ID!, $dwellMs: Int!, $source: String, $feedVariant: String) {
-    recordPostView(postId: $postId, dwellMs: $dwellMs, source: $source, feedVariant: $feedVariant)
+  mutation RecordPostView($postId: ID!, $dwellMs: Int!, $source: String, $feedVariant: String, $position: Int, $sessionId: String) {
+    recordPostView(postId: $postId, dwellMs: $dwellMs, source: $source, feedVariant: $feedVariant, position: $position, sessionId: $sessionId)
   }
 `;
 
@@ -258,12 +259,14 @@ const MARK_NOT_INTERESTED = gql`
  */
 function PostViewTracker({
   postId,
+  position,
   children,
   recordView,
 }: {
   postId: string;
+  position: number;
   children: React.ReactNode;
-  recordView: (postId: string, dwellMs: number) => void;
+  recordView: (postId: string, dwellMs: number, position: number) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const enteredAt = useRef<number | null>(null);
@@ -282,7 +285,7 @@ function PostViewTracker({
           enteredAt.current = null;
           if (dwellMs >= 1000 && !firedRef.current) {
             firedRef.current = true;
-            recordView(postId, dwellMs);
+            recordView(postId, dwellMs, position);
           }
         }
       },
@@ -291,7 +294,7 @@ function PostViewTracker({
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [postId, recordView]);
+  }, [postId, position, recordView]);
 
   return <div ref={ref}>{children}</div>;
 }
@@ -613,11 +616,12 @@ export function Feed() {
   const [recordPostViewMutation] = useMutation(RECORD_POST_VIEW);
   const [notInterestedMutation] = useMutation(MARK_NOT_INTERESTED);
 
-  const recordView = useCallback((postId: string, dwellMs: number) => {
+  const recordView = useCallback((postId: string, dwellMs: number, position?: number) => {
     seenIdsRef.current.add(postId);
     const variant = data?.feed?.feedVariant ?? undefined;
-    recordPostViewMutation({ variables: { postId, dwellMs, source: "feed", feedVariant: variant } }).catch(console.error);
-  }, [recordPostViewMutation, data?.feed?.feedVariant]);
+    const session = data?.feed?.sessionId ?? undefined;
+    recordPostViewMutation({ variables: { postId, dwellMs, source: "feed", feedVariant: variant, position, sessionId: session } }).catch(console.error);
+  }, [recordPostViewMutation, data?.feed?.feedVariant, data?.feed?.sessionId]);
 
   const serverPosts: ReturnType<typeof adaptPost>[] = (data?.feed?.posts ?? DUMMY).map(adaptPost);
   // Merge: local (optimistic) first, then server (deduped by id)
@@ -732,7 +736,7 @@ export function Feed() {
             <div className="space-y-4">
               {allPosts.map((post, index) => (
                 <Fragment key={post.id}>
-                  <PostViewTracker postId={post.id} recordView={recordView}>
+                  <PostViewTracker postId={post.id} position={index} recordView={recordView}>
                     {post.postType === "roast" ? (
                       <RoastedProjectCard
                         post={post as unknown as FeedPost}

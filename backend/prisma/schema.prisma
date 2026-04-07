@@ -132,6 +132,9 @@ model Profile {
   // Notifications (denormalised count)
   unreadNotificationsCount Int @default(0)
 
+  // Feed ranking — engagement counter for interest embedding recomputation trigger
+  feedEngagementCount Int @default(0)
+
   // GetStream
   streamUserId    String?  @unique @db.VarChar(100)
 
@@ -166,6 +169,8 @@ model Profile {
   postViews           PostView[]           @relation("PostViews")
   authorAffinityFrom  UserAuthorAffinity[] @relation("AffinityFrom")
   authorAffinityTo    UserAuthorAffinity[] @relation("AffinityTo")
+  feedScoreLogs       FeedScoreLog[]
+  feedSessions        FeedSession[]
 
   // Interest vector for recommendation engine (pgvector)
   interestEmbedding Unsupported("vector(1536)")?
@@ -794,19 +799,23 @@ model UserTagAffinity {
 
 // Tracks every post view with dwell time — the most important ranking signal
 model PostView {
-  id        String   @id @default(cuid())
-  postId    String
-  viewerId  String   @db.Uuid
-  dwellMs   Int      // milliseconds the post was in viewport
-  source    String   @default("feed") @db.VarChar(30) // "feed" | "explore" | "profile" | "direct"
+  id          String   @id @default(cuid())
+  postId      String
+  viewerId    String   @db.Uuid
+  dwellMs     Int      // milliseconds the post was in viewport
+  source      String   @default("feed") @db.VarChar(30) // "feed" | "explore" | "profile" | "direct"
   feedVariant String?  @db.VarChar(20) // "ranked" | "chronological" — A/B testing
-  createdAt DateTime @default(now())
+  position    Int?     // rank position in the feed (0-indexed) — for CTR analysis
+  engaged     Boolean  @default(false) // did the user like/comment/share after viewing?
+  sessionId   String?  @db.VarChar(60) // links to FeedSession for session-level analysis
+  createdAt   DateTime @default(now())
 
   post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
   viewer    Profile  @relation("PostViews", fields: [viewerId], references: [id], onDelete: Cascade)
 
   @@index([viewerId, createdAt(sort: Desc)])
   @@index([postId])
+  @@index([sessionId])
   @@map("post_views")
 }
 
@@ -844,4 +853,84 @@ model ProfilePhoto {
 
   @@index([profileId])
   @@map("profile_photos")
+}
+
+// ============================================================
+// FEED RANKING — SCORE LOGGING & OBSERVABILITY (Phase 3)
+// ============================================================
+
+// Logs the full score breakdown for every post shown in a ranked feed.
+// Enables debugging ("Why was this post ranked #1?"), weight tuning, and CTR analysis.
+model FeedScoreLog {
+  id                 String   @id @default(cuid())
+  userId             String   @db.Uuid
+  postId             String
+  sessionId          String?  @db.VarChar(60)
+  feedVariant        String   @db.VarChar(20) // "ranked" | "chronological"
+  position           Int      // rank position in the feed (0-indexed)
+
+  // Score breakdown — all individual multiplier values
+  finalScore         Float
+  engagementScore    Float
+  decayFactor        Float
+  rankBoost          Float
+  socialBoost        Float
+  typeBoost          Float
+  interestBoost      Float
+  followingBoost     Float
+  authorAffinityBoost Float
+  velocityBoost      Float
+  semanticBoost      Float
+  dwellBoost         Float
+  notInterestedPenalty Float  @default(1.0)
+
+  // Context signals (for offline analysis)
+  postType           String   @db.VarChar(20)
+  authorId           String   @db.Uuid
+  likesCount         Int      @default(0)
+  commentsCount      Int      @default(0)
+  sharesCount        Int      @default(0)
+
+  createdAt          DateTime @default(now())
+
+  user               Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([sessionId])
+  @@index([feedVariant, createdAt(sort: Desc)])
+  @@map("feed_score_logs")
+}
+
+// Externalized multiplier weights — loaded per request, cached in memory.
+// Allows tuning without code deploys.
+model FeedConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique @db.VarChar(100)
+  value     Float
+  label     String?  @db.VarChar(200)  // human-readable description
+  updatedAt DateTime @updatedAt
+
+  @@map("feed_config")
+}
+
+// Session-level tracking for feed quality analysis.
+// A "session" = one feed load + scrolling until the user leaves.
+model FeedSession {
+  id              String   @id @default(cuid())
+  userId          String   @db.Uuid
+  feedVariant     String   @db.VarChar(20)
+  postsShown      Int      @default(0)
+  postsEngaged    Int      @default(0)
+  totalDwellMs    Int      @default(0)
+  avgDwellMs      Float    @default(0)
+  ctr             Float    @default(0)  // postsEngaged / postsShown
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([feedVariant, createdAt(sort: Desc)])
+  @@map("feed_sessions")
 }

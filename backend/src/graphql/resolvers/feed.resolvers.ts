@@ -4,7 +4,13 @@ import {
   rankPosts,
   applyDiversityPass,
   PostSignals,
+  ScoredPost,
+  ScoreBreakdown,
   sigmoidNormalize,
+  loadWeightConfig,
+  invalidateWeightCache,
+  FeedWeightConfig,
+  DEFAULT_WEIGHTS,
 } from "../../services/feedRanking";
 import { awardXp } from "../../services/xp";
 
@@ -31,6 +37,9 @@ export const feedResolvers = {
         return exploreFeed(limit, offset, prisma);
       }
 
+      // Load configurable weights from DB (cached 60s)
+      const weights = await loadWeightConfig(prisma);
+
       // A/B testing: 10% of requests get chronological variant
       const resolvedVariant: "ranked" | "chronological" =
         feedVariant === "chronological"
@@ -40,6 +49,43 @@ export const feedResolvers = {
             : Math.random() < 0.10
               ? "chronological"
               : "ranked";
+
+      // Session management: find or create an active session (30 min window)
+      let sessionId: string | null = null;
+      let sessionCtr: number | undefined = undefined;
+      try {
+        const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
+        const activeSession = await prisma.feedSession.findFirst({
+          where: {
+            userId: user.id,
+            isActive: true,
+            updatedAt: { gte: thirtyMinAgo },
+          },
+          orderBy: { createdAt: "desc" },
+        });
+        if (activeSession) {
+          sessionId = activeSession.id;
+          sessionCtr = activeSession.ctr;
+          // Update postsShown
+          await prisma.feedSession.update({
+            where: { id: activeSession.id },
+            data: { postsShown: { increment: limit } },
+          }).catch(console.error);
+        } else {
+          // Create new session
+          const newSession = await prisma.feedSession.create({
+            data: {
+              userId: user.id,
+              feedVariant: resolvedVariant,
+              postsShown: limit,
+            },
+          });
+          sessionId = newSession.id;
+          sessionCtr = undefined; // new session, no CTR data yet
+        }
+      } catch (err) {
+        console.error("[feed] session management error:", err);
+      }
 
       // 1. Get raw activities from GetStream
       const rawActivities = await getRawFeed(user.id, limit + 10, offset);
@@ -225,12 +271,12 @@ export const feedResolvers = {
         };
       });
 
-      // 4. Score + sort
-      const ranked = rankPosts(signals as PostSignals[]);
+      // 4. Score + sort (with configurable weights & session CTR)
+      const ranked = rankPosts(signals as PostSignals[], weights, sessionCtr);
 
       // 5. 2nd-degree candidates: posts liked by people the user follows
       //    (friends-of-friends discovery — Facebook's key growth loop)
-      let secondDegreeSignals: (PostSignals & { post: any })[] = [];
+      let secondDegreeSignals: ScoredPost[] = [];
       try {
         if (followingSet.size > 0) {
           const recentFollowLikes = await prisma.postLike.findMany({
@@ -259,7 +305,7 @@ export const feedResolvers = {
               },
             });
 
-            secondDegreeSignals = sdPosts.map((post: any) => {
+            const sdSignals: PostSignals[] = sdPosts.map((post: any) => {
               const postTagNames = post.tags.map((pt: any) => pt.tag.name);
               const tagAff =
                 postTagNames.reduce(
@@ -294,6 +340,9 @@ export const feedResolvers = {
                 feedVariant: resolvedVariant,
               };
             });
+
+            // Score 2nd-degree posts so they have _breakdown
+            secondDegreeSignals = rankPosts(sdSignals, weights, sessionCtr);
           }
         }
       } catch (err) {
@@ -301,23 +350,35 @@ export const feedResolvers = {
       }
 
       // 6. Diversity pass — inject 2nd-degree explore content
-      const diversified = applyDiversityPass(ranked, secondDegreeSignals as PostSignals[]);
+      const diversified = applyDiversityPass(ranked, secondDegreeSignals);
 
       // Merge post maps for ranking
       const allPostsMap = new Map(posts.map((p: any) => [p.id, p]));
       for (const sig of secondDegreeSignals) {
-        allPostsMap.set(sig.postId, sig.post);
+        allPostsMap.set(sig.postId, (sig as any).post);
       }
 
-      const rankedPosts = diversified
+      const finalPosts = diversified.slice(0, limit);
+
+      // 7. Log FeedScoreLog — full breakdown for every post shown (fire-and-forget)
+      logFeedScoreLogs(
+        prisma,
+        user.id,
+        sessionId,
+        resolvedVariant,
+        finalPosts
+      ).catch((err) => console.error("[feed] FeedScoreLog error:", err));
+
+      const rankedPosts = finalPosts
         .map((s) => allPostsMap.get(s.postId))
         .filter(Boolean);
 
       return {
-        posts: rankedPosts.slice(0, limit),
-        hasMore: rankedPosts.length > limit,
+        posts: rankedPosts,
+        hasMore: diversified.length > limit,
         nextOffset: offset + limit,
         feedVariant: resolvedVariant,
+        sessionId,
       };
     },
 
@@ -330,6 +391,95 @@ export const feedResolvers = {
       { prisma }: GraphQLContext
     ) => {
       return exploreFeed(limit, offset, prisma);
+    },
+
+    /**
+     * Feed metrics — A/B comparison stats for admin dashboards.
+     * Compares ranked vs chronological feed variants over the given time window.
+     */
+    feedMetrics: async (
+      _: unknown,
+      { days = 7 }: { days?: number },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+      try {
+        // Session-level aggregations grouped by feed variant
+        const sessionStats: { feedVariant: string; avgCtr: number; avgDwell: number; totalSessions: number; totalImpressions: number; totalEngagements: number }[] =
+          await prisma.$queryRawUnsafe(`
+            SELECT
+              "feedVariant",
+              AVG(ctr)::float AS "avgCtr",
+              AVG("avgDwellMs")::float AS "avgDwell",
+              COUNT(*)::int AS "totalSessions",
+              SUM("postsShown")::int AS "totalImpressions",
+              SUM("postsEngaged")::int AS "totalEngagements"
+            FROM feed_sessions
+            WHERE "createdAt" >= $1
+            GROUP BY "feedVariant"
+          `, since);
+
+        const rankedStats = sessionStats.find((s) => s.feedVariant === "ranked");
+        const chronStats = sessionStats.find((s) => s.feedVariant === "chronological");
+
+        // Diversity score: measure how varied post types are in recent score logs
+        let diversityScore = 0;
+        try {
+          const typeDistribution: { postType: string; cnt: number }[] =
+            await prisma.$queryRawUnsafe(`
+              SELECT "postType", COUNT(*)::int AS cnt
+              FROM feed_score_logs
+              WHERE "createdAt" >= $1
+              GROUP BY "postType"
+            `, since);
+          const total = typeDistribution.reduce((s, r) => s + r.cnt, 0);
+          if (total > 0) {
+            // Shannon entropy normalized to 0–1 (higher = more diverse)
+            const entropy = typeDistribution.reduce((sum, r) => {
+              const p = r.cnt / total;
+              return sum - (p > 0 ? p * Math.log2(p) : 0);
+            }, 0);
+            const maxEntropy = Math.log2(Math.max(typeDistribution.length, 1));
+            diversityScore = maxEntropy > 0 ? entropy / maxEntropy : 0;
+          }
+        } catch {
+          // Ignore diversity calc errors
+        }
+
+        return {
+          rankedAvgCTR: rankedStats?.avgCtr ?? 0,
+          chronologicalAvgCTR: chronStats?.avgCtr ?? 0,
+          rankedAvgDwell: rankedStats?.avgDwell ?? 0,
+          chronologicalAvgDwell: chronStats?.avgDwell ?? 0,
+          rankedEngagementRate: rankedStats
+            ? (rankedStats.totalImpressions > 0
+              ? rankedStats.totalEngagements / rankedStats.totalImpressions
+              : 0)
+            : 0,
+          chronologicalEngagementRate: chronStats
+            ? (chronStats.totalImpressions > 0
+              ? chronStats.totalEngagements / chronStats.totalImpressions
+              : 0)
+            : 0,
+          totalImpressions: (rankedStats?.totalImpressions ?? 0) + (chronStats?.totalImpressions ?? 0),
+          totalEngagements: (rankedStats?.totalEngagements ?? 0) + (chronStats?.totalEngagements ?? 0),
+          totalSessions: (rankedStats?.totalSessions ?? 0) + (chronStats?.totalSessions ?? 0),
+          diversityScore,
+          days,
+        };
+      } catch (err) {
+        console.error("[feedMetrics] error:", err);
+        return {
+          rankedAvgCTR: 0, chronologicalAvgCTR: 0,
+          rankedAvgDwell: 0, chronologicalAvgDwell: 0,
+          rankedEngagementRate: 0, chronologicalEngagementRate: 0,
+          totalImpressions: 0, totalEngagements: 0, totalSessions: 0,
+          diversityScore: 0, days,
+        };
+      }
     },
 
     post: async (
@@ -488,6 +638,12 @@ export const feedResolvers = {
         updateAuthorAffinity(user.id, post.authorId, "likeCount", prisma).catch(console.error);
         updateTagAffinitiesOnEngagement(user.id, postId, 0.1, prisma).catch(console.error);
         logInteraction(prisma, user.id, post.authorId, postId, "POST_LIKE", 1.0);
+
+        // Phase 3: CTR tracking — mark the most recent PostView for this post as "engaged"
+        markPostViewEngaged(prisma, user.id, postId).catch(console.error);
+
+        // Phase 3: Interest embedding trigger — increment engagement count
+        incrementFeedEngagementCount(prisma, user.id).catch(console.error);
       }
 
       // Notify post author
@@ -595,6 +751,10 @@ export const feedResolvers = {
       updateTagAffinitiesOnEngagement(user.id, rootOriginalId, 0.3, prisma).catch(console.error);
       logInteraction(prisma, user.id, rootOriginal.authorId, rootOriginalId, "POST_SHARE", 3.0);
 
+      // Phase 3: CTR tracking + interest embedding trigger
+      markPostViewEngaged(prisma, user.id, rootOriginalId).catch(console.error);
+      incrementFeedEngagementCount(prisma, user.id).catch(console.error);
+
       return newPost;
     },
 
@@ -634,6 +794,10 @@ export const feedResolvers = {
       updateAuthorAffinity(user.id, comment.post.authorId, "commentCount", prisma).catch(console.error);
       updateTagAffinitiesOnEngagement(user.id, input.postId, 0.2, prisma).catch(console.error);
       logInteraction(prisma, user.id, comment.post.authorId, input.postId, "POST_COMMENT", 2.0);
+
+      // Phase 3: CTR tracking + interest embedding trigger
+      markPostViewEngaged(prisma, user.id, input.postId).catch(console.error);
+      incrementFeedEngagementCount(prisma, user.id).catch(console.error);
 
       // Award XP to post author
       awardXp(comment.post.authorId, "RECEIVE_COMMENT").catch(console.error);
@@ -856,49 +1020,65 @@ export const feedResolvers = {
     /**
      * Record a post view with dwell time — the most important ranking signal.
      * Also updates UserAuthorAffinity (view count) and tag affinities.
+     * Phase 3: accepts position + sessionId for CTR tracking.
      */
     recordPostView: async (
       _: unknown,
-      { postId, dwellMs, source = "feed", feedVariant }: { postId: string; dwellMs: number; source?: string; feedVariant?: string },
+      { postId, dwellMs, source = "feed", feedVariant, position, sessionId }: {
+        postId: string; dwellMs: number; source?: string; feedVariant?: string;
+        position?: number; sessionId?: string;
+      },
       { user, prisma }: GraphQLContext
     ) => {
-      if (!user) return false;
+      if (!user) return null;
 
       try {
-        // 1. Record the view (with feedVariant for A/B analysis)
-        await prisma.postView.create({
+        // 1. Record the view (with position + sessionId for CTR analysis)
+        const view = await prisma.postView.create({
           data: {
             postId,
             viewerId: user.id,
             dwellMs: Math.min(dwellMs, 300_000), // cap at 5 min
             source,
             ...(feedVariant ? { feedVariant } : {}),
+            ...(position !== undefined ? { position } : {}),
+            ...(sessionId ? { sessionId } : {}),
           },
         });
 
-        // 2. Fetch the post to get authorId
+        // 2. Update session metrics (postsShown, totalDwellMs)
+        if (sessionId) {
+          prisma.feedSession.update({
+            where: { id: sessionId },
+            data: {
+              totalDwellMs: { increment: Math.min(dwellMs, 300_000) },
+            },
+          }).catch(console.error);
+        }
+
+        // 3. Fetch the post to get authorId
         const post = await prisma.post.findUnique({
           where: { id: postId },
           select: { authorId: true },
         });
-        if (!post) return false;
+        if (!post) return view.id;
 
-        // 3. Update author affinity (async, don't block response)
+        // 4. Update author affinity (async, don't block response)
         updateAuthorAffinity(user.id, post.authorId, "viewCount", prisma).catch(console.error);
 
-        // 3b. Log to UserInteraction table
+        // 4b. Log to UserInteraction table
         logInteraction(prisma, user.id, post.authorId, postId, "PROFILE_VIEW", 0.2);
 
-        // 4. Update tag affinity based on dwell time
+        // 5. Update tag affinity based on dwell time
         // Only meaningful if user dwelled ≥ 2 seconds
         if (dwellMs >= 2000) {
           updateTagAffinitiesOnEngagement(user.id, postId, 0.05, prisma).catch(console.error);
         }
 
-        return true;
+        return view.id;
       } catch (err) {
         console.error("[recordPostView] error:", err);
-        return false;
+        return null;
       }
     },
 
@@ -1259,5 +1439,155 @@ async function updateAuthorAffinity(
     }
   } catch (err) {
     console.error("[feedRanking] updateAuthorAffinity:", err);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Phase 3 Helpers — Feedback Loops & Online Learning
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Log full score breakdown for every post in a feed response.
+ * Fire-and-forget batch insert — never blocks the response.
+ */
+async function logFeedScoreLogs(
+  prisma: any,
+  userId: string,
+  sessionId: string | null,
+  feedVariant: string,
+  posts: ScoredPost[]
+): Promise<void> {
+  if (posts.length === 0) return;
+
+  const data = posts.map((post, index) => ({
+    userId,
+    postId: post.postId,
+    sessionId: sessionId ?? undefined,
+    feedVariant,
+    position: index,
+    finalScore: post._breakdown.finalScore,
+    engagementScore: post._breakdown.engagementScore,
+    decayFactor: post._breakdown.decayFactor,
+    rankBoost: post._breakdown.rankBoost,
+    socialBoost: post._breakdown.socialBoost,
+    typeBoost: post._breakdown.typeBoost,
+    interestBoost: post._breakdown.interestBoost,
+    followingBoost: post._breakdown.followingBoost,
+    authorAffinityBoost: post._breakdown.authorAffinityBoost,
+    velocityBoost: post._breakdown.velocityBoost,
+    semanticBoost: post._breakdown.semanticBoost,
+    dwellBoost: post._breakdown.dwellBoost,
+    notInterestedPenalty: post._breakdown.notInterestedPenalty,
+    postType: post.postType,
+    authorId: post.authorId,
+    likesCount: post.likesCount,
+    commentsCount: post.commentsCount,
+    sharesCount: post.sharesCount,
+  }));
+
+  await prisma.feedScoreLog.createMany({ data });
+}
+
+/**
+ * Mark the most recent PostView as "engaged" when user likes/comments/shares.
+ * This enables CTR calculation: engaged views / total views.
+ */
+async function markPostViewEngaged(
+  prisma: any,
+  userId: string,
+  postId: string
+): Promise<void> {
+  try {
+    // Find the most recent view of this post by this user
+    const recentView = await prisma.postView.findFirst({
+      where: { viewerId: userId, postId },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, sessionId: true },
+    });
+    if (!recentView) return;
+
+    // Mark it as engaged
+    await prisma.postView.update({
+      where: { id: recentView.id },
+      data: { engaged: true },
+    });
+
+    // Update session engagement count + CTR
+    if (recentView.sessionId) {
+      const session = await prisma.feedSession.findUnique({
+        where: { id: recentView.sessionId },
+        select: { postsShown: true, postsEngaged: true },
+      });
+      if (session) {
+        const newEngaged = session.postsEngaged + 1;
+        const newCtr = session.postsShown > 0 ? newEngaged / session.postsShown : 0;
+        await prisma.feedSession.update({
+          where: { id: recentView.sessionId },
+          data: {
+            postsEngaged: { increment: 1 },
+            ctr: newCtr,
+          },
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[markPostViewEngaged] error:", err);
+  }
+}
+
+/**
+ * Increment feed engagement count on Profile.
+ * Every 10th engagement triggers interest embedding recomputation.
+ */
+async function incrementFeedEngagementCount(
+  prisma: any,
+  userId: string
+): Promise<void> {
+  try {
+    const profile = await prisma.profile.update({
+      where: { id: userId },
+      data: { feedEngagementCount: { increment: 1 } },
+      select: { feedEngagementCount: true },
+    });
+
+    // Trigger recompute every 10 engagements
+    if (profile.feedEngagementCount % 10 === 0) {
+      triggerInterestEmbeddingRecompute(userId).catch(console.error);
+    }
+  } catch (err) {
+    console.error("[incrementFeedEngagementCount] error:", err);
+  }
+}
+
+/**
+ * Trigger the Supabase Edge Function to recompute user's interest embedding.
+ * This is a weighted average of content embeddings from posts the user engaged with.
+ */
+async function triggerInterestEmbeddingRecompute(userId: string): Promise<void> {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    console.warn("[triggerInterestEmbeddingRecompute] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+    return;
+  }
+
+  try {
+    const resp = await fetch(`${supabaseUrl}/functions/v1/recompute-interest-embedding`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseKey}`,
+      },
+      body: JSON.stringify({ userId }),
+    });
+
+    if (!resp.ok) {
+      console.error("[triggerInterestEmbeddingRecompute] Edge Function error:", resp.status, await resp.text());
+    } else {
+      console.log(`[triggerInterestEmbeddingRecompute] Recomputed interest embedding for user ${userId}`);
+    }
+  } catch (err) {
+    console.error("[triggerInterestEmbeddingRecompute] fetch error:", err);
   }
 }
