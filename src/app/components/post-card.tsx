@@ -442,7 +442,7 @@ function CommentItem({
   currentUserId?: string;
   postId: string;
   onDelete: (id: string) => void;
-  onReply: (parentId: string, parentName: string, visualParentId?: string) => void;
+  onReply: (parentId: string, parentName: string, visualParentId?: string, topLevelId?: string) => void;
   onLikeToggle: (commentId: string, wasLiked: boolean, reaction?: string) => void;
   onEdit: (commentId: string, newContent: string) => void;
   depth?: number;
@@ -550,8 +550,14 @@ function CommentItem({
     ? `/profile/${comment.author.username}`
     : "/profile";
 
-  // API parent: where the reply is stored (always top-level for flat storage)
-  const replyApiParentId = depth === 0 ? comment.id : (topLevelParentId ?? comment.id);
+  // API parent: the direct parent comment ID to store in DB
+  //   depth-0 reply  → parentId = this comment (depth-1 in DB)
+  //   depth-1 reply  → parentId = this comment (depth-2 in DB, nested under depth-1)
+  //   depth-2 reply  → parentId = depth1ParentId (stays at depth-2 in DB, appended to same depth-1)
+  const replyApiParentId =
+    depth === 0 ? comment.id
+    : depth === 1 ? comment.id
+    : (depth1ParentId ?? topLevelParentId ?? comment.id);
   // Visual parent: ensures the new reply is nested under the correct depth-1 item
   //   depth-0 reply  → no visual parent needed (goes flat into top-level.replies[])
   //   depth-1 reply  → visual parent = this comment (nest under me)
@@ -685,9 +691,14 @@ function CommentItem({
                 </PopoverContent>
               </Popover>
 
-              {/* Reply — API target is always top-level parent; visual parent tracks depth-1 item */}
+              {/* Reply — direct parent stored in DB; visual/topLevel ids route optimistic update */}
               <button
-                onClick={() => onReply(replyApiParentId, comment.author?.name ?? "", replyVisualParentId)}
+                onClick={() => onReply(
+                  replyApiParentId,
+                  comment.author?.name ?? "",
+                  replyVisualParentId,
+                  depth >= 1 ? topLevelParentId : undefined,
+                )}
                 className="text-[10px] font-semibold text-muted-foreground hover:underline"
               >
                 Reply
@@ -1112,7 +1123,7 @@ export function PostCard({
   const [showComments,      setShowComments]      = useState(false);
 
   // Reply state — which comment are we replying to?
-  const [replyingTo, setReplyingTo] = useState<{ id: string; name: string; visualParentId?: string } | null>(null);
+  const [replyingTo, setReplyingTo] = useState<{ id: string; name: string; visualParentId?: string; topLevelId?: string } | null>(null);
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
 
   // UI
@@ -1190,9 +1201,9 @@ export function PostCard({
     setTimeout(() => cardInputRef.current?.focus(), 50);
   }
 
-  function startReply(parentId: string, parentName: string, visualParentId?: string) {
+  function startReply(parentId: string, parentName: string, visualParentId?: string, topLevelId?: string) {
     setShowComments(true);
-    setReplyingTo({ id: parentId, name: parentName, visualParentId });
+    setReplyingTo({ id: parentId, name: parentName, visualParentId, topLevelId });
     setTimeout(() => replyInputRef.current?.focus(), 50);
   }
 
@@ -1246,8 +1257,11 @@ export function PostCard({
   async function handleReply(text: string, _mediaUrl?: string, _mediaType?: string, mentions?: string[]) {
     if (!text.trim() || !replyingTo) return;
 
-    const parentId = replyingTo.id;           // API target (always top-level)
+    const parentId = replyingTo.id;           // direct parent (stored in DB)
     const visualParentId = replyingTo.visualParentId; // depth-1 item to nest under visually
+    // Top-level ID: walk up to find it for optimistic update (top-level = no visualParentId chain)
+    // When visualParentId is set we must find the top-level comment to update its nested structure
+    const topId = replyingTo.topLevelId ?? parentId;
     const temp: CommentData = {
       id:         `temp-reply-${Date.now()}`,
       content:    text,
@@ -1268,25 +1282,26 @@ export function PostCard({
       },
     };
 
-    // Optimistically add: nest under depth-1 item if visualParentId given, else flat under top-level
+    // Optimistically add to local state:
+    // - depth-0 reply: add to top-level comment's replies[]
+    // - depth-1 reply: add to the depth-1 comment's replies[] (nested under it)
+    // - depth-2 reply: add to the depth-1 ancestor's replies[] (same thread, depth-2)
     setLocalComments((prev) =>
       prev.map((c) => {
-        if (visualParentId) {
-          // Replying to a depth-1 reply → nest temp under that reply
-          if (c.id === parentId) {
-            return {
-              ...c,
-              replies: c.replies.map((r) =>
-                r.id === visualParentId
-                  ? { ...r, replies: [...r.replies, temp] }
-                  : r
-              ),
-            };
-          }
-          return c;
+        if (!visualParentId) {
+          // Replying to a top-level comment → add directly
+          return c.id === parentId ? { ...c, replies: [...c.replies, temp] } : c;
         }
-        // Replying to a top-level comment → add flat
-        return c.id === parentId ? { ...c, replies: [...c.replies, temp] } : c;
+        // Replying to a depth-1 or depth-2 comment → find top-level, then nest under visualParentId
+        if (c.id !== topId) return c;
+        return {
+          ...c,
+          replies: c.replies.map((r) =>
+            r.id === visualParentId
+              ? { ...r, replies: [...r.replies, temp] }
+              : r
+          ),
+        };
       })
     );
     setLocalCommentCount((v) => v + 1);
@@ -1299,54 +1314,50 @@ export function PostCard({
       if (data?.replyToComment) {
         setLocalComments((prev) =>
           prev.map((c) => {
-            if (visualParentId) {
-              if (c.id === parentId) {
-                return {
-                  ...c,
-                  replies: c.replies.map((r) =>
-                    r.id === visualParentId
-                      ? {
-                          ...r,
-                          replies: r.replies.map((sr) =>
-                            sr.id === temp.id ? { ...data.replyToComment, replies: [] } : sr
-                          ),
-                        }
-                      : r
-                  ),
-                };
-              }
-              return c;
+            if (!visualParentId) {
+              return c.id === parentId
+                ? {
+                    ...c,
+                    replies: c.replies.map((r) =>
+                      r.id === temp.id ? { ...data.replyToComment, replies: [] } : r
+                    ),
+                  }
+                : c;
             }
-            return c.id === parentId
-              ? {
-                  ...c,
-                  replies: c.replies.map((r) =>
-                    r.id === temp.id ? { ...data.replyToComment, replies: [] } : r
-                  ),
-                }
-              : c;
+            if (c.id !== topId) return c;
+            return {
+              ...c,
+              replies: c.replies.map((r) =>
+                r.id === visualParentId
+                  ? {
+                      ...r,
+                      replies: r.replies.map((sr) =>
+                        sr.id === temp.id ? { ...data.replyToComment, replies: [] } : sr
+                      ),
+                    }
+                  : r
+              ),
+            };
           })
         );
       }
     } catch {
       setLocalComments((prev) =>
         prev.map((c) => {
-          if (visualParentId) {
-            if (c.id === parentId) {
-              return {
-                ...c,
-                replies: c.replies.map((r) =>
-                  r.id === visualParentId
-                    ? { ...r, replies: r.replies.filter((sr) => sr.id !== temp.id) }
-                    : r
-                ),
-              };
-            }
-            return c;
+          if (!visualParentId) {
+            return c.id === parentId
+              ? { ...c, replies: c.replies.filter((r) => r.id !== temp.id) }
+              : c;
           }
-          return c.id === parentId
-            ? { ...c, replies: c.replies.filter((r) => r.id !== temp.id) }
-            : c;
+          if (c.id !== topId) return c;
+          return {
+            ...c,
+            replies: c.replies.map((r) =>
+              r.id === visualParentId
+                ? { ...r, replies: r.replies.filter((sr) => sr.id !== temp.id) }
+                : r
+            ),
+          };
         })
       );
       setLocalCommentCount((v) => Math.max(0, v - 1));
