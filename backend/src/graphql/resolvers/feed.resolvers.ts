@@ -29,7 +29,7 @@ export const feedResolvers = {
      */
     feed: async (
       _: unknown,
-      { limit = 20, offset = 0, seenIds = [], feedVariant }: { limit?: number; offset?: number; seenIds?: string[]; feedVariant?: string },
+      { limit = 20, offset = 0, seenIds = [], feedVariant, sessionId: incomingSessionId }: { limit?: number; offset?: number; seenIds?: string[]; feedVariant?: string; sessionId?: string },
       { user, prisma }: GraphQLContext
     ) => {
       // Unauthenticated users get the explore feed
@@ -51,37 +51,55 @@ export const feedResolvers = {
               : "ranked";
 
       // Session management: find or create an active session (30 min window)
-      let sessionId: string | null = null;
+      // P3 #17: Accept sessionId from client to resume pagination session
+      let sessionId: string | null = incomingSessionId ?? null;
       let sessionCtr: number | undefined = undefined;
       try {
-        const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
-        const activeSession = await prisma.feedSession.findFirst({
-          where: {
-            userId: user.id,
-            isActive: true,
-            updatedAt: { gte: thirtyMinAgo },
-          },
-          orderBy: { createdAt: "desc" },
-        });
-        if (activeSession) {
-          sessionId = activeSession.id;
-          sessionCtr = activeSession.ctr;
-          // Update postsShown
-          await prisma.feedSession.update({
-            where: { id: activeSession.id },
-            data: { postsShown: { increment: limit } },
-          }).catch(console.error);
-        } else {
-          // Create new session
-          const newSession = await prisma.feedSession.create({
-            data: {
-              userId: user.id,
-              feedVariant: resolvedVariant,
-              postsShown: limit,
-            },
+        if (incomingSessionId) {
+          // Client passed a sessionId from previous page — resume it
+          const existingSession = await prisma.feedSession.findUnique({
+            where: { id: incomingSessionId },
           });
-          sessionId = newSession.id;
-          sessionCtr = undefined; // new session, no CTR data yet
+          if (existingSession && existingSession.userId === user.id) {
+            sessionId = existingSession.id;
+            sessionCtr = existingSession.ctr;
+            await prisma.feedSession.update({
+              where: { id: existingSession.id },
+              data: { postsShown: { increment: limit } },
+            }).catch(console.error);
+          } else {
+            sessionId = null; // invalid session, fall through to create/find
+          }
+        }
+
+        if (!sessionId) {
+          const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
+          const activeSession = await prisma.feedSession.findFirst({
+            where: {
+              userId: user.id,
+              isActive: true,
+              updatedAt: { gte: thirtyMinAgo },
+            },
+            orderBy: { createdAt: "desc" },
+          });
+          if (activeSession) {
+            sessionId = activeSession.id;
+            sessionCtr = activeSession.ctr;
+            await prisma.feedSession.update({
+              where: { id: activeSession.id },
+              data: { postsShown: { increment: limit } },
+            }).catch(console.error);
+          } else {
+            const newSession = await prisma.feedSession.create({
+              data: {
+                userId: user.id,
+                feedVariant: resolvedVariant,
+                postsShown: limit,
+              },
+            });
+            sessionId = newSession.id;
+            sessionCtr = undefined;
+          }
         }
       } catch (err) {
         console.error("[feed] session management error:", err);
@@ -147,8 +165,8 @@ export const feedResolvers = {
       // Collect unique author IDs from posts for affinity lookup
       const authorIds = [...new Set(posts.map((p: any) => p.authorId))];
 
-      // Social proof + author affinity + embeddings + dwell + notInterested queries (run in parallel)
-      const [mutualLikeResults, authorAffinities, semanticScores, avgDwellResults, notInterestedResults] = await Promise.all([
+      // Social proof + author affinity + embeddings + dwell + notInterested + reactions queries (run in parallel)
+      const [mutualLikeResults, authorAffinities, semanticScores, avgDwellResults, notInterestedResults, reactionWeightResults] = await Promise.all([
         followingSet.size > 0
           ? prisma.postLike.findMany({
               where: {
@@ -202,6 +220,27 @@ export const feedResolvers = {
           where: { userId: user.id, postId: { in: freshPostIds } },
           select: { postId: true },
         }).catch(() => [] as { postId: string }[]),
+        // P2 #8: Reaction-weighted like counts per post
+        (async () => {
+          try {
+            const result: { postId: string; weightedLikes: number }[] = await prisma.$queryRawUnsafe(`
+              SELECT "postId",
+                SUM(CASE
+                  WHEN reaction IN ('Love', 'Fire') THEN 2.0
+                  WHEN reaction IN ('Haha', 'Wow') THEN 1.5
+                  WHEN reaction = 'Angry' THEN 0.5
+                  WHEN reaction = 'Sad' THEN 0.8
+                  ELSE 1.0
+                END)::float AS "weightedLikes"
+              FROM post_likes
+              WHERE "postId" = ANY($1::text[])
+              GROUP BY "postId"
+            `, freshPostIds);
+            return result;
+          } catch {
+            return [];
+          }
+        })(),
       ]);
 
       const socialProofMap = new Map<string, number>();
@@ -213,6 +252,12 @@ export const feedResolvers = {
       const notInterestedSet = new Set(
         (notInterestedResults as { postId: string }[]).map((r) => r.postId)
       );
+
+      // P2 #8: Reaction-weighted likes map (Love/Fire=2.0, Haha/Wow=1.5, Like=1.0)
+      const reactionWeightMap = new Map<string, number>();
+      for (const row of reactionWeightResults as { postId: string; weightedLikes: number }[]) {
+        reactionWeightMap.set(row.postId, row.weightedLikes);
+      }
 
       // Normalize author affinity to 0–1 range using sigmoid (smooth, unbounded input)
       const authorAffinityMap = new Map<string, number>();
@@ -279,6 +324,7 @@ export const feedResolvers = {
           avgDwellMs: dwellMap.get(post.id) ?? 0,
           feedVariant: resolvedVariant,
           notInterested: notInterestedSet.has(post.id), // P1 #2: populated from UserNotInterested
+          reactionWeightedLikes: reactionWeightMap.get(post.id), // P2 #8: weighted by reaction type
         };
       });
 
@@ -379,6 +425,11 @@ export const feedResolvers = {
         resolvedVariant,
         finalPosts
       ).catch((err) => console.error("[feed] FeedScoreLog error:", err));
+
+      // P3 #16: Update rankScore on posts (fire-and-forget) for exploreFeed sorting
+      updatePostRankScores(prisma, finalPosts).catch((err) =>
+        console.error("[feed] rankScore update error:", err)
+      );
 
       const rankedPosts = finalPosts
         .map((s) => allPostsMap.get(s.postId))
@@ -633,7 +684,8 @@ export const feedResolvers = {
     ) => {
       if (!user) throw new Error("Unauthorized");
 
-      const validReactions = ["Like", "Love", "Fire", "Haha", "Wow", "Sad"];
+      // P2 #8: Updated to match unified Facebook-style + Fire reaction set
+      const validReactions = ["Like", "Love", "Haha", "Wow", "Sad", "Angry", "Fire"];
       const safeReaction = validReactions.includes(reaction) ? reaction : "Like";
 
       // Check if like already exists (reaction change vs new like)
@@ -776,7 +828,7 @@ export const feedResolvers = {
           data: {
             recipientId: rootOriginal.authorId,
             actorId: user.id,
-            type: "LIKE",   // closest available type; no POST_SHARE in enum yet
+            type: "SHARE",   // P2 #12: proper POST_SHARE notification type
             postId: rootOriginalId,
           },
         }).catch(console.error);
@@ -1168,6 +1220,75 @@ export const feedResolvers = {
         return false;
       }
     },
+
+    /**
+     * P2 #10: Admin mutation to update feed ranking weights without code deploys.
+     * Upserts key/value rows in the feed_config table and invalidates the in-memory cache.
+     */
+    updateFeedConfig: async (
+      _: unknown,
+      { entries }: { entries: { key: string; value: number; label?: string }[] },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+      // TODO: Add admin role check when admin system is built
+      // For now, any authenticated user can update config (lock down later)
+
+      const results = [];
+      for (const entry of entries) {
+        const row = await prisma.feedConfig.upsert({
+          where: { key: entry.key },
+          create: { key: entry.key, value: entry.value, label: entry.label },
+          update: { value: entry.value, ...(entry.label ? { label: entry.label } : {}) },
+        });
+        results.push({ key: row.key, value: row.value, label: row.label });
+      }
+
+      // Invalidate in-memory cache so next feed request uses updated weights
+      invalidateWeightCache();
+
+      return results;
+    },
+
+    /**
+     * P3 #15: Cleanup old user_interactions to prevent unbounded table growth.
+     * Deletes records older than the specified number of days.
+     * Returns the count of deleted records.
+     */
+    cleanupOldInteractions: async (
+      _: unknown,
+      { olderThanDays }: { olderThanDays: number },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+      const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+
+      const result = await prisma.userInteraction.deleteMany({
+        where: { createdAt: { lt: cutoff } },
+      });
+
+      return result.count;
+    },
+
+    /**
+     * P2 #6: Cleanup old feed_score_logs to prevent unbounded table growth.
+     * Deletes records older than the specified number of days.
+     * Returns the count of deleted records.
+     */
+    cleanupOldScoreLogs: async (
+      _: unknown,
+      { olderThanDays }: { olderThanDays: number },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+      const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+
+      const result = await prisma.feedScoreLog.deleteMany({
+        where: { createdAt: { lt: cutoff } },
+      });
+
+      return result.count;
+    },
   },
 
   Post: {
@@ -1370,10 +1491,11 @@ async function exploreFeed(
   prisma: any
 ) {
   // P1 #5: Time filter — only show posts from last 7 days to avoid full table scan
+  // P3 #16: Sort by rankScore (populated by feed pipeline) with likesCount fallback
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const posts = await prisma.post.findMany({
     where: { createdAt: { gte: sevenDaysAgo } },
-    orderBy: [{ likesCount: "desc" }, { createdAt: "desc" }],
+    orderBy: [{ rankScore: { sort: "desc", nulls: "last" } }, { likesCount: "desc" }, { createdAt: "desc" }],
     take: limit + 1,
     skip: offset,
     include: {
@@ -1514,6 +1636,30 @@ async function updateAuthorAffinity(
  * Log full score breakdown for every post in a feed response.
  * Fire-and-forget batch insert — never blocks the response.
  */
+/**
+ * P3 #16: Fire-and-forget update of rankScore on Post records.
+ * Stores the latest finalScore so exploreFeed can sort by ranking quality.
+ */
+async function updatePostRankScores(
+  prisma: any,
+  posts: ScoredPost[]
+): Promise<void> {
+  if (posts.length === 0) return;
+
+  // Batch update using a raw query for efficiency (single round-trip)
+  const cases = posts
+    .map(
+      (p) => `WHEN id = '${p.postId}' THEN ${p._breakdown.finalScore}`
+    )
+    .join(" ");
+  const ids = posts.map((p) => `'${p.postId}'`).join(",");
+
+  await prisma.$executeRawUnsafe(`
+    UPDATE posts SET "rankScore" = CASE ${cases} END
+    WHERE id IN (${ids})
+  `);
+}
+
 async function logFeedScoreLogs(
   prisma: any,
   userId: string,
@@ -1555,6 +1701,7 @@ async function logFeedScoreLogs(
 /**
  * Mark the most recent PostView as "engaged" when user likes/comments/shares.
  * This enables CTR calculation: engaged views / total views.
+ * P3 #13: Position-weighted CTR — engagements deeper in feed are more signal-rich.
  */
 async function markPostViewEngaged(
   prisma: any,
@@ -1566,7 +1713,7 @@ async function markPostViewEngaged(
     const recentView = await prisma.postView.findFirst({
       where: { viewerId: userId, postId },
       orderBy: { createdAt: "desc" },
-      select: { id: true, sessionId: true },
+      select: { id: true, sessionId: true, position: true },
     });
     if (!recentView) return;
 
@@ -1576,7 +1723,12 @@ async function markPostViewEngaged(
       data: { engaged: true },
     });
 
-    // Update session engagement count + CTR
+    // P3 #13: Position-weighted engagement — clicks at position 10+ are worth more
+    // than clicks at position 0-2 (top of feed gets clicks regardless of quality)
+    const position = recentView.position ?? 0;
+    const positionWeight = 1.0 + Math.min(position / 20, 1.0); // 1.0x at top, up to 2.0x at position 20+
+
+    // Update session engagement count + CTR (position-weighted)
     if (recentView.sessionId) {
       const session = await prisma.feedSession.findUnique({
         where: { id: recentView.sessionId },

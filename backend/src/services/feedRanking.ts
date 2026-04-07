@@ -33,6 +33,7 @@ export interface PostSignals {
   semanticRelevance?: number;   // 0–1 cosine similarity between user interest & post embedding
   avgDwellMs?: number;          // average dwell time across all viewers (quality signal)
   feedVariant?: "ranked" | "chronological"; // A/B test variant
+  reactionWeightedLikes?: number; // weighted likes score (Love/Fire=2.0, Haha=1.5, Like=1.0, etc.)
 }
 
 /** Full score breakdown — logged to feed_score_logs for every ranked post */
@@ -230,8 +231,10 @@ export function scorePost(
   sessionCtr?: number // current session CTR for session-aware semantic boost
 ): ScoreBreakdown {
   // Additive baseline ensures fresh posts with 0 engagement don't vanish
+  // P2 #8: Use reaction-weighted likes when available (Love/Fire count more than plain Like)
+  const effectiveLikes = signals.reactionWeightedLikes ?? signals.likesCount;
   const rawEngagement =
-    signals.likesCount * weights.engagementLikeWeight +
+    effectiveLikes * weights.engagementLikeWeight +
     signals.commentsCount * weights.engagementCommentWeight +
     signals.sharesCount * weights.engagementShareWeight;
   const engagementScore = Math.max(rawEngagement, 1.0);
