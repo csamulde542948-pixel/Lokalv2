@@ -169,6 +169,7 @@ model Profile {
   postViews           PostView[]           @relation("PostViews")
   authorAffinityFrom  UserAuthorAffinity[] @relation("AffinityFrom")
   authorAffinityTo    UserAuthorAffinity[] @relation("AffinityTo")
+  notInterestedPosts  UserNotInterested[]  @relation("NotInterestedBy")
   feedScoreLogs       FeedScoreLog[]
   feedSessions        FeedSession[]
 
@@ -837,6 +838,21 @@ model UserAuthorAffinity {
   @@unique([userId, authorId])
   @@index([userId, score(sort: Desc)])
   @@map("user_author_affinities")
+}
+
+// Tracks posts the user explicitly marked as "not interested"
+// Used to apply scoring penalties in the feed ranking pipeline.
+model UserNotInterested {
+  id        String   @id @default(cuid())
+  userId    String   @db.Uuid
+  postId    String
+  createdAt DateTime @default(now())
+
+  user      Profile  @relation("NotInterestedBy", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@index([userId])
+  @@map("user_not_interested")
 }
 
 // ============================================================

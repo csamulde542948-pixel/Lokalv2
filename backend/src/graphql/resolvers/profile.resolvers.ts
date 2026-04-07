@@ -167,6 +167,68 @@ export const profileResolvers = {
     },
 
     /**
+     * Complete onboarding — updates profile, connects tags, and seeds
+     * UserTagAffinity records so the feed ranking has warm-start data.
+     * P0 #7: Without this, new users get zero personalization.
+     */
+    completeOnboarding: async (
+      _: unknown,
+      { input }: { input: { username: string; name: string; bio?: string; location?: string; tags: string[] } },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+
+      // 1. Update profile basics
+      const profile = await prisma.profile.update({
+        where: { id: user.id },
+        data: {
+          username: input.username,
+          name: input.name,
+          ...(input.bio ? { bio: input.bio } : {}),
+          ...(input.location ? { location: input.location } : {}),
+          isOnboarded: true,
+          updatedAt: new Date(),
+        },
+        include: { rank: true },
+      });
+
+      // 2. Sync to GetStream
+      await upsertStreamUser({
+        id: user.id,
+        name: input.name,
+        username: input.username,
+        imageUrl: profile.avatarUrl,
+      });
+
+      // 3. Connect tags — create PostTag-style tag connections (upsert tags first)
+      if (input.tags.length > 0) {
+        for (const tagName of input.tags) {
+          // Ensure tag exists
+          await prisma.tag.upsert({
+            where: { name: tagName },
+            create: { name: tagName },
+            update: {},
+          });
+        }
+
+        // 4. Seed UserTagAffinity records for each selected tag
+        //    Initial score 0.5 = moderate interest (higher than engagement-derived 0.05-0.1)
+        for (const tagName of input.tags) {
+          await prisma.userTagAffinity.upsert({
+            where: { profileId_tagName: { profileId: user.id, tagName } },
+            create: { profileId: user.id, tagName, score: 0.5 },
+            update: { score: 0.5 }, // Reset to 0.5 if re-onboarding
+          });
+        }
+      }
+
+      // 5. Award XP for completing onboarding
+      await awardXp(user.id, "COMPLETE_PROFILE");
+
+      return profile;
+    },
+
+    /**
      * Follow a user — updates DB + GetStream feed graph.
      */
     followUser: async (

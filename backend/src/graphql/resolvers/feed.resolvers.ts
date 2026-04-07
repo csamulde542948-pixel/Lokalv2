@@ -147,8 +147,8 @@ export const feedResolvers = {
       // Collect unique author IDs from posts for affinity lookup
       const authorIds = [...new Set(posts.map((p: any) => p.authorId))];
 
-      // Social proof + author affinity + embeddings + dwell queries (run in parallel)
-      const [mutualLikeResults, authorAffinities, semanticScores, avgDwellResults] = await Promise.all([
+      // Social proof + author affinity + embeddings + dwell + notInterested queries (run in parallel)
+      const [mutualLikeResults, authorAffinities, semanticScores, avgDwellResults, notInterestedResults] = await Promise.all([
         followingSet.size > 0
           ? prisma.postLike.findMany({
               where: {
@@ -197,12 +197,22 @@ export const feedResolvers = {
             return [];
           }
         })(),
+        // P1 #2: Batch-fetch "not interested" flags for the current user
+        prisma.userNotInterested.findMany({
+          where: { userId: user.id, postId: { in: freshPostIds } },
+          select: { postId: true },
+        }).catch(() => [] as { postId: string }[]),
       ]);
 
       const socialProofMap = new Map<string, number>();
       for (const like of mutualLikeResults) {
         socialProofMap.set(like.postId, (socialProofMap.get(like.postId) ?? 0) + 1);
       }
+
+      // Not-interested set: posts the user explicitly marked
+      const notInterestedSet = new Set(
+        (notInterestedResults as { postId: string }[]).map((r) => r.postId)
+      );
 
       // Normalize author affinity to 0–1 range using sigmoid (smooth, unbounded input)
       const authorAffinityMap = new Map<string, number>();
@@ -268,6 +278,7 @@ export const feedResolvers = {
           semanticRelevance: semanticMap.get(post.id) ?? 0,
           avgDwellMs: dwellMap.get(post.id) ?? 0,
           feedVariant: resolvedVariant,
+          notInterested: notInterestedSet.has(post.id), // P1 #2: populated from UserNotInterested
         };
       });
 
@@ -372,6 +383,22 @@ export const feedResolvers = {
       const rankedPosts = finalPosts
         .map((s) => allPostsMap.get(s.postId))
         .filter(Boolean);
+
+      // ── Batch-populate likedByMe + myReaction to avoid N+1 field resolvers ──
+      const rankedPostIds = rankedPosts.map((p: any) => p.id);
+      try {
+        const myLikes = await prisma.postLike.findMany({
+          where: { postId: { in: rankedPostIds }, profileId: user.id },
+          select: { postId: true, reaction: true },
+        });
+        const likeMap = new Map(myLikes.map((l: any) => [l.postId, l.reaction]));
+        for (const p of rankedPosts) {
+          (p as any)._likedByMe = likeMap.has((p as any).id);
+          (p as any)._myReaction = likeMap.get((p as any).id) ?? null;
+        }
+      } catch (err) {
+        console.error("[feed] batch likedByMe error:", err);
+      }
 
       return {
         posts: rankedPosts,
@@ -668,13 +695,25 @@ export const feedResolvers = {
     ) => {
       if (!user) throw new Error("Unauthorized");
 
-      await prisma.postLike.deleteMany({
+      // P1 #11: Only decrement if a like actually existed (prevents negative counts)
+      const deleted = await prisma.postLike.deleteMany({
         where: { postId, profileId: user.id },
       });
 
-      return prisma.post.update({
+      if (deleted.count > 0) {
+        return prisma.post.update({
+          where: { id: postId },
+          data: { likesCount: { decrement: 1 } },
+          include: {
+            author: { include: { rank: true } },
+            tags: { include: { tag: true } },
+          },
+        });
+      }
+
+      // No like existed — just return the post unchanged
+      return prisma.post.findUnique({
         where: { id: postId },
-        data: { likesCount: { decrement: 1 } },
         include: {
           author: { include: { rank: true } },
           tags: { include: { tag: true } },
@@ -1113,6 +1152,13 @@ export const feedResolvers = {
           });
         }
 
+        // P1 #2: Persist the "not interested" flag for future feed filtering
+        await prisma.userNotInterested.upsert({
+          where: { userId_postId: { userId: user.id, postId } },
+          create: { userId: user.id, postId },
+          update: {},
+        });
+
         // Decrease tag affinity for this post's tags
         updateTagAffinitiesOnEngagement(user.id, postId, -0.3, prisma).catch(console.error);
 
@@ -1163,10 +1209,11 @@ export const feedResolvers = {
     },
 
     likedByMe: async (
-      parent: { id: string },
+      parent: { id: string; _likedByMe?: boolean },
       _: unknown,
       { user, prisma }: GraphQLContext
     ) => {
+      if (parent._likedByMe !== undefined) return parent._likedByMe;
       if (!user) return false;
       const like = await prisma.postLike.findUnique({
         where: { postId_profileId: { postId: parent.id, profileId: user.id } },
@@ -1175,10 +1222,11 @@ export const feedResolvers = {
     },
 
     myReaction: async (
-      parent: { id: string },
+      parent: { id: string; _myReaction?: string | null },
       _: unknown,
       { user, prisma }: GraphQLContext
     ) => {
+      if (parent._myReaction !== undefined) return parent._myReaction;
       if (!user) return null;
       const like = await prisma.postLike.findUnique({
         where: { postId_profileId: { postId: parent.id, profileId: user.id } },
@@ -1321,7 +1369,10 @@ async function exploreFeed(
   offset: number,
   prisma: any
 ) {
+  // P1 #5: Time filter — only show posts from last 7 days to avoid full table scan
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const posts = await prisma.post.findMany({
+    where: { createdAt: { gte: sevenDaysAgo } },
     orderBy: [{ likesCount: "desc" }, { createdAt: "desc" }],
     take: limit + 1,
     skip: offset,
@@ -1403,6 +1454,7 @@ function computeAuthorAffinityScore(row: {
 
 /**
  * Increment one field on UserAuthorAffinity and recompute the composite score.
+ * P1 #9: Atomic upsert using INSERT ... ON CONFLICT to avoid race conditions.
  */
 async function updateAuthorAffinity(
   userId: string,
@@ -1412,31 +1464,43 @@ async function updateAuthorAffinity(
 ) {
   if (userId === authorId) return; // don't track self-affinity
 
-  try {
-    const existing = await prisma.userAuthorAffinity.findUnique({
-      where: { userId_authorId: { userId, authorId } },
-    });
+  // Weight map matching computeAuthorAffinityScore formula
+  const weights: Record<string, number> = {
+    likeCount: 1.5,
+    commentCount: 3.0,
+    shareCount: 5.0,
+    viewCount: 0.2,
+  };
 
-    if (existing) {
-      const updated = { ...existing, [field]: existing[field] + 1 };
-      await prisma.userAuthorAffinity.update({
-        where: { userId_authorId: { userId, authorId } },
-        data: {
-          [field]: { increment: 1 },
-          score: computeAuthorAffinityScore(updated),
-        },
-      });
-    } else {
-      const seed = { likeCount: 0, commentCount: 0, shareCount: 0, viewCount: 0, [field]: 1 };
-      await prisma.userAuthorAffinity.create({
-        data: {
-          userId,
-          authorId,
-          ...seed,
-          score: computeAuthorAffinityScore(seed as any),
-        },
-      });
-    }
+  // Map field names to DB column names (camelCase → snake_case in @@map table)
+  const colMap: Record<string, string> = {
+    likeCount: '"likeCount"',
+    commentCount: '"commentCount"',
+    shareCount: '"shareCount"',
+    viewCount: '"viewCount"',
+  };
+
+  const targetCol = colMap[field];
+
+  try {
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO user_author_affinities (id, "userId", "authorId", "likeCount", "commentCount", "shareCount", "viewCount", score, "updatedAt")
+      VALUES (gen_random_uuid()::text, $1, $2, 
+        ${field === 'likeCount' ? 1 : 0}, 
+        ${field === 'commentCount' ? 1 : 0}, 
+        ${field === 'shareCount' ? 1 : 0}, 
+        ${field === 'viewCount' ? 1 : 0},
+        ${weights[field]},
+        NOW()
+      )
+      ON CONFLICT ("userId", "authorId") DO UPDATE SET
+        ${targetCol} = user_author_affinities.${targetCol} + 1,
+        score = (user_author_affinities."likeCount" + ${field === 'likeCount' ? 1 : 0}) * 1.5
+             + (user_author_affinities."commentCount" + ${field === 'commentCount' ? 1 : 0}) * 3.0
+             + (user_author_affinities."shareCount" + ${field === 'shareCount' ? 1 : 0}) * 5.0
+             + (user_author_affinities."viewCount" + ${field === 'viewCount' ? 1 : 0}) * 0.2,
+        "updatedAt" = NOW()
+    `, userId, authorId);
   } catch (err) {
     console.error("[feedRanking] updateAuthorAffinity:", err);
   }
