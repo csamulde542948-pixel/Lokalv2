@@ -273,6 +273,9 @@ model Post {
   // GetStream activity id (for syncing)
   streamActivityId  String?  @unique @db.VarChar(200)
 
+  // Share chain — points to the ROOT original post (never a reshare of a reshare)
+  originalPostId String?   @db.VarChar(200)
+
   // Engagement counters (denormalised for performance)
   likesCount    Int      @default(0)
   commentsCount Int      @default(0)

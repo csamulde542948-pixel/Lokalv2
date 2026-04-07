@@ -179,6 +179,8 @@ export const typeDefs = gql`
     createdAt: DateTime!
     updatedAt: DateTime!
     comments(limit: Int, offset: Int): [PostComment!]!
+    # For shared posts — always the ROOT original (never a reshare of a reshare)
+    originalPost: Post
     # Feed ranking score — only present in ranked feed responses
     rankScore: Float
   }
