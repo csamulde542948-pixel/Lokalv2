@@ -441,11 +441,11 @@ function CommentItem({
   currentUserId?: string;
   postId: string;
   onDelete: (id: string) => void;
-  onReply: (parentId: string, parentName: string) => void;
+  onReply: (parentId: string, parentName: string, visualParentId?: string) => void;
   onLikeToggle: (commentId: string, wasLiked: boolean, reaction?: string) => void;
   onEdit: (commentId: string, newContent: string) => void;
   depth?: number;
-  topLevelParentId?: string; // id of the root comment this thread belongs to
+  topLevelParentId?: string; // id of the root (depth-0) comment this thread belongs to
 }) {
   const isOwn = comment.author?.id === currentUserId;
   const [localLiked, setLocalLiked] = useState(comment.likedByMe);
@@ -548,14 +548,16 @@ function CommentItem({
     ? `/profile/${comment.author.username}`
     : "/profile";
 
-  // The reply target is always the top-level parent (flat threading)
-  const replyTargetId   = depth === 0 ? comment.id : (topLevelParentId ?? comment.id);
+  // API parent: where the reply is stored (always top-level for flat storage)
+  const replyApiParentId = depth === 0 ? comment.id : (topLevelParentId ?? comment.id);
+  // Visual parent: depth-1 items pass themselves so reply is nested under them visually
+  const replyVisualParentId = depth === 1 ? comment.id : undefined;
 
-  // Visible replies: depth-0 caps at SUB_REPLY_LIMIT unless expanded
-  const visibleReplies = depth === 0
+  // Visible replies: cap at SUB_REPLY_LIMIT for depth < 2
+  const visibleReplies = depth < 2
     ? (showAllSubReplies ? comment.replies : comment.replies.slice(0, SUB_REPLY_LIMIT))
     : [];
-  const hasMoreReplies = depth === 0 && comment.replies.length > SUB_REPLY_LIMIT;
+  const hasMoreReplies = depth < 2 && comment.replies.length > SUB_REPLY_LIMIT;
 
   return (
     <>
@@ -570,8 +572,8 @@ function CommentItem({
               <AvatarFallback className="text-[10px]">{comment.author?.name?.[0]}</AvatarFallback>
             </Avatar>
           </Link>
-          {/* Vertical line: only on depth-0 comments that have replies */}
-          {depth === 0 && comment.replies.length > 0 && (
+          {/* Vertical line: on depth-0 and depth-1 comments that have replies */}
+          {depth < 2 && comment.replies.length > 0 && (
             <div className="w-px flex-1 bg-border/50 mt-1" />
           )}
         </div>
@@ -675,9 +677,9 @@ function CommentItem({
                 </PopoverContent>
               </Popover>
 
-              {/* Reply — always targets the top-level parent; @mentions the author when replying to a sub-reply */}
+              {/* Reply — API target is always top-level parent; visual parent tracks depth-1 item */}
               <button
-                onClick={() => onReply(replyTargetId, comment.author?.name ?? "")}
+                onClick={() => onReply(replyApiParentId, comment.author?.name ?? "", replyVisualParentId)}
                 className="text-[10px] font-semibold text-muted-foreground hover:underline"
               >
                 Reply
@@ -714,8 +716,8 @@ function CommentItem({
         </div>
       </div>
 
-      {/* ── Replies (flat, only rendered at depth 0) ─────────────────── */}
-      {depth === 0 && comment.replies.length > 0 && (
+      {/* ── Replies (rendered at depth 0 and 1, capped at depth 2) ─────── */}
+      {depth < 2 && comment.replies.length > 0 && (
         <div className="flex gap-2">
           {/* Spacer matching avatar width + gap to align replies under content */}
           <div className="w-7 flex-shrink-0" />
@@ -730,8 +732,8 @@ function CommentItem({
                 onReply={onReply}
                 onLikeToggle={onLikeToggle}
                 onEdit={onEdit}
-                depth={1}
-                topLevelParentId={comment.id}
+                depth={depth + 1}
+                topLevelParentId={depth === 0 ? comment.id : topLevelParentId}
               />
             ))}
             {hasMoreReplies && (
@@ -1101,7 +1103,7 @@ export function PostCard({
   const [showComments,      setShowComments]      = useState(false);
 
   // Reply state — which comment are we replying to?
-  const [replyingTo, setReplyingTo] = useState<{ id: string; name: string } | null>(null);
+  const [replyingTo, setReplyingTo] = useState<{ id: string; name: string; visualParentId?: string } | null>(null);
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
 
   // UI
@@ -1179,9 +1181,9 @@ export function PostCard({
     setTimeout(() => cardInputRef.current?.focus(), 50);
   }
 
-  function startReply(parentId: string, parentName: string) {
+  function startReply(parentId: string, parentName: string, visualParentId?: string) {
     setShowComments(true);
-    setReplyingTo({ id: parentId, name: parentName });
+    setReplyingTo({ id: parentId, name: parentName, visualParentId });
     setTimeout(() => replyInputRef.current?.focus(), 50);
   }
 
@@ -1235,7 +1237,8 @@ export function PostCard({
   async function handleReply(text: string, _mediaUrl?: string, _mediaType?: string, mentions?: string[]) {
     if (!text.trim() || !replyingTo) return;
 
-    const parentId = replyingTo.id;
+    const parentId = replyingTo.id;           // API target (always top-level)
+    const visualParentId = replyingTo.visualParentId; // depth-1 item to nest under visually
     const temp: CommentData = {
       id:         `temp-reply-${Date.now()}`,
       content:    text,
@@ -1256,13 +1259,26 @@ export function PostCard({
       },
     };
 
-    // Optimistically add to parent's replies
+    // Optimistically add: nest under depth-1 item if visualParentId given, else flat under top-level
     setLocalComments((prev) =>
-      prev.map((c) =>
-        c.id === parentId
-          ? { ...c, replies: [...c.replies, temp] }
-          : c
-      )
+      prev.map((c) => {
+        if (visualParentId) {
+          // Replying to a depth-1 reply → nest temp under that reply
+          if (c.id === parentId) {
+            return {
+              ...c,
+              replies: c.replies.map((r) =>
+                r.id === visualParentId
+                  ? { ...r, replies: [...r.replies, temp] }
+                  : r
+              ),
+            };
+          }
+          return c;
+        }
+        // Replying to a top-level comment → add flat
+        return c.id === parentId ? { ...c, replies: [...c.replies, temp] } : c;
+      })
     );
     setLocalCommentCount((v) => v + 1);
     setReplyingTo(null);
@@ -1273,25 +1289,56 @@ export function PostCard({
       });
       if (data?.replyToComment) {
         setLocalComments((prev) =>
-          prev.map((c) =>
-            c.id === parentId
+          prev.map((c) => {
+            if (visualParentId) {
+              if (c.id === parentId) {
+                return {
+                  ...c,
+                  replies: c.replies.map((r) =>
+                    r.id === visualParentId
+                      ? {
+                          ...r,
+                          replies: r.replies.map((sr) =>
+                            sr.id === temp.id ? { ...data.replyToComment, replies: [] } : sr
+                          ),
+                        }
+                      : r
+                  ),
+                };
+              }
+              return c;
+            }
+            return c.id === parentId
               ? {
                   ...c,
                   replies: c.replies.map((r) =>
                     r.id === temp.id ? { ...data.replyToComment, replies: [] } : r
                   ),
                 }
-              : c
-          )
+              : c;
+          })
         );
       }
     } catch {
       setLocalComments((prev) =>
-        prev.map((c) =>
-          c.id === parentId
+        prev.map((c) => {
+          if (visualParentId) {
+            if (c.id === parentId) {
+              return {
+                ...c,
+                replies: c.replies.map((r) =>
+                  r.id === visualParentId
+                    ? { ...r, replies: r.replies.filter((sr) => sr.id !== temp.id) }
+                    : r
+                ),
+              };
+            }
+            return c;
+          }
+          return c.id === parentId
             ? { ...c, replies: c.replies.filter((r) => r.id !== temp.id) }
-            : c
-        )
+            : c;
+        })
       );
       setLocalCommentCount((v) => Math.max(0, v - 1));
     }
@@ -1336,13 +1383,21 @@ export function PostCard({
     const isTop = localComments.some((c) => c.id === id);
     if (isTop) {
       const comment = localComments.find((c) => c.id === id);
+      const replyCount = (comment?.replies ?? []).reduce((n, r) => n + 1 + r.replies.length, 0);
       setLocalComments((prev) => prev.filter((c) => c.id !== id));
-      setLocalCommentCount((v) => Math.max(0, v - 1 - (comment?.replies.length ?? 0)));
+      setLocalCommentCount((v) => Math.max(0, v - 1 - replyCount));
     } else {
+      // Could be depth-1 or depth-2 — recurse through replies
+      const isDepth1 = localComments.some((c) => c.replies.some((r) => r.id === id));
       setLocalComments((prev) =>
         prev.map((c) => ({
           ...c,
-          replies: c.replies.filter((r) => r.id !== id),
+          replies: isDepth1
+            ? c.replies.filter((r) => r.id !== id)
+            : c.replies.map((r) => ({
+                ...r,
+                replies: r.replies.filter((sr) => sr.id !== id),
+              })),
         }))
       );
       setLocalCommentCount((v) => Math.max(0, v - 1));
