@@ -1,4 +1,5 @@
 ﻿import { useState, useRef, useEffect, useCallback } from "react";
+import { Link } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useMutation } from "@apollo/client/react";
 import { Card, CardContent } from "./ui/card";
@@ -434,6 +435,7 @@ function CommentItem({
   onLikeToggle,
   onEdit,
   depth = 0,
+  topLevelParentId,
 }: {
   comment: CommentData;
   currentUserId?: string;
@@ -443,6 +445,7 @@ function CommentItem({
   onLikeToggle: (commentId: string, wasLiked: boolean, reaction?: string) => void;
   onEdit: (commentId: string, newContent: string) => void;
   depth?: number;
+  topLevelParentId?: string; // id of the root comment this thread belongs to
 }) {
   const isOwn = comment.author?.id === currentUserId;
   const [localLiked, setLocalLiked] = useState(comment.likedByMe);
@@ -460,6 +463,10 @@ function CommentItem({
 
   // Edit history modal
   const [showHistory, setShowHistory] = useState(false);
+
+  // Sub-reply expand (only show first 3 at depth 0, rest behind toggle)
+  const SUB_REPLY_LIMIT = 3;
+  const [showAllSubReplies, setShowAllSubReplies] = useState(false);
 
   useEffect(() => {
     setLocalLiked(comment.likedByMe);
@@ -537,23 +544,36 @@ function CommentItem({
   const likeLabel = selectedReaction?.label ?? "Like";
   const likeColor = selectedReaction ? selectedReaction.color : "text-muted-foreground";
 
+  const profileHref = comment.author?.username && comment.author.username !== "you"
+    ? `/profile/${comment.author.username}`
+    : "/profile";
+
   return (
     <>
-      <div className={`flex gap-2 group ${depth > 0 ? "ml-9" : ""}`}>
-        <Avatar className="w-7 h-7 flex-shrink-0 mt-0.5">
-          <AvatarImage src={comment.author?.avatarUrl} />
-          <AvatarFallback className="text-[10px]">
-            {comment.author?.name?.[0]}
-          </AvatarFallback>
-        </Avatar>
+      <div className={`flex gap-2 group relative ${depth > 0 ? "ml-8" : ""}`}>
+        {/* Vertical connector line for replies */}
+        {depth > 0 && (
+          <div className="absolute -left-4 top-0 bottom-0 flex flex-col items-center" aria-hidden>
+            <div className="w-px flex-1 bg-border/60" />
+          </div>
+        )}
+
+        <Link to={profileHref} className="flex-shrink-0 mt-0.5 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+          <Avatar className="w-7 h-7">
+            <AvatarImage src={comment.author?.avatarUrl} />
+            <AvatarFallback className="text-[10px]">
+              {comment.author?.name?.[0]}
+            </AvatarFallback>
+          </Avatar>
+        </Link>
 
         <div className="flex-1 min-w-0">
           {/* Bubble */}
           {isEditing ? (
             <div className="bg-muted rounded-2xl px-3 py-2">
-              <span className="font-semibold text-xs block leading-tight mb-1">
+              <Link to={profileHref} className="font-semibold text-xs block leading-tight mb-1 hover:underline">
                 {comment.author?.name}
-              </span>
+              </Link>
               <textarea
                 ref={editInputRef}
                 value={editText}
@@ -588,9 +608,9 @@ function CommentItem({
             </div>
           ) : (
             <div className="inline-block bg-muted rounded-2xl px-3 py-1.5 max-w-full">
-              <span className="font-semibold text-xs block leading-tight">
+              <Link to={profileHref} className="font-semibold text-xs block leading-tight hover:underline">
                 {comment.author?.name}
-              </span>
+              </Link>
 
               {comment.mediaUrl && (
                 comment.mediaType === "video" ? (
@@ -675,14 +695,17 @@ function CommentItem({
                 </PopoverContent>
               </Popover>
 
-              {depth === 0 && (
-                <button
-                  onClick={() => onReply(comment.id, comment.author?.name ?? "")}
-                  className="text-[10px] font-semibold text-muted-foreground hover:underline"
-                >
-                  Reply{comment.replies.length > 0 ? ` · ${comment.replies.length}` : ""}
-                </button>
-              )}
+              <button
+                onClick={() => {
+                  // Replies to depth-1 comments attach to the same top-level parent
+                  const targetId   = depth === 0 ? comment.id : (topLevelParentId ?? comment.id);
+                  const targetName = comment.author?.name ?? "";
+                  onReply(targetId, targetName);
+                }}
+                className="text-[10px] font-semibold text-muted-foreground hover:underline"
+              >
+                Reply{depth === 0 && comment.replies.length > 0 ? ` · ${comment.replies.length}` : ""}
+              </button>
 
               {/* 3-dot menu for own comments */}
               {isOwn && (
@@ -721,20 +744,40 @@ function CommentItem({
 
           {/* Nested replies */}
           {comment.replies.length > 0 && (
-            <div className="mt-2 flex flex-col gap-2">
-              {comment.replies.map((reply) => (
-                <CommentItem
-                  key={reply.id}
-                  comment={reply}
-                  currentUserId={currentUserId}
-                  postId={postId}
-                  onDelete={onDelete}
-                  onReply={onReply}
-                  onLikeToggle={onLikeToggle}
-                  onEdit={onEdit}
-                  depth={1}
-                />
-              ))}
+            <div className="mt-2 relative pl-4">
+              {/* Left border line connecting all replies to parent */}
+              <div className="absolute left-0 top-0 bottom-0 flex flex-col items-center" aria-hidden>
+                <div className="w-px flex-1 bg-border/60" />
+              </div>
+              <div className="flex flex-col gap-2">
+                {(depth === 0
+                  ? (showAllSubReplies ? comment.replies : comment.replies.slice(0, SUB_REPLY_LIMIT))
+                  : comment.replies
+                ).map((reply) => (
+                  <CommentItem
+                    key={reply.id}
+                    comment={reply}
+                    currentUserId={currentUserId}
+                    postId={postId}
+                    onDelete={onDelete}
+                    onReply={onReply}
+                    onLikeToggle={onLikeToggle}
+                    onEdit={onEdit}
+                    depth={depth + 1}
+                    topLevelParentId={depth === 0 ? comment.id : topLevelParentId}
+                  />
+                ))}
+                {depth === 0 && comment.replies.length > SUB_REPLY_LIMIT && (
+                  <button
+                    onClick={() => setShowAllSubReplies((v) => !v)}
+                    className="text-[11px] font-semibold text-primary hover:underline self-start ml-9 mt-0.5"
+                  >
+                    {showAllSubReplies
+                      ? "Show less"
+                      : `View ${comment.replies.length - SUB_REPLY_LIMIT} more repl${comment.replies.length - SUB_REPLY_LIMIT === 1 ? "y" : "ies"}`}
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -1367,16 +1410,21 @@ export function PostCard({
 
           {/* ── Header ──────────────────────────────────────────────────── */}
           <div className="flex items-center gap-3 px-4 py-3">
-            <Avatar className="w-10 h-10 border-2 border-border flex-shrink-0">
-              <AvatarImage src={post.author.avatar} />
-              <AvatarFallback>{post.author.name[0]}</AvatarFallback>
-            </Avatar>
+            <Link to={post.author.username ? `/profile/${post.author.username.replace(/^@/, "")}` : "/profile"} className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary flex-shrink-0">
+              <Avatar className="w-10 h-10 border-2 border-border">
+                <AvatarImage src={post.author.avatar} />
+                <AvatarFallback>{post.author.name[0]}</AvatarFallback>
+              </Avatar>
+            </Link>
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h4 className="font-semibold text-sm hover:underline cursor-pointer leading-tight">
+                <Link
+                  to={post.author.username ? `/profile/${post.author.username.replace(/^@/, "")}` : "/profile"}
+                  className="font-semibold text-sm hover:underline cursor-pointer leading-tight"
+                >
                   {post.author.name}
-                </h4>
+                </Link>
                 {post.projectName && (
                   <Badge variant="secondary" className="text-xs rounded-md font-normal px-2 py-0 h-4">
                     {post.projectName}
