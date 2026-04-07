@@ -56,6 +56,7 @@ export const router = createBrowserRouter([
           { path: "roast", Component: Roast },
           { path: "roast/result", Component: RoastResult },
           { path: "profile", Component: Profile },
+          { path: "profile/:username", Component: Profile },
           { path: "friends", Component: Friends },
           { path: "projects", Component: Projects },
           { path: "project/:id", Component: ProjectDetail },

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useParams } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useQuery } from "@apollo/client/react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -84,6 +85,26 @@ const GET_USER_PROJECTS = gql`
   }
 `;
 
+const GET_PROFILE_BY_USERNAME = gql`
+  query GetProfileByUsername($username: String!) {
+    profile(username: $username) {
+      id
+      name
+      username
+      avatarUrl
+      bio
+      location
+      website
+      xp
+      followersCount
+      followingCount
+      postsCount
+      projectsCount
+      rank { name color }
+    }
+  }
+`;
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function timeAgo(dateString: string) {
@@ -135,14 +156,25 @@ type Tab = "posts" | "about" | "projects";
 
 export function Profile() {
   const { user } = useAuth();
+  const { username } = useParams<{ username?: string }>();
+  const isOtherUser = !!username;
   const [activeTab, setActiveTab] = useState<Tab>("posts");
 
-  const { data: meData, loading: meLoading } = useQuery(GET_ME, {
-    skip: !user,
+  // Own profile
+  const { data: meData, loading: loading } = useQuery(GET_ME, {
+    skip: !user || isOtherUser,
     fetchPolicy: "cache-and-network",
   });
 
-  const profile = meData?.me;
+  // Other user's profile
+  const { data: profileData, loading: profileLoading } = useQuery(GET_PROFILE_BY_USERNAME, {
+    skip: !isOtherUser,
+    variables: { username },
+    fetchPolicy: "cache-and-network",
+  });
+
+  const profile = isOtherUser ? profileData?.profile : meData?.me;
+  const loading  = isOtherUser ? profileLoading : loading;
 
   const { data: postsData, loading: postsLoading } = useQuery(GET_USER_POSTS, {
     skip: !profile?.id,
@@ -151,7 +183,7 @@ export function Profile() {
   });
 
   const { data: projectsData, loading: projectsLoading } = useQuery(GET_USER_PROJECTS, {
-    skip: !user,
+    skip: !user || isOtherUser,
     fetchPolicy: "cache-and-network",
   });
 
@@ -180,7 +212,7 @@ export function Profile() {
             <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 relative">
               {/* Profile Picture & Name */}
               <div className="flex flex-col sm:flex-row items-center sm:items-end gap-4 -mt-8 sm:-mt-16">
-                {meLoading ? (
+                {loading ? (
                   <ProfileHeaderSkeleton />
                 ) : (
                   <>
@@ -189,9 +221,11 @@ export function Profile() {
                         <AvatarImage src={profile?.avatarUrl} />
                         <AvatarFallback>{profile?.name?.[0] ?? user?.email?.[0]?.toUpperCase()}</AvatarFallback>
                       </Avatar>
-                      <Button size="icon" variant="secondary" className="absolute bottom-2 right-2 h-8 w-8 rounded-full bg-muted hover:bg-muted/80">
-                        <Camera className="w-4 h-4" strokeWidth={2} />
-                      </Button>
+                      {!isOtherUser && (
+                        <Button size="icon" variant="secondary" className="absolute bottom-2 right-2 h-8 w-8 rounded-full bg-muted hover:bg-muted/80">
+                          <Camera className="w-4 h-4" strokeWidth={2} />
+                        </Button>
+                      )}
                     </div>
                     <div className="text-center sm:text-left pb-4">
                       <h1 className="text-3xl font-bold">{profile?.name ?? user?.email}</h1>
@@ -211,17 +245,31 @@ export function Profile() {
 
               {/* Action Buttons */}
               <div className="flex gap-2 pb-4 justify-center sm:justify-start">
-                <Button size="sm" className="gap-2">
-                  <Edit className="w-4 h-4" strokeWidth={2} />
-                  Edit Profile
-                </Button>
-                <Button size="sm" variant="secondary" className="gap-2">
-                  <UserPlus className="w-4 h-4" strokeWidth={2} />
-                  Add Story
-                </Button>
-                <Button size="sm" variant="secondary">
-                  <MoreHorizontal className="w-4 h-4" strokeWidth={2} />
-                </Button>
+                {isOtherUser ? (
+                  <>
+                    <Button size="sm" className="gap-2">
+                      <UserPlus className="w-4 h-4" strokeWidth={2} />
+                      Follow
+                    </Button>
+                    <Button size="sm" variant="secondary">
+                      <MoreHorizontal className="w-4 h-4" strokeWidth={2} />
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button size="sm" className="gap-2">
+                      <Edit className="w-4 h-4" strokeWidth={2} />
+                      Edit Profile
+                    </Button>
+                    <Button size="sm" variant="secondary" className="gap-2">
+                      <UserPlus className="w-4 h-4" strokeWidth={2} />
+                      Add Story
+                    </Button>
+                    <Button size="sm" variant="secondary">
+                      <MoreHorizontal className="w-4 h-4" strokeWidth={2} />
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
 
@@ -254,7 +302,7 @@ export function Profile() {
                 <CardTitle className="text-base">Intro</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {meLoading ? (
+                {loading ? (
                   <div className="space-y-2">
                     <Skeleton className="h-3 w-full" />
                     <Skeleton className="h-3 w-4/5" />
@@ -354,7 +402,7 @@ export function Profile() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {meLoading ? (
+                {loading ? (
                   <div className="grid grid-cols-2 gap-3">
                     {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-12 rounded-md" />)}
                   </div>
@@ -417,7 +465,7 @@ export function Profile() {
               <Card className="border">
                 <CardHeader><CardTitle>About</CardTitle></CardHeader>
                 <CardContent className="space-y-6">
-                  {meLoading ? (
+                  {loading ? (
                     <div className="space-y-3">
                       <Skeleton className="h-3 w-full" />
                       <Skeleton className="h-3 w-4/5" />
