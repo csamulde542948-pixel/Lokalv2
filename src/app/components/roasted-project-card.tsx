@@ -1,16 +1,23 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router";
+import { useMutation } from "@apollo/client/react";
 import { Card, CardContent } from "./ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Badge } from "./ui/badge";
 import { Separator } from "./ui/separator";
 import {
-  ThumbsUp, MessageCircle, Share2, Flame, Check, Link as LinkIcon,
+  ThumbsUp, MessageCircle, Share2, Flame, Check, Link as LinkIcon, X as XIcon,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
+import { useAuth } from "../../contexts/AuthContext";
+import {
+  CommentData, CommentItem, CommentInput,
+  COMMENT_ON_POST, REPLY_TO_COMMENT, LIKE_COMMENT, UNLIKE_COMMENT,
+  EDIT_COMMENT, DELETE_COMMENT,
+} from "./post-card";
 
 // ─── Public Post shape (what the feed gives us) ───────────────────────────────
 export interface FeedPost {
@@ -36,6 +43,7 @@ export interface FeedPost {
   myReaction?: string | null;
   images?: string[];
   image?: string;
+  initialComments?: CommentData[];
 }
 
 // ─── Legacy static interface kept for backwards compatibility ─────────────────
@@ -107,6 +115,7 @@ const READ_MORE_THRESHOLD = 280;
 
 export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const p: FeedPost = isFeedPost(post) ? post : legacyToFeedPost(post as RoastedProject);
 
@@ -145,6 +154,34 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
   const sharesCount   = p.sharesCount  ?? p.shares  ?? 0;
   const [copied, setCopied] = useState(false);
 
+  // ── Comment state ──────────────────────────────────────────────────────────
+  const [localComments,     setLocalComments]     = useState<CommentData[]>(p.initialComments ?? []);
+  const [localCommentCount, setLocalCommentCount] = useState(commentsCount);
+  const [showComments,      setShowComments]      = useState(false);
+  const [replyingTo, setReplyingTo] = useState<{
+    id: string; name: string; visualParentId?: string; topLevelId?: string;
+  } | null>(null);
+  const replyInputRef = useRef<HTMLTextAreaElement>(null);
+  const cardInputRef  = useRef<HTMLTextAreaElement>(null);
+
+  const [commentOnPost]         = useMutation(COMMENT_ON_POST);
+  const [replyToComment]        = useMutation(REPLY_TO_COMMENT);
+  const [likeCommentMutation]   = useMutation(LIKE_COMMENT);
+  const [unlikeCommentMutation] = useMutation(UNLIKE_COMMENT);
+  const [editCommentMutation]   = useMutation(EDIT_COMMENT);
+  const [deleteCommentMutation] = useMutation(DELETE_COMMENT);
+
+  // Seed comments from server whenever they change (e.g. after refetch)
+  useEffect(() => {
+    if (p.initialComments && p.initialComments.length > 0) {
+      setLocalComments(p.initialComments);
+    }
+  }, [p.initialComments]);
+
+  useEffect(() => {
+    setLocalCommentCount(p.commentsCount ?? p.comments ?? 0);
+  }, [p.commentsCount, p.comments]);
+
   function toggleLike() {
     if (selectedReaction) {
       setSelectedReaction(null);
@@ -182,6 +219,199 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
       .writeText(projectUrl ?? `${window.location.origin}/posts/${p.id}`)
       .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
   }
+
+  // ── Comment handlers ───────────────────────────────────────────────────────
+  function openCommentBox() {
+    setShowComments(true);
+    setReplyingTo(null);
+    setTimeout(() => cardInputRef.current?.focus(), 50);
+  }
+
+  function startReply(parentId: string, parentName: string, visualParentId?: string, topLevelId?: string) {
+    setShowComments(true);
+    setReplyingTo({ id: parentId, name: parentName, visualParentId, topLevelId });
+    setTimeout(() => replyInputRef.current?.focus(), 50);
+  }
+
+  async function handleComment(text: string, mediaUrl?: string, mediaType?: string, mentions?: string[]) {
+    if (!text.trim() && !mediaUrl) return;
+    const temp: CommentData = {
+      id:          `temp-${Date.now()}`,
+      content:     text,
+      mediaUrl,
+      mediaType,
+      likesCount:  0,
+      likedByMe:   false,
+      myReaction:  null,
+      parentId:    null,
+      mentions:    mentions ?? [],
+      isEdited:    false,
+      editHistory: [],
+      createdAt:   new Date().toISOString(),
+      replies:     [],
+      author: {
+        id:        user!.id,
+        name:      user!.email?.split("@")[0] ?? "You",
+        username:  "you",
+        avatarUrl: undefined,
+      },
+    };
+    setLocalComments((prev) => [...prev, temp]);
+    setLocalCommentCount((v) => v + 1);
+    try {
+      const { data } = await commentOnPost({
+        variables: { input: { postId: p.id, content: text, mentions: mentions ?? [] } },
+      });
+      if (data?.commentOnPost) {
+        setLocalComments((prev) =>
+          prev.map((c) =>
+            c.id === temp.id ? { ...data.commentOnPost, mediaUrl, mediaType, replies: [] } : c
+          )
+        );
+      }
+    } catch {
+      setLocalComments((prev) => prev.filter((c) => c.id !== temp.id));
+      setLocalCommentCount((v) => Math.max(0, v - 1));
+    }
+  }
+
+  async function handleReply(text: string, _mediaUrl?: string, _mediaType?: string, mentions?: string[]) {
+    if (!text.trim() || !replyingTo) return;
+    const parentId      = replyingTo.id;
+    const visualParentId = replyingTo.visualParentId;
+    const topId          = replyingTo.topLevelId ?? parentId;
+    const temp: CommentData = {
+      id:          `temp-reply-${Date.now()}`,
+      content:     text,
+      likesCount:  0,
+      likedByMe:   false,
+      myReaction:  null,
+      parentId,
+      mentions:    mentions ?? [],
+      isEdited:    false,
+      editHistory: [],
+      createdAt:   new Date().toISOString(),
+      replies:     [],
+      author: {
+        id:        user!.id,
+        name:      user!.email?.split("@")[0] ?? "You",
+        username:  "you",
+        avatarUrl: undefined,
+      },
+    };
+    setLocalComments((prev) =>
+      prev.map((c) => {
+        if (!visualParentId) {
+          return c.id === parentId ? { ...c, replies: [...c.replies, temp] } : c;
+        }
+        if (c.id !== topId) return c;
+        return {
+          ...c,
+          replies: c.replies.map((r) =>
+            r.id === visualParentId ? { ...r, replies: [...r.replies, temp] } : r
+          ),
+        };
+      })
+    );
+    setLocalCommentCount((v) => v + 1);
+    setReplyingTo(null);
+    try {
+      const { data } = await replyToComment({
+        variables: { input: { postId: p.id, parentId, content: text, mentions: mentions ?? [] } },
+      });
+      if (data?.replyToComment) {
+        setLocalComments((prev) =>
+          prev.map((c) => {
+            if (!visualParentId) {
+              return c.id === parentId
+                ? { ...c, replies: c.replies.map((r) => r.id === temp.id ? { ...data.replyToComment, replies: [] } : r) }
+                : c;
+            }
+            if (c.id !== topId) return c;
+            return {
+              ...c,
+              replies: c.replies.map((r) =>
+                r.id === visualParentId
+                  ? { ...r, replies: r.replies.map((sr) => sr.id === temp.id ? { ...data.replyToComment, replies: [] } : sr) }
+                  : r
+              ),
+            };
+          })
+        );
+      }
+    } catch {
+      setLocalComments((prev) =>
+        prev.map((c) => {
+          if (!visualParentId) {
+            return c.id === parentId ? { ...c, replies: c.replies.filter((r) => r.id !== temp.id) } : c;
+          }
+          if (c.id !== topId) return c;
+          return {
+            ...c,
+            replies: c.replies.map((r) =>
+              r.id === visualParentId ? { ...r, replies: r.replies.filter((sr) => sr.id !== temp.id) } : r
+            ),
+          };
+        })
+      );
+      setLocalCommentCount((v) => Math.max(0, v - 1));
+    }
+  }
+
+  async function handleLikeComment(commentId: string, wasLiked: boolean, reaction?: string) {
+    try {
+      if (wasLiked) {
+        await unlikeCommentMutation({ variables: { commentId } });
+      } else {
+        await likeCommentMutation({ variables: { commentId, reaction: reaction ?? "Like" } });
+      }
+    } catch { /* optimistic already applied */ }
+  }
+
+  async function handleEditComment(commentId: string, newContent: string) {
+    const updateComment = (c: CommentData): CommentData => {
+      if (c.id === commentId) {
+        return {
+          ...c,
+          content: newContent,
+          isEdited: true,
+          editHistory: [{
+            id: `temp-edit-${Date.now()}`,
+            previousContent: c.content,
+            editedAt: new Date().toISOString(),
+          }, ...(c.editHistory ?? [])],
+        };
+      }
+      return { ...c, replies: c.replies.map(updateComment) };
+    };
+    setLocalComments((prev) => prev.map(updateComment));
+    try {
+      await editCommentMutation({ variables: { commentId, content: newContent } });
+    } catch {}
+  }
+
+  async function handleDeleteComment(id: string) {
+    const isTop = localComments.some((c) => c.id === id);
+    if (isTop) {
+      const comment = localComments.find((c) => c.id === id);
+      const replyCount = (comment?.replies ?? []).reduce((n, r) => n + 1 + r.replies.length, 0);
+      setLocalComments((prev) => prev.filter((c) => c.id !== id));
+      setLocalCommentCount((v) => Math.max(0, v - 1 - replyCount));
+    } else {
+      const isDepth1 = localComments.some((c) => c.replies.some((r) => r.id === id));
+      setLocalComments((prev) =>
+        prev.map((c) => ({
+          ...c,
+          replies: isDepth1
+            ? c.replies.filter((r) => r.id !== id)
+            : c.replies.map((r) => ({ ...r, replies: r.replies.filter((sr) => sr.id !== id) })),
+        }))
+      );
+      setLocalCommentCount((v) => Math.max(0, v - 1));
+    }
+    try { await deleteCommentMutation({ variables: { commentId: id } }); } catch {}
+  }
+  // ── End comment handlers ───────────────────────────────────────────────────
 
   const reactLabel = selectedReaction?.label ?? "Like";
   const reactColor = selectedReaction
@@ -312,7 +542,7 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
         </div>
 
         {/* ── Stats row ───────────────────────────────────────────────────── */}
-        {(optimisticLikes > 0 || commentsCount > 0 || sharesCount > 0) && (
+        {(optimisticLikes > 0 || localCommentCount > 0 || sharesCount > 0) && (
           <div className="px-4 py-2 flex items-center justify-between">
             {optimisticLikes > 0 ? (
               <span className="flex items-center gap-1 text-[12px] text-muted-foreground">
@@ -323,11 +553,14 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
               </span>
             ) : <span />}
             <div className="flex items-center gap-3">
-              {commentsCount > 0 && (
-                <span className="text-[12px] text-muted-foreground">
-                  {commentsCount.toLocaleString()}{" "}
-                  {commentsCount === 1 ? "comment" : "comments"}
-                </span>
+              {localCommentCount > 0 && (
+                <button
+                  onClick={openCommentBox}
+                  className="text-[12px] text-muted-foreground hover:underline"
+                >
+                  {localCommentCount.toLocaleString()}{" "}
+                  {localCommentCount === 1 ? "comment" : "comments"}
+                </button>
               )}
               {sharesCount > 0 && (
                 <span className="text-[12px] text-muted-foreground">
@@ -388,7 +621,10 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
           <div className="w-px bg-border self-stretch" />
 
           {/* Comment */}
-          <button className="flex-1 flex items-center justify-center gap-2 py-2 hover:bg-muted transition-colors text-muted-foreground hover:text-foreground font-medium text-[13px] rounded-none">
+          <button
+            onClick={openCommentBox}
+            className="flex-1 flex items-center justify-center gap-2 py-2 hover:bg-muted transition-colors text-muted-foreground hover:text-foreground font-medium text-[13px] rounded-none"
+          >
             <MessageCircle className="w-[18px] h-[18px]" strokeWidth={2} />
             <span>Comment</span>
           </button>
@@ -429,6 +665,54 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
           </DropdownMenu>
 
         </div>
+
+        {/* ── Comment section ──────────────────────────────────────────────── */}
+        {showComments && (
+          <div className="border-t bg-muted/10 px-4 py-3 space-y-3">
+            {localComments.map((comment) => (
+              <CommentItem
+                key={comment.id}
+                comment={comment}
+                currentUserId={user?.id}
+                postId={p.id}
+                onDelete={handleDeleteComment}
+                onReply={startReply}
+                onLikeToggle={handleLikeComment}
+                onEdit={handleEditComment}
+              />
+            ))}
+
+            {replyingTo && (
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground bg-muted rounded-lg px-3 py-1.5">
+                <span>
+                  Replying to{" "}
+                  <span className="font-semibold text-foreground">{replyingTo.name}</span>
+                </span>
+                <button onClick={() => setReplyingTo(null)} className="hover:text-foreground ml-2">
+                  <XIcon className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+
+            {replyingTo ? (
+              <CommentInput
+                user={user}
+                onSubmit={handleReply}
+                inputRef={replyInputRef}
+                autoFocus
+                placeholder={`Reply to ${replyingTo.name}…`}
+                initialText={`@${replyingTo.name.replace(/\s+/g, "")} `}
+              />
+            ) : (
+              <CommentInput
+                user={user}
+                onSubmit={handleComment}
+                inputRef={cardInputRef}
+              />
+            )}
+          </div>
+        )}
+
       </CardContent>
     </Card>
   );

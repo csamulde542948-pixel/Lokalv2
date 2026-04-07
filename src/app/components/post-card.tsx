@@ -21,7 +21,7 @@ import {
 import { useAuth } from "../../contexts/AuthContext";
 
 /* ─── GraphQL ─────────────────────────────────────────────────────────────── */
-const COMMENT_ON_POST = gql`
+export const COMMENT_ON_POST = gql`
   mutation CommentOnPost($input: CommentInput!) {
     commentOnPost(input: $input) {
       id content likesCount likedByMe myReaction parentId createdAt isEdited
@@ -31,7 +31,7 @@ const COMMENT_ON_POST = gql`
     }
   }
 `;
-const REPLY_TO_COMMENT = gql`
+export const REPLY_TO_COMMENT = gql`
   mutation ReplyToComment($input: ReplyInput!) {
     replyToComment(input: $input) {
       id content likesCount likedByMe myReaction parentId createdAt isEdited
@@ -41,17 +41,17 @@ const REPLY_TO_COMMENT = gql`
     }
   }
 `;
-const LIKE_COMMENT = gql`
+export const LIKE_COMMENT = gql`
   mutation LikeComment($commentId: ID!, $reaction: String) {
     likeComment(commentId: $commentId, reaction: $reaction) { id likesCount likedByMe myReaction }
   }
 `;
-const UNLIKE_COMMENT = gql`
+export const UNLIKE_COMMENT = gql`
   mutation UnlikeComment($commentId: ID!) {
     unlikeComment(commentId: $commentId) { id likesCount likedByMe myReaction }
   }
 `;
-const EDIT_COMMENT = gql`
+export const EDIT_COMMENT = gql`
   mutation EditComment($commentId: ID!, $content: String!) {
     editComment(commentId: $commentId, content: $content) {
       id content likesCount likedByMe myReaction parentId createdAt isEdited
@@ -60,7 +60,7 @@ const EDIT_COMMENT = gql`
     }
   }
 `;
-const DELETE_COMMENT = gql`
+export const DELETE_COMMENT = gql`
   mutation DeleteComment($commentId: ID!) { deleteComment(commentId: $commentId) }
 `;
 const DELETE_POST = gql`
@@ -104,7 +104,7 @@ const REACTIONS = [
 ];
 
 // Same set used for comment reactions
-const COMMENT_REACTIONS = REACTIONS;
+export const COMMENT_REACTIONS = REACTIONS;
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
 function timeAgo(d: string) {
@@ -402,13 +402,13 @@ function MediaGrid({ imgs }: { imgs: string[] }) {
 }
 
 /* ─── Internal comment shape ──────────────────────────────────────────────── */
-interface CommentEditEntry {
+export interface CommentEditEntry {
   id: string;
   previousContent: string;
   editedAt: string;
 }
 
-interface CommentData {
+export interface CommentData {
   id: string;
   content: string;
   mediaUrl?: string;
@@ -426,7 +426,7 @@ interface CommentData {
 }
 
 /* ─── CommentItem ─────────────────────────────────────────────────────────── */
-function CommentItem({
+export function CommentItem({
   comment,
   currentUserId,
   postId,
@@ -827,14 +827,14 @@ function CommentItem({
 }
 
 /* ─── CommentInput (shared by card + modal) ───────────────────────────────── */
-interface MentionUser {
+export interface MentionUser {
   id: string;
   name: string;
   username: string;
   avatarUrl?: string;
 }
 
-function CommentInput({
+export function CommentInput({
   user,
   onSubmit,
   inputRef,
