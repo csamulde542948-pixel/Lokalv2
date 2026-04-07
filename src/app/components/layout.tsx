@@ -14,6 +14,7 @@ import { MessagesPopover } from "./messages-popover";
 import { NotificationsPopover } from "./notifications-popover";
 import { ThemeToggle } from "./theme-toggle";
 import { useState } from "react";
+import { useChat } from "../../contexts/ChatContext";
 
 export function Layout() {
   const location = useLocation();
@@ -21,6 +22,7 @@ export function Layout() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+  const { totalUnread } = useChat();
 
   const isActive = (path: string) => {
     if (path === "/") {
@@ -154,12 +156,14 @@ export function Layout() {
                 }}
               >
                 <MessageSquare className="w-5 h-5" strokeWidth={2} />
-                <Badge 
-                  variant="destructive" 
-                  className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-[10px] rounded-full"
-                >
-                  2
-                </Badge>
+                {totalUnread > 0 && (
+                  <Badge
+                    variant="destructive"
+                    className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-[10px] rounded-full"
+                  >
+                    {totalUnread > 99 ? "99+" : totalUnread}
+                  </Badge>
+                )}
               </Button>
               <div className="h-6 w-px bg-border mx-1"></div>
               <Button 
