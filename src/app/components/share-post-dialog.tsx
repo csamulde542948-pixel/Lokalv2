@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { gql } from "@apollo/client/core";
 import { useMutation } from "@apollo/client/react";
-import { Globe, ChevronDown, Smile, X as XIcon, ImageIcon } from "lucide-react";
+import { Globe, ChevronDown, Smile, ImageIcon } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Button } from "./ui/button";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "./ui/dialog";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -113,12 +113,8 @@ export function SharePostDialog({ post, open, onOpenChange, onShared }: SharePos
       <DialogContent className="sm:max-w-[500px] p-0 overflow-hidden rounded-xl gap-0">
 
         {/* ── Header ──────────────────────────────────────────────────── */}
-        <DialogHeader className="px-4 pt-4 pb-3 border-b relative">
+        <DialogHeader className="px-4 pt-4 pb-3 border-b">
           <DialogTitle className="text-center text-base font-semibold">Share</DialogTitle>
-          <DialogClose className="absolute right-3 top-3 rounded-full w-8 h-8 flex items-center justify-center bg-muted hover:bg-muted/80 transition-colors">
-            <XIcon className="w-4 h-4" />
-            <span className="sr-only">Close</span>
-          </DialogClose>
         </DialogHeader>
 
         {/* ── Body ────────────────────────────────────────────────────── */}

@@ -97,5 +97,23 @@ export const notificationResolvers = {
     actor: async (parent: { actorId: string }, _: unknown, { loaders }: GraphQLContext) => {
       return loaders.profileLoader.load(parent.actorId);
     },
+    // Resolve entityId: prefer postId, then projectId, then raw entityId
+    entityId: (parent: { postId?: string | null; projectId?: string | null; entityId?: string | null }) => {
+      return parent.postId ?? parent.projectId ?? parent.entityId ?? null;
+    },
+    // Ensure message is never null (fallback to empty string)
+    message: (parent: { message?: string | null; type: string }) => {
+      if (parent.message) return parent.message;
+      switch (parent.type) {
+        case "LIKE":               return "liked your post";
+        case "COMMENT":            return "commented on your post";
+        case "FOLLOW":             return "started following you";
+        case "MENTION":            return "mentioned you in a comment";
+        case "PROJECT_ROAST":      return "roasted your project";
+        case "XP_LEVELUP":         return "You leveled up!";
+        case "LAUNCHPAD_INTEREST": return "is interested in your launch";
+        default:                   return "sent you a notification";
+      }
+    },
   },
 };

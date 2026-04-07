@@ -20,6 +20,7 @@ export function Layout() {
   const [showMessages, setShowMessages] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
 
   const isActive = (path: string) => {
     if (path === "/") {
@@ -134,12 +135,14 @@ export function Layout() {
                 }}
               >
                 <Bell className="w-5 h-5" strokeWidth={2} />
-                <Badge 
-                  variant="destructive" 
-                  className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-[10px] rounded-full"
-                >
-                  3
-                </Badge>
+                {unreadNotifCount > 0 && (
+                  <Badge 
+                    variant="destructive" 
+                    className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-[10px] rounded-full"
+                  >
+                    {unreadNotifCount > 99 ? "99+" : unreadNotifCount}
+                  </Badge>
+                )}
               </Button>
               <Button 
                 variant="ghost" 
@@ -346,7 +349,8 @@ export function Layout() {
       />
       <NotificationsPopover 
         isOpen={showNotifications} 
-        onClose={() => setShowNotifications(false)} 
+        onClose={() => setShowNotifications(false)}
+        onUnreadCount={setUnreadNotifCount}
       />
     </div>
   );
