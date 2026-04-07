@@ -14,6 +14,7 @@ import {
   CommentData, CommentItem, CommentInput,
   COMMENT_ON_POST, REPLY_TO_COMMENT, LIKE_COMMENT, UNLIKE_COMMENT,
   EDIT_COMMENT, DELETE_COMMENT,
+  SharedPostPreview, OriginalPost,
 } from "./post-card";
 import { SharePostDialog } from "./share-post-dialog";
 
@@ -42,6 +43,7 @@ export interface FeedPost {
   images?: string[];
   image?: string;
   initialComments?: CommentData[];
+  originalPost?: OriginalPost | null;
 }
 
 // ─── Legacy static interface kept for backwards compatibility ─────────────────
@@ -121,7 +123,7 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
   const authorUsername = p.author.username.startsWith("@") ? p.author.username : `@${p.author.username}`;
   const authorAvatar   = p.author.avatar ?? (p.author as any).avatarUrl;
   const projectName    = p.projectName ?? "Unknown Project";
-  const roastText      = p.content;
+  const roastText      = p.content.replace(/\[shared:[^\]]+\]/g, "").trim();
   const timestamp      = p.timestamp ?? "";
   const coverImage     = p.images?.[0] ?? p.image;
   const projectUrl     = extractUrl(roastText) ?? undefined;
@@ -517,6 +519,12 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
               >
                 {expanded ? "Show less" : "Read more"}
               </button>
+            )}
+            {/* Nested original post preview for shared roast posts */}
+            {p.originalPost && (
+              <div className="mt-3">
+                <SharedPostPreview post={p.originalPost} />
+              </div>
             )}
             {displayTags.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-3">

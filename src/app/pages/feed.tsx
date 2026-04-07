@@ -41,6 +41,20 @@ const GET_FEED = gql`
           id
           name
         }
+        originalPost {
+          id
+          content
+          imageUrl
+          imageUrls
+          projectName
+          createdAt
+          author {
+            id
+            name
+            username
+            avatarUrl
+          }
+        }
         comments(limit: 10) {
           id
           content
@@ -125,6 +139,20 @@ const CREATE_POST_MUTATION = gql`
       tags {
         id
         name
+      }
+      originalPost {
+        id
+        content
+        imageUrl
+        imageUrls
+        projectName
+        createdAt
+        author {
+          id
+          name
+          username
+          avatarUrl
+        }
       }
       comments(limit: 10) {
         id
@@ -481,6 +509,22 @@ function adaptPost(p: any) {
     postType: (p.postType ?? "post") as "post" | "roast",
     tags: p.tags ?? [],
     initialComments: (p.comments ?? []).map(adaptComment),
+    originalPost: p.originalPost
+      ? {
+          id: p.originalPost.id,
+          content: p.originalPost.content,
+          imageUrl: p.originalPost.imageUrl,
+          imageUrls: p.originalPost.imageUrls ?? [],
+          projectName: p.originalPost.projectName ?? undefined,
+          createdAt: p.originalPost.createdAt,
+          author: {
+            id: p.originalPost.author?.id,
+            name: p.originalPost.author?.name ?? "Unknown",
+            username: p.originalPost.author?.username ?? "",
+            avatarUrl: p.originalPost.author?.avatarUrl,
+          },
+        }
+      : null,
   };
 }
 

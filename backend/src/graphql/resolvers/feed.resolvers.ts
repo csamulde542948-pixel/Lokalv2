@@ -316,26 +316,35 @@ export const feedResolvers = {
     ) => {
       if (!user) throw new Error("Unauthorized");
 
-      // Get original post to embed in the new post's content
-      const original = await prisma.post.findUniqueOrThrow({
+      // Get the post being shared — could itself be a share
+      const targetPost = await prisma.post.findUniqueOrThrow({
         where: { id: postId },
         include: { author: true },
       });
 
-      // Build the share content: optional message + reference marker
-      const shareContent = [
-        message?.trim() ?? "",
-        `[shared:${postId}]`,
-      ].filter(Boolean).join("\n");
+      // Resolve the ROOT original post (flatten share chains).
+      // If User A shares Post X → originalPostId = X
+      // If User B shares User A's share → originalPostId = X  (not A's post)
+      const rootOriginalId: string = targetPost.originalPostId ?? postId;
+
+      // Fetch the root original for building content
+      const rootOriginal = rootOriginalId === postId
+        ? targetPost
+        : await prisma.post.findUniqueOrThrow({
+            where: { id: rootOriginalId },
+            include: { author: true },
+          });
+
+      // Build the share content: optional user message only (no `[shared:...]` marker)
+      const shareContent = message?.trim() ?? "";
 
       // Create new post in sharer's feed
       const newPost = await prisma.post.create({
         data: {
           authorId: user.id,
           content: shareContent,
-          imageUrls: original.imageUrls,
-          imageUrl: original.imageUrl,
-          projectName: original.projectName,
+          // No images / projectName on the share post itself — original is embedded via originalPost
+          originalPostId: rootOriginalId,
         },
         include: {
           author: { include: { rank: true } },
@@ -343,20 +352,20 @@ export const feedResolvers = {
         },
       });
 
-      // Increment sharesCount on original post
+      // Increment sharesCount on the ROOT original post
       await prisma.post.update({
-        where: { id: postId },
+        where: { id: rootOriginalId },
         data: { sharesCount: { increment: 1 } },
       });
 
-      // Notify original author (not for self-shares)
-      if (original.authorId !== user.id) {
+      // Notify root original author (not for self-shares)
+      if (rootOriginal.authorId !== user.id) {
         prisma.notification.create({
           data: {
-            recipientId: original.authorId,
+            recipientId: rootOriginal.authorId,
             actorId: user.id,
             type: "LIKE",   // closest available type; no POST_SHARE in enum yet
-            postId: postId,
+            postId: rootOriginalId,
           },
         }).catch(console.error);
       }
@@ -624,6 +633,18 @@ export const feedResolvers = {
       if (parent.imageUrls && parent.imageUrls.length > 0) return parent.imageUrls;
       if (parent.imageUrl) return [parent.imageUrl];
       return [];
+    },
+
+    // Resolve the root original post for shared posts
+    originalPost: async (parent: { originalPostId?: string | null }, _: unknown, { prisma }: GraphQLContext) => {
+      if (!parent.originalPostId) return null;
+      return prisma.post.findUnique({
+        where: { id: parent.originalPostId },
+        include: {
+          author: { include: { rank: true } },
+          tags: { include: { tag: true } },
+        },
+      });
     },
 
     postType: async (parent: { id: string; tags?: any[] }, _: unknown, { prisma }: GraphQLContext) => {

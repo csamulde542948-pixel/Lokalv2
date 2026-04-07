@@ -69,6 +69,16 @@ const DELETE_POST = gql`
 `;
 
 /* ─── Types ───────────────────────────────────────────────────────────────── */
+export interface OriginalPost {
+  id: string;
+  author: { id?: string; name: string; username: string; avatarUrl?: string };
+  content: string;
+  imageUrl?: string;
+  imageUrls?: string[];
+  projectName?: string;
+  createdAt?: string;
+}
+
 export interface Post {
   id: string;
   author: { id?: string; name: string; avatar: string; username: string };
@@ -84,6 +94,7 @@ export interface Post {
   myReaction?: string | null;
   tags?: { id: string | number; name: string }[];
   initialComments?: CommentData[];
+  originalPost?: OriginalPost | null;
 }
 
 interface PostCardProps {
@@ -399,6 +410,61 @@ function MediaGrid({ imgs }: { imgs: string[] }) {
         </div>
       )}
     </>
+  );
+}
+
+/* ─── SharedPostPreview ──────────────────────────────────────────────────── */
+// Renders the original post as a nested card inside a share post.
+// Intentionally NOT recursive — always shows only one level deep.
+export function SharedPostPreview({ post }: { post: OriginalPost }) {
+  const coverImage = post.imageUrls?.[0] ?? post.imageUrl;
+  const profileHref = post.author.username
+    ? `/profile/${post.author.username.replace(/^@/, "")}`
+    : "/profile";
+
+  // Strip any residual [shared:...] markers from old posts
+  const cleanContent = post.content.replace(/\[shared:[^\]]+\]/g, "").trim();
+
+  return (
+    <div className="border rounded-xl overflow-hidden bg-muted/20 hover:bg-muted/30 transition-colors">
+      {/* Cover image */}
+      {coverImage && (
+        <div className="w-full max-h-60 overflow-hidden">
+          <img
+            src={coverImage}
+            alt=""
+            className="w-full object-cover"
+            style={{ maxHeight: 240 }}
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+          />
+        </div>
+      )}
+
+      <div className="px-3 py-2.5">
+        {/* Author row */}
+        <Link to={profileHref} className="flex items-center gap-2 mb-1.5 group">
+          <Avatar className="w-6 h-6 flex-shrink-0">
+            <AvatarImage src={post.author.avatarUrl} />
+            <AvatarFallback className="text-[9px]">{post.author.name?.[0]}</AvatarFallback>
+          </Avatar>
+          <div className="min-w-0">
+            <span className="text-xs font-semibold leading-tight group-hover:underline">
+              {post.author.name}
+            </span>
+            {post.projectName && (
+              <span className="text-[10px] text-muted-foreground ml-1.5">· {post.projectName}</span>
+            )}
+          </div>
+        </Link>
+
+        {/* Content */}
+        {cleanContent && (
+          <p className="text-sm text-foreground leading-snug line-clamp-4 whitespace-pre-wrap">
+            {cleanContent}
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1525,8 +1591,18 @@ export function PostCard({
           </div>
 
           {/* ── Content ─────────────────────────────────────────────────── */}
-          <div className="px-4 pb-3">
-            <p className="whitespace-pre-wrap text-sm leading-relaxed">{post.content}</p>
+          <div className="px-4 pb-3 space-y-2.5">
+            {/* Strip any legacy [shared:...] markers from the visible text */}
+            {(() => {
+              const clean = post.content.replace(/\[shared:[^\]]+\]/g, "").trim();
+              return clean ? (
+                <p className="whitespace-pre-wrap text-sm leading-relaxed">{clean}</p>
+              ) : null;
+            })()}
+            {/* Nested original post preview (Facebook-style share) */}
+            {post.originalPost && (
+              <SharedPostPreview post={post.originalPost} />
+            )}
           </div>
 
           {/* ── Tags ────────────────────────────────────────────────────── */}
