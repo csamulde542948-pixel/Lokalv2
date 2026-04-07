@@ -111,14 +111,15 @@ interface PostCardProps {
   onNotInterested?: (postId: string) => void;
 }
 
-/* ─── Reactions ───────────────────────────────────────────────────────────── */
+/* ─── Reactions (Facebook-style + Fire) ────────────────────────────────────── */
 const REACTIONS = [
-  { emoji: "❤️", label: "Love",      color: "text-red-500"    },
-  { emoji: "👍", label: "Like",      color: "text-blue-500"   },
-  { emoji: "🔥", label: "Fire",      color: "text-orange-500" },
-  { emoji: "🚀", label: "Rocket",    color: "text-purple-500" },
-  { emoji: "😮", label: "Wow",       color: "text-yellow-500" },
-  { emoji: "🎉", label: "Celebrate", color: "text-green-500"  },
+  { emoji: "👍", label: "Like",  color: "text-blue-500"   },
+  { emoji: "❤️", label: "Love",  color: "text-red-500"    },
+  { emoji: "�", label: "Haha",  color: "text-yellow-500" },
+  { emoji: "�", label: "Wow",   color: "text-yellow-500" },
+  { emoji: "�", label: "Sad",   color: "text-blue-400"   },
+  { emoji: "😡", label: "Angry", color: "text-orange-600" },
+  { emoji: "🔥", label: "Fire",  color: "text-orange-500" },
 ];
 
 // Same set used for comment reactions

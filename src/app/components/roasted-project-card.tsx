@@ -103,12 +103,13 @@ function getFaviconUrl(url: string): string {
 }
 
 const REACTIONS = [
-  { emoji: "👍", label: "Like",  color: "text-blue-500" },
-  { emoji: "❤️",  label: "Love",  color: "text-red-500" },
-  { emoji: "🔥",  label: "Fire",  color: "text-orange-500" },
-  { emoji: "😂",  label: "Haha",  color: "text-yellow-500" },
-  { emoji: "😮",  label: "Wow",   color: "text-yellow-500" },
-  { emoji: "😢",  label: "Sad",   color: "text-blue-400" },
+  { emoji: "👍", label: "Like",  color: "text-blue-500"   },
+  { emoji: "❤️", label: "Love",  color: "text-red-500"    },
+  { emoji: "�", label: "Haha",  color: "text-yellow-500" },
+  { emoji: "�", label: "Wow",   color: "text-yellow-500" },
+  { emoji: "�", label: "Sad",   color: "text-blue-400"   },
+  { emoji: "😡", label: "Angry", color: "text-orange-600" },
+  { emoji: "�", label: "Fire",  color: "text-orange-500" },
 ];
 
 const READ_MORE_THRESHOLD = 280;
