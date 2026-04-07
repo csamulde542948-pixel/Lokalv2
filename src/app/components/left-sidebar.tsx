@@ -1,7 +1,22 @@
-import { Card, CardContent } from "./ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
+import { Skeleton } from "./ui/skeleton";
 import { User, Users, FolderKanban, BarChart3, Settings, Rocket, Flame, Trophy, Sparkles, Shield, Briefcase, Calendar } from "lucide-react";
 import { Link, useLocation } from "react-router";
+import { gql } from "@apollo/client/core";
+import { useQuery } from "@apollo/client/react";
+import { useAuth } from "../../contexts/AuthContext";
+
+const GET_ME_SIDEBAR = gql`
+  query GetMeSidebar {
+    me {
+      id
+      name
+      username
+      avatarUrl
+      rank { name color }
+    }
+  }
+`;
 
 interface LeftSidebarProps {
   className?: string;
@@ -106,19 +121,35 @@ const menuItems = [
 
 export function LeftSidebar({ className = "" }: LeftSidebarProps) {
   const location = useLocation();
+  const { user } = useAuth();
+  const { data: meData, loading: meLoading } = useQuery(GET_ME_SIDEBAR, {
+    skip: !user,
+    fetchPolicy: "cache-first",
+  });
+  const me = meData?.me;
 
   return (
     <aside className={`w-64 p-4 space-y-4 ${className}`}>
       {/* User Profile Card */}
       <Link to="/profile">
         <div className="flex items-center gap-3 p-2 rounded-md hover:bg-muted cursor-pointer transition-colors">
-          <Avatar className="w-8 h-8 border-2 border-border">
-            <AvatarImage src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop" />
-            <AvatarFallback>ME</AvatarFallback>
-          </Avatar>
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold text-sm truncate">Your Name</p>
-          </div>
+          {meLoading ? (
+            <>
+              <Skeleton className="w-8 h-8 rounded-full flex-shrink-0" />
+              <Skeleton className="h-3 w-24" />
+            </>
+          ) : (
+            <>
+              <Avatar className="w-8 h-8 border-2 border-border flex-shrink-0">
+                <AvatarImage src={me?.avatarUrl ?? undefined} />
+                <AvatarFallback>{(me?.name ?? user?.email ?? "?")[0].toUpperCase()}</AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm truncate">{me?.name ?? user?.email ?? "You"}</p>
+                {me?.username && <p className="text-xs text-muted-foreground truncate">@{me.username}</p>}
+              </div>
+            </>
+          )}
         </div>
       </Link>
 
