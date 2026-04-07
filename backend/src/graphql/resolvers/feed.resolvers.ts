@@ -23,13 +23,23 @@ export const feedResolvers = {
      */
     feed: async (
       _: unknown,
-      { limit = 20, offset = 0, seenIds = [] }: { limit?: number; offset?: number; seenIds?: string[] },
+      { limit = 20, offset = 0, seenIds = [], feedVariant }: { limit?: number; offset?: number; seenIds?: string[]; feedVariant?: string },
       { user, prisma }: GraphQLContext
     ) => {
       // Unauthenticated users get the explore feed
       if (!user) {
         return exploreFeed(limit, offset, prisma);
       }
+
+      // A/B testing: 10% of requests get chronological variant
+      const resolvedVariant: "ranked" | "chronological" =
+        feedVariant === "chronological"
+          ? "chronological"
+          : feedVariant === "ranked"
+            ? "ranked"
+            : Math.random() < 0.10
+              ? "chronological"
+              : "ranked";
 
       // 1. Get raw activities from GetStream
       const rawActivities = await getRawFeed(user.id, limit + 10, offset);
@@ -86,16 +96,13 @@ export const feedResolvers = {
         }),
       ]);
 
-      const affinityMap = new Map(
-        userTagAffinities.map((a: any) => [a.tagName, a.score])
-      );
       const followingSet = new Set(userFollows.map((f: any) => f.followingId));
 
       // Collect unique author IDs from posts for affinity lookup
       const authorIds = [...new Set(posts.map((p: any) => p.authorId))];
 
-      // Social proof + author affinity queries (run in parallel)
-      const [mutualLikeResults, authorAffinities] = await Promise.all([
+      // Social proof + author affinity + embeddings + dwell queries (run in parallel)
+      const [mutualLikeResults, authorAffinities, semanticScores, avgDwellResults] = await Promise.all([
         followingSet.size > 0
           ? prisma.postLike.findMany({
               where: {
@@ -112,6 +119,38 @@ export const feedResolvers = {
           },
           select: { authorId: true, score: true },
         }),
+        // Semantic relevance: cosine similarity between user's interestEmbedding and post contentEmbeddings
+        // Uses pgvector <=> operator (cosine distance). Returns 1 - distance = similarity.
+        (async () => {
+          try {
+            const result: { post_id: string; similarity: number }[] = await prisma.$queryRawUnsafe(`
+              SELECT p.id AS post_id,
+                     1 - (p."contentEmbedding" <=> prof."interestEmbedding") AS similarity
+              FROM posts p, profiles prof
+              WHERE prof.id = $1
+                AND prof."interestEmbedding" IS NOT NULL
+                AND p."contentEmbedding" IS NOT NULL
+                AND p.id = ANY($2::text[])
+            `, user.id, freshPostIds);
+            return result;
+          } catch {
+            return [];
+          }
+        })(),
+        // Average dwell time per post from PostView table
+        (async () => {
+          try {
+            const result: { postId: string; avgDwell: number }[] = await prisma.$queryRawUnsafe(`
+              SELECT "postId", AVG("dwellMs")::float AS "avgDwell"
+              FROM post_views
+              WHERE "postId" = ANY($1::text[])
+              GROUP BY "postId"
+            `, freshPostIds);
+            return result;
+          } catch {
+            return [];
+          }
+        })(),
       ]);
 
       const socialProofMap = new Map<string, number>();
@@ -125,12 +164,35 @@ export const feedResolvers = {
         authorAffinityMap.set(aff.authorId, sigmoidNormalize(aff.score));
       }
 
+      // Semantic relevance map: postId → 0–1 cosine similarity
+      const semanticMap = new Map<string, number>();
+      for (const row of semanticScores) {
+        const sim = Math.max(0, Math.min(1, (row as any).similarity ?? 0));
+        semanticMap.set((row as any).post_id, sim);
+      }
+
+      // Average dwell time map: postId → avgDwellMs
+      const dwellMap = new Map<string, number>();
+      for (const row of avgDwellResults) {
+        dwellMap.set((row as any).postId, (row as any).avgDwell ?? 0);
+      }
+
+      // Tag affinity decay: apply 0.95^daysSinceLastEngagement to raw affinity scores
+      const now = Date.now();
+      const decayedAffinityMap = new Map<string, number>();
+      for (const aff of userTagAffinities as any[]) {
+        const daysSinceUpdate = (now - new Date(aff.updatedAt).getTime()) / (1000 * 60 * 60 * 24);
+        const decayedScore = aff.score * Math.pow(0.95, daysSinceUpdate);
+        decayedAffinityMap.set(aff.tagName, decayedScore);
+      }
+
       // 3. Build signals for each post
       const signals: (PostSignals & { post: any })[] = posts.map((post: any) => {
         const postTagNames = post.tags.map((pt: any) => pt.tag.name);
+        // Use decayed tag affinity scores (recency-aware)
         const tagAffinityScore =
           postTagNames.reduce(
-            (sum: number, tag: string) => sum + ((affinityMap.get(tag) as number) ?? 0),
+            (sum: number, tag: string) => sum + ((decayedAffinityMap.get(tag) as number) ?? 0),
             0
           ) / Math.max(postTagNames.length, 1);
 
@@ -157,6 +219,9 @@ export const feedResolvers = {
           isFromFollowing: followingSet.has(post.authorId),
           authorAffinityScore: authorAffinityMap.get(post.authorId) ?? 0,
           postType: detectedPostType,
+          semanticRelevance: semanticMap.get(post.id) ?? 0,
+          avgDwellMs: dwellMap.get(post.id) ?? 0,
+          feedVariant: resolvedVariant,
         };
       });
 
@@ -198,7 +263,7 @@ export const feedResolvers = {
               const postTagNames = post.tags.map((pt: any) => pt.tag.name);
               const tagAff =
                 postTagNames.reduce(
-                  (sum: number, tag: string) => sum + ((affinityMap.get(tag) as number) ?? 0),
+                  (sum: number, tag: string) => sum + ((decayedAffinityMap.get(tag) as number) ?? 0),
                   0
                 ) / Math.max(postTagNames.length, 1);
 
@@ -224,6 +289,9 @@ export const feedResolvers = {
                 isFromFollowing: false,
                 authorAffinityScore: authorAffinityMap.get(post.authorId) ?? 0,
                 postType: detectedType,
+                semanticRelevance: semanticMap.get(post.id) ?? 0,
+                avgDwellMs: dwellMap.get(post.id) ?? 0,
+                feedVariant: resolvedVariant,
               };
             });
           }
@@ -249,6 +317,7 @@ export const feedResolvers = {
         posts: rankedPosts.slice(0, limit),
         hasMore: rankedPosts.length > limit,
         nextOffset: offset + limit,
+        feedVariant: resolvedVariant,
       };
     },
 
@@ -418,6 +487,7 @@ export const feedResolvers = {
       if (!existing) {
         updateAuthorAffinity(user.id, post.authorId, "likeCount", prisma).catch(console.error);
         updateTagAffinitiesOnEngagement(user.id, postId, 0.1, prisma).catch(console.error);
+        logInteraction(prisma, user.id, post.authorId, postId, "POST_LIKE", 1.0);
       }
 
       // Notify post author
@@ -523,6 +593,7 @@ export const feedResolvers = {
       // Track author affinity + tag affinity for feed ranking
       updateAuthorAffinity(user.id, rootOriginal.authorId, "shareCount", prisma).catch(console.error);
       updateTagAffinitiesOnEngagement(user.id, rootOriginalId, 0.3, prisma).catch(console.error);
+      logInteraction(prisma, user.id, rootOriginal.authorId, rootOriginalId, "POST_SHARE", 3.0);
 
       return newPost;
     },
@@ -562,6 +633,7 @@ export const feedResolvers = {
       // Track author affinity + tag affinity for feed ranking
       updateAuthorAffinity(user.id, comment.post.authorId, "commentCount", prisma).catch(console.error);
       updateTagAffinitiesOnEngagement(user.id, input.postId, 0.2, prisma).catch(console.error);
+      logInteraction(prisma, user.id, comment.post.authorId, input.postId, "POST_COMMENT", 2.0);
 
       // Award XP to post author
       awardXp(comment.post.authorId, "RECEIVE_COMMENT").catch(console.error);
@@ -787,19 +859,20 @@ export const feedResolvers = {
      */
     recordPostView: async (
       _: unknown,
-      { postId, dwellMs, source = "feed" }: { postId: string; dwellMs: number; source?: string },
+      { postId, dwellMs, source = "feed", feedVariant }: { postId: string; dwellMs: number; source?: string; feedVariant?: string },
       { user, prisma }: GraphQLContext
     ) => {
       if (!user) return false;
 
       try {
-        // 1. Record the view
+        // 1. Record the view (with feedVariant for A/B analysis)
         await prisma.postView.create({
           data: {
             postId,
             viewerId: user.id,
             dwellMs: Math.min(dwellMs, 300_000), // cap at 5 min
             source,
+            ...(feedVariant ? { feedVariant } : {}),
           },
         });
 
@@ -812,6 +885,9 @@ export const feedResolvers = {
 
         // 3. Update author affinity (async, don't block response)
         updateAuthorAffinity(user.id, post.authorId, "viewCount", prisma).catch(console.error);
+
+        // 3b. Log to UserInteraction table
+        logInteraction(prisma, user.id, post.authorId, postId, "PROFILE_VIEW", 0.2);
 
         // 4. Update tag affinity based on dwell time
         // Only meaningful if user dwelled ≥ 2 seconds
@@ -1040,6 +1116,25 @@ export const feedResolvers = {
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
+
+/**
+ * Log a user interaction to the UserInteraction table.
+ * Fire-and-forget — never blocks the response.
+ */
+function logInteraction(
+  prisma: any,
+  fromId: string,
+  toId: string | null,
+  entityId: string | null,
+  type: string,
+  weight: number = 1.0
+) {
+  prisma.userInteraction
+    .create({
+      data: { fromId, toId, entityId, type, weight },
+    })
+    .catch((err: any) => console.error("[logInteraction]", type, err));
+}
 
 async function exploreFeed(
   limit: number,

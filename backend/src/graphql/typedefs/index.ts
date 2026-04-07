@@ -218,6 +218,7 @@ export const typeDefs = gql`
     posts: [Post!]!
     hasMore: Boolean!
     nextOffset: Int!
+    feedVariant: String          # "ranked" | "chronological" — A/B test variant
   }
 
   # =============================================
@@ -492,7 +493,7 @@ export const typeDefs = gql`
     suggestedUsers(limit: Int): [Profile!]!
 
     # Feed (ranked + personalized)
-    feed(limit: Int, offset: Int, seenIds: [ID!]): FeedResult!
+    feed(limit: Int, offset: Int, seenIds: [ID!], feedVariant: String): FeedResult!
     exploreFeed(limit: Int, offset: Int): FeedResult!
 
     # Posts
@@ -664,7 +665,7 @@ export const typeDefs = gql`
     deleteProfilePhoto(photoId: ID!): Boolean!
 
     # Feed ranking signals
-    recordPostView(postId: ID!, dwellMs: Int!, source: String): Boolean!
+    recordPostView(postId: ID!, dwellMs: Int!, source: String, feedVariant: String): Boolean!
     markNotInterestedInPost(postId: ID!): Boolean!
   }
 

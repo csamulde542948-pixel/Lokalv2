@@ -799,6 +799,7 @@ model PostView {
   viewerId  String   @db.Uuid
   dwellMs   Int      // milliseconds the post was in viewport
   source    String   @default("feed") @db.VarChar(30) // "feed" | "explore" | "profile" | "direct"
+  feedVariant String?  @db.VarChar(20) // "ranked" | "chronological" — A/B testing
   createdAt DateTime @default(now())
 
   post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)

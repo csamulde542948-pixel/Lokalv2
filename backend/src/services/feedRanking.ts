@@ -1,20 +1,20 @@
 /**
- * Lokal Feed Ranking Service — Phase 2
- * ─────────────────────────────────────
+ * Lokal Feed Ranking Service — Phase 2.5 (Critical Gap Fixes)
+ * ─────────────────────────────────────────────────────────────
  * Facebook-inspired scoring pipeline:
  *
  * Stage 1: GetStream delivers raw candidate activities (done in resolvers)
  * Stage 2: Collect signals per post
  * Stage 3: Score each post
- * Stage 4: Diversity pass (no 2 posts from same author in top 5, mix types)
+ * Stage 4: Diversity pass (author + type diversification)
  * Stage 5: Return ranked list
  *
- * Phase 2 improvements:
- * - Additive baseline so brand-new 0-engagement posts don't score 0
- * - 24h half-life time decay (dev communities check ~once/day)
- * - Engagement velocity signal (trending detection)
- * - Sigmoid normalization for author affinity
- * - Negative signal support (notInterested penalty)
+ * Improvements over Phase 2:
+ * - Semantic relevance via pgvector embeddings (cosine similarity)
+ * - Dwell-time quality signal from PostView data
+ * - Content-type diversification in diversity pass
+ * - Tag affinity decay based on recency
+ * - A/B testing support (feedVariant)
  */
 
 export interface PostSignals {
@@ -31,6 +31,9 @@ export interface PostSignals {
   authorAffinityScore: number;  // composite author affinity (sigmoid-normalized 0–1)
   postType: "post" | "roast" | "project" | "event";
   notInterested?: boolean;      // user explicitly marked "not interested"
+  semanticRelevance?: number;   // 0–1 cosine similarity between user interest & post embedding
+  avgDwellMs?: number;          // average dwell time across all viewers (quality signal)
+  feedVariant?: "ranked" | "chronological"; // A/B test variant
 }
 
 const TYPE_MULTIPLIER: Record<PostSignals["postType"], number> = {
@@ -99,14 +102,33 @@ export function sigmoidNormalize(raw: number, midpoint = 15, steepness = 0.15): 
 }
 
 /**
+ * Dwell-time quality multiplier — maps average dwell time to 1.0–2.0x.
+ * Posts that people actually read/watch (high dwell) are higher quality.
+ * Below 1s → 1.0x (barely glanced), 5s → 1.3x, 15s+ → ~2.0x
+ */
+function dwellQualityMultiplier(avgDwellMs?: number): number {
+  if (!avgDwellMs || avgDwellMs <= 0) return 1.0;
+  const avgDwellSec = avgDwellMs / 1000;
+  // Sigmoid: midpoint at 8 seconds, steepness 0.3
+  return 1.0 + 1.0 / (1.0 + Math.exp(-0.3 * (avgDwellSec - 8)));
+}
+
+/**
  * Core scoring function.
  * Returns a float score — higher is better.
  *
- * KEY FIX (Phase 2): Uses an additive baseline (1.0) so that a brand-new post
+ * Uses an additive baseline (1.0) so that a brand-new post
  * with 0 likes/comments/shares doesn't score 0. This ensures context signals
  * (author affinity, tag relevance, etc.) still surface fresh content.
+ *
+ * Phase 2.5 additions:
+ * - Semantic relevance from embedding cosine similarity (1.0–2.0x)
+ * - Dwell-time quality signal (1.0–2.0x)
  */
 export function scorePost(signals: PostSignals): number {
+  // A/B test: chronological variant bypasses scoring
+  // (handled in rankPosts — this still scores for logging/analytics)
+
   // Additive baseline ensures fresh posts with 0 engagement don't vanish
   const rawEngagement =
     signals.likesCount * 1.5 +
@@ -126,6 +148,13 @@ export function scorePost(signals: PostSignals): number {
   // Negative signal: harshly penalize content user marked "not interested"
   const notInterestedPenalty = signals.notInterested ? 0.05 : 1.0;
 
+  // Phase 2.5: Semantic relevance from embedding cosine similarity
+  // 0 means no embedding data → neutral 1.0x; 1.0 means perfect match → 2.0x
+  const semanticBoost = 1.0 + (signals.semanticRelevance ?? 0);
+
+  // Phase 2.5: Dwell-time quality multiplier (1.0–2.0x)
+  const dwellBoost = dwellQualityMultiplier(signals.avgDwellMs);
+
   const score =
     engagementScore
     * decay
@@ -136,15 +165,25 @@ export function scorePost(signals: PostSignals): number {
     * followingBoost
     * authorAffinityBoost
     * velocityBoost
-    * notInterestedPenalty;
+    * notInterestedPenalty
+    * semanticBoost
+    * dwellBoost;
 
   return score;
 }
 
 /**
  * Score + sort a list of posts.
+ * Supports A/B testing: if feedVariant is "chronological", returns time-sorted (no scoring).
  */
 export function rankPosts(posts: PostSignals[]): PostSignals[] {
+  // A/B test: chronological variant — pure reverse-chron, no ranking algorithm
+  if (posts.length > 0 && posts[0].feedVariant === "chronological") {
+    return [...posts].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }
+
   const scored = posts.map((p) => ({ ...p, _score: scorePost(p) }));
   return scored
     .sort((a, b) => b._score - a._score)
@@ -155,7 +194,9 @@ export function rankPosts(posts: PostSignals[]): PostSignals[] {
  * Diversity pass — prevents feed feeling repetitive.
  * Rules:
  * - No more than 2 consecutive posts from the same author
+ * - No more than 3 consecutive posts of the same type
  * - At least 1 "explore" post (outside follow graph) every 5 posts
+ * - Ensures variety: if we haven't shown a roast/project in 10 posts, inject one
  */
 export function applyDiversityPass(
   posts: (PostSignals & { rankScore?: number })[],
@@ -163,7 +204,12 @@ export function applyDiversityPass(
 ): (PostSignals & { rankScore?: number })[] {
   const result: (PostSignals & { rankScore?: number })[] = [];
   const authorConsecutive: Record<string, number> = {};
+  const typeConsecutive: Record<string, number> = {};
   let exploreInserted = 0;
+  let slotsSinceNonPostType = 0; // counts slots since last roast/project/event
+
+  // Build a pool of deferred posts (bumped due to diversity rules) for re-insertion
+  const deferred: (PostSignals & { rankScore?: number })[] = [];
 
   for (let i = 0; i < posts.length; i++) {
     const post = posts[i];
@@ -172,9 +218,20 @@ export function applyDiversityPass(
     if (i > 0 && i % 5 === 0 && exploreInserted < explorePosts.length) {
       result.push(explorePosts[exploreInserted]);
       exploreInserted++;
+      slotsSinceNonPostType = 0; // explore posts count as variety
     }
 
-    // Cap same-author consecutive posts at 2
+    // Force variety: if 10 consecutive "post" type, try to inject a non-"post" from deferred
+    if (slotsSinceNonPostType >= 10 && deferred.length > 0) {
+      const varietyIdx = deferred.findIndex((d) => d.postType !== "post");
+      if (varietyIdx >= 0) {
+        result.push(deferred[varietyIdx]);
+        deferred.splice(varietyIdx, 1);
+        slotsSinceNonPostType = 0;
+      }
+    }
+
+    // Check author consecutive limit (max 2)
     const prev = result[result.length - 1];
     const prevAuthor = prev?.authorId;
     authorConsecutive[post.authorId] =
@@ -182,10 +239,24 @@ export function applyDiversityPass(
         ? (authorConsecutive[post.authorId] ?? 0) + 1
         : 0;
 
-    if (authorConsecutive[post.authorId] < 2) {
-      result.push(post);
+    // Check type consecutive limit (max 3)
+    const prevType = prev?.postType;
+    typeConsecutive[post.postType] =
+      prevType === post.postType
+        ? (typeConsecutive[post.postType] ?? 0) + 1
+        : 0;
+
+    if (authorConsecutive[post.authorId] >= 2 || typeConsecutive[post.postType] >= 3) {
+      deferred.push(post); // bump it, try later
+      continue;
     }
+
+    result.push(post);
+    slotsSinceNonPostType = post.postType === "post" ? slotsSinceNonPostType + 1 : 0;
   }
+
+  // Append any remaining deferred posts at the end
+  result.push(...deferred);
 
   return result;
 }
