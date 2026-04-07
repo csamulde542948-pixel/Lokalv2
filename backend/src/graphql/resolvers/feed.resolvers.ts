@@ -309,6 +309,64 @@ export const feedResolvers = {
       });
     },
 
+    sharePost: async (
+      _: unknown,
+      { postId, message = "" }: { postId: string; message?: string },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+
+      // Get original post to embed in the new post's content
+      const original = await prisma.post.findUniqueOrThrow({
+        where: { id: postId },
+        include: { author: true },
+      });
+
+      // Build the share content: optional message + reference marker
+      const shareContent = [
+        message?.trim() ?? "",
+        `[shared:${postId}]`,
+      ].filter(Boolean).join("\n");
+
+      // Create new post in sharer's feed
+      const newPost = await prisma.post.create({
+        data: {
+          authorId: user.id,
+          content: shareContent,
+          imageUrls: original.imageUrls,
+          imageUrl: original.imageUrl,
+          projectName: original.projectName,
+        },
+        include: {
+          author: { include: { rank: true } },
+          tags: { include: { tag: true } },
+        },
+      });
+
+      // Increment sharesCount on original post
+      await prisma.post.update({
+        where: { id: postId },
+        data: { sharesCount: { increment: 1 } },
+      });
+
+      // Notify original author (not for self-shares)
+      if (original.authorId !== user.id) {
+        prisma.notification.create({
+          data: {
+            recipientId: original.authorId,
+            actorId: user.id,
+            type: "LIKE",   // closest available type; no POST_SHARE in enum yet
+            postId: postId,
+          },
+        }).catch(console.error);
+      }
+
+      // Award XP to sharer
+      awardXp(user.id, "CREATE_POST").catch(console.error);
+
+      return newPost;
+    },
+
     commentOnPost: async (
       _: unknown,
       { input }: { input: { postId: string; content: string; mentions?: string[] } },

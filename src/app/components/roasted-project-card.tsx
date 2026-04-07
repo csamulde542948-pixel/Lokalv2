@@ -6,18 +6,16 @@ import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Badge } from "./ui/badge";
 import { Separator } from "./ui/separator";
 import {
-  ThumbsUp, MessageCircle, Share2, Flame, Check, Link as LinkIcon, X as XIcon,
+  ThumbsUp, MessageCircle, Share2, Flame, X as XIcon,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
 import { useAuth } from "../../contexts/AuthContext";
 import {
   CommentData, CommentItem, CommentInput,
   COMMENT_ON_POST, REPLY_TO_COMMENT, LIKE_COMMENT, UNLIKE_COMMENT,
   EDIT_COMMENT, DELETE_COMMENT,
 } from "./post-card";
+import { SharePostDialog } from "./share-post-dialog";
 
 // ─── Public Post shape (what the feed gives us) ───────────────────────────────
 export interface FeedPost {
@@ -152,7 +150,8 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
   const reactionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const commentsCount = p.commentsCount ?? p.comments ?? 0;
   const sharesCount   = p.sharesCount  ?? p.shares  ?? 0;
-  const [copied, setCopied] = useState(false);
+  const [shareOpen,   setShareOpen]   = useState(false);
+  const [localShares, setLocalShares] = useState(sharesCount);
 
   // ── Comment state ──────────────────────────────────────────────────────────
   const [localComments,     setLocalComments]     = useState<CommentData[]>(p.initialComments ?? []);
@@ -213,12 +212,6 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
     if (reactionTimer.current) clearTimeout(reactionTimer.current);
   }
   function onPickerMouseLeave() { setReactionOpen(false); }
-
-  function copyLink() {
-    navigator.clipboard
-      .writeText(projectUrl ?? `${window.location.origin}/posts/${p.id}`)
-      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
-  }
 
   // ── Comment handlers ───────────────────────────────────────────────────────
   function openCommentBox() {
@@ -542,7 +535,7 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
         </div>
 
         {/* ── Stats row ───────────────────────────────────────────────────── */}
-        {(optimisticLikes > 0 || localCommentCount > 0 || sharesCount > 0) && (
+        {(optimisticLikes > 0 || localCommentCount > 0 || localShares > 0) && (
           <div className="px-4 py-2 flex items-center justify-between">
             {optimisticLikes > 0 ? (
               <span className="flex items-center gap-1 text-[12px] text-muted-foreground">
@@ -562,9 +555,9 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
                   {localCommentCount === 1 ? "comment" : "comments"}
                 </button>
               )}
-              {sharesCount > 0 && (
+              {localShares > 0 && (
                 <span className="text-[12px] text-muted-foreground">
-                  {sharesCount} {sharesCount === 1 ? "share" : "shares"}
+                  {localShares} {localShares === 1 ? "share" : "shares"}
                 </span>
               )}
             </div>
@@ -632,39 +625,31 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
           <div className="w-px bg-border self-stretch" />
 
           {/* Share */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex-1 flex items-center justify-center gap-2 py-2 hover:bg-muted transition-colors text-muted-foreground hover:text-foreground font-medium text-[13px] rounded-none">
-                <Share2 className="w-[18px] h-[18px]" strokeWidth={2} />
-                <span>Share</span>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="center" side="top" className="w-52">
-              <DropdownMenuItem onClick={copyLink} className="gap-2.5 cursor-pointer py-2.5">
-                {copied
-                  ? <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                  : <LinkIcon className="w-4 h-4 flex-shrink-0" />}
-                <div>
-                  <div className="text-sm font-medium">{copied ? "Link copied!" : "Copy link"}</div>
-                  <div className="text-xs text-muted-foreground">Share anywhere</div>
-                </div>
-              </DropdownMenuItem>
-              {projectUrl && (
-                <DropdownMenuItem
-                  onClick={() => window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(projectUrl)}`, "_blank")}
-                  className="gap-2.5 cursor-pointer py-2.5"
-                >
-                  <Share2 className="w-4 h-4 flex-shrink-0" />
-                  <div>
-                    <div className="text-sm font-medium">Share to X</div>
-                    <div className="text-xs text-muted-foreground">Post on X / Twitter</div>
-                  </div>
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <button
+            onClick={() => setShareOpen(true)}
+            className="flex-1 flex items-center justify-center gap-2 py-2 hover:bg-muted transition-colors text-muted-foreground hover:text-foreground font-medium text-[13px] rounded-none"
+          >
+            <Share2 className="w-[18px] h-[18px]" strokeWidth={2} />
+            <span>Share</span>
+          </button>
 
         </div>
+
+        {/* ── Share dialog ───────────────────────────────────────────────── */}
+        <SharePostDialog
+          post={{
+            id: p.id,
+            author: p.author,
+            content: p.content,
+            images: p.images,
+            image: p.image,
+            projectName: p.projectName,
+            timestamp: p.timestamp,
+          }}
+          open={shareOpen}
+          onOpenChange={setShareOpen}
+          onShared={() => setLocalShares((v) => v + 1)}
+        />
 
         {/* ── Comment section ──────────────────────────────────────────────── */}
         {showComments && (

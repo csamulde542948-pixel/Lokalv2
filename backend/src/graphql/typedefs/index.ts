@@ -611,6 +611,7 @@ export const typeDefs = gql`
     deleteComment(commentId: ID!): Boolean!
     likeComment(commentId: ID!, reaction: String): PostComment!
     unlikeComment(commentId: ID!): PostComment!
+    sharePost(postId: ID!, message: String): Post!
 
     # Follow
     followUser(userId: ID!): Profile!
