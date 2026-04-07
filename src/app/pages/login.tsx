@@ -1,30 +1,42 @@
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
+import { toast } from "sonner";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Separator } from "../components/ui/separator";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
-import { Code2, Github, Mail } from "lucide-react";
+import { Github } from "lucide-react";
+import { useAuth } from "../../contexts/AuthContext";
 
 export function Login() {
+  const { signInWithEmail, signInWithGoogle, signInWithGithub } = useAuth();
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Handle login logic here
-    console.log("Login with:", email, password);
+    setLoading(true);
+    const { error } = await signInWithEmail(email, password);
+    setLoading(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    navigate("/");
   };
 
-  const handleGoogleLogin = () => {
-    // Handle Google OAuth
-    console.log("Login with Google");
+  const handleGoogleLogin = async () => {
+    const { error } = await signInWithGoogle();
+    if (error) toast.error(error.message);
+    // On success Supabase redirects to /auth/callback → router handles the rest
   };
 
-  const handleGithubLogin = () => {
-    // Handle GitHub OAuth
-    console.log("Login with GitHub");
+  const handleGithubLogin = async () => {
+    const { error } = await signInWithGithub();
+    if (error) toast.error(error.message);
   };
 
   return (
@@ -164,8 +176,8 @@ export function Login() {
                   className="h-11"
                 />
               </div>
-              <Button type="submit" className="w-full h-11">
-                Log in
+              <Button type="submit" className="w-full h-11" disabled={loading}>
+                {loading ? "Logging in…" : "Log in"}
               </Button>
             </form>
           </CardContent>

@@ -1,14 +1,18 @@
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
+import { toast } from "sonner";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Separator } from "../components/ui/separator";
 import { Checkbox } from "../components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
-import { Code2, Github, Eye, EyeOff } from "lucide-react";
+import { Github, Eye, EyeOff } from "lucide-react";
+import { useAuth } from "../../contexts/AuthContext";
 
 export function Signup() {
+  const { signUpWithEmail, signInWithGoogle, signInWithGithub } = useAuth();
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     fullName: "",
     username: "",
@@ -19,29 +23,42 @@ export function Signup() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [agreeToTerms, setAgreeToTerms] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSignup = (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (formData.password !== formData.confirmPassword) {
-      alert("Passwords do not match!");
+      toast.error("Passwords do not match!");
       return;
     }
     if (!agreeToTerms) {
-      alert("Please agree to the Terms of Service and Privacy Policy");
+      toast.error("Please agree to the Terms of Service and Privacy Policy");
       return;
     }
-    // Handle signup logic here
-    console.log("Signup with:", formData);
+    setLoading(true);
+    const { error } = await signUpWithEmail(formData.email, formData.password, {
+      full_name: formData.fullName,
+      username: formData.username,
+    });
+    setLoading(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(
+      "Account created! Check your email to confirm your address before logging in."
+    );
+    navigate("/login");
   };
 
-  const handleGoogleSignup = () => {
-    // Handle Google OAuth
-    console.log("Signup with Google");
+  const handleGoogleSignup = async () => {
+    const { error } = await signInWithGoogle();
+    if (error) toast.error(error.message);
   };
 
-  const handleGithubSignup = () => {
-    // Handle GitHub OAuth
-    console.log("Signup with GitHub");
+  const handleGithubSignup = async () => {
+    const { error } = await signInWithGithub();
+    if (error) toast.error(error.message);
   };
 
   return (
@@ -261,8 +278,8 @@ export function Signup() {
                 </label>
               </div>
 
-              <Button type="submit" className="w-full h-11">
-                Create account
+              <Button type="submit" className="w-full h-11" disabled={loading}>
+                {loading ? "Creating account…" : "Create account"}
               </Button>
             </form>
           </CardContent>

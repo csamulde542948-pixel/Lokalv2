@@ -1,0 +1,798 @@
+// ============================================================
+// Lokal v2 — Prisma Schema
+// Database: Supabase (PostgreSQL)
+// ============================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions", "fullTextSearch"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [pgvector(map: "vector", schema: "extensions"), pg_trgm]
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum Visibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum ProjectType {
+  GITHUB
+  PERSONAL
+}
+
+enum ProjectCategory {
+  WEB_APP
+  MOBILE_APP
+  LIBRARY
+  CLI_TOOL
+  PORTFOLIO
+  OTHER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  IN_PROGRESS
+  ARCHIVED
+  COMPLETED
+}
+
+enum JobType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  FREELANCE
+}
+
+enum EventType {
+  WEBINAR
+  WORKSHOP
+  HACKATHON
+  CONFERENCE
+  MEETUP
+  PANEL
+  OTHER
+}
+
+enum LaunchpadEventType {
+  BETA_TESTERS
+  FEEDBACK
+  LAUNCH
+  COLLABORATION
+  HIRING
+}
+
+enum NotificationType {
+  LIKE
+  COMMENT
+  FOLLOW
+  PROJECT_ROAST
+  JOB_APPLICATION
+  EVENT_REMINDER
+  LAUNCHPAD_INTEREST
+  XP_LEVELUP
+  MENTION
+}
+
+enum InteractionType {
+  POST_LIKE
+  POST_COMMENT
+  POST_SHARE
+  PROJECT_LIKE
+  PROJECT_STAR
+  PROFILE_VIEW
+  DM_SENT
+  PROJECT_SAVE
+  EVENT_REGISTER
+  JOB_SAVE
+  LAUNCHPAD_INTEREST
+}
+
+enum Trend {
+  UP
+  DOWN
+  SAME
+}
+
+// ============================================================
+// USER / PROFILE
+// ============================================================
+
+// This mirrors Supabase auth.users — linked by id (UUID from Supabase Auth)
+model Profile {
+  id              String   @id @db.Uuid // matches auth.users.id
+  username        String   @unique @db.VarChar(50)
+  name            String   @db.VarChar(100)
+  displayName     String?  @db.VarChar(100)
+  email           String?  @unique @db.VarChar(255)
+  bio             String?  @db.Text
+  avatarUrl       String?  @db.Text
+  coverUrl        String?  @db.Text
+  website         String?  @db.VarChar(255)
+  location        String?  @db.VarChar(100)
+  company         String?  @db.VarChar(100)
+  jobTitle        String?  @db.VarChar(100)
+  githubUsername  String?  @db.VarChar(100)
+  isVerified      Boolean  @default(false)
+  isOnboarded     Boolean  @default(false)
+
+  // XP & Rank
+  xp              Int      @default(0)
+  rankId          Int      @default(1)
+  rank            Rank     @relation(fields: [rankId], references: [id])
+
+  // Notifications (denormalised count)
+  unreadNotificationsCount Int @default(0)
+
+  // GetStream
+  streamUserId    String?  @unique @db.VarChar(100)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  posts               Post[]
+  projects            Project[]
+  roastsGiven         Roast[]              @relation("RoastReviewer")
+  jobs                Job[]
+  events              Event[]
+  launchpadEvents     LaunchpadEvent[]
+  followedBy          Follow[]             @relation("Following")  // people who follow this user
+  following           Follow[]             @relation("Follower")   // people this user follows
+  notifications       Notification[]       @relation("NotificationRecipient")
+  sentNotifications   Notification[]       @relation("NotificationActor")
+  postLikes           PostLike[]
+  postComments        PostComment[]
+  commentLikes        CommentLike[]
+  projectLikes        ProjectLike[]
+  projectStars        ProjectStar[]
+  jobApplications     JobApplication[]
+  eventRegistrations  EventRegistration[]
+  launchpadInterests  LaunchpadInterest[]
+  sentInteractions    UserInteraction[]    @relation("InteractionFrom")
+  receivedInteractions UserInteraction[]   @relation("InteractionTo")
+  tagAffinities       UserTagAffinity[]
+  earnedRoles         UserRole[]
+  savedJobs           SavedJob[]
+  photos              ProfilePhoto[]
+
+  // Interest vector for recommendation engine (pgvector)
+  interestEmbedding Unsupported("vector(1536)")?
+
+  @@map("profiles")
+}
+
+// ============================================================
+// RANK SYSTEM
+// ============================================================
+
+model Rank {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique @db.VarChar(50)  // "Newbie", "Junior Dev", "Developer", etc.
+  description String?  @db.Text
+  minXp       Int      @unique
+  maxXp       Int?
+  iconName    String?  @db.VarChar(50)          // Lucide icon name
+  color       String?  @db.VarChar(50)          // Tailwind color class
+  bgColor     String?  @db.VarChar(50)
+  borderColor String?  @db.VarChar(50)
+
+  profiles    Profile[]
+
+  @@map("ranks")
+}
+
+model XpActivity {
+  id          Int      @id @default(autoincrement())
+  action      String   @unique @db.VarChar(100) // "Create a post", "Launch a project", etc.
+  xpReward    Int
+  icon        String?  @db.VarChar(10)
+
+  @@map("xp_activities")
+}
+
+model XpLog {
+  id          String   @id @default(cuid())
+  profileId   String   @db.Uuid
+  action      String   @db.VarChar(100)
+  xpEarned    Int
+  createdAt   DateTime @default(now())
+
+  @@index([profileId])
+  @@map("xp_logs")
+}
+
+// ============================================================
+// SPECIAL ROLES / BADGES
+// ============================================================
+
+model Role {
+  id          Int        @id @default(autoincrement())
+  name        String     @unique @db.VarChar(100)
+  emoji       String?    @db.VarChar(10)
+  description String?    @db.Text
+  requirement String?    @db.Text
+  userRoles   UserRole[]
+
+  @@map("roles")
+}
+
+model UserRole {
+  id        String   @id @default(cuid())
+  profileId String   @db.Uuid
+  roleId    Int
+  earnedAt  DateTime @default(now())
+
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id])
+
+  @@unique([profileId, roleId])
+  @@map("user_roles")
+}
+
+// ============================================================
+// SOCIAL GRAPH — FOLLOW
+// ============================================================
+
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String   @db.Uuid  // who is doing the following
+  followingId String   @db.Uuid  // who is being followed
+  createdAt   DateTime @default(now())
+
+  follower    Profile  @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
+  following   Profile  @relation("Following", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+  @@map("follows")
+}
+
+// ============================================================
+// POSTS / FEED
+// ============================================================
+
+model Post {
+  id          String    @id @default(cuid())
+  authorId    String    @db.Uuid
+  content     String    @db.Text
+  imageUrl    String?   @db.Text
+  imageUrls   String[]  @default([])
+  projectName String?   @db.VarChar(100)   // optional project tag on post
+  projectId   String?   @db.VarChar(100)
+
+  // GetStream activity id (for syncing)
+  streamActivityId  String?  @unique @db.VarChar(200)
+
+  // Engagement counters (denormalised for performance)
+  likesCount    Int      @default(0)
+  commentsCount Int      @default(0)
+  sharesCount   Int      @default(0)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  author        Profile        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  likes         PostLike[]
+  comments      PostComment[]
+  tags          PostTag[]
+  notifications Notification[]
+
+  // Embedding for semantic feed ranking (pgvector)
+  contentEmbedding Unsupported("vector(1536)")?
+
+  @@index([authorId])
+  @@index([createdAt(sort: Desc)])
+  @@map("posts")
+}
+
+model PostLike {
+  id        String   @id @default(cuid())
+  postId    String
+  profileId String   @db.Uuid
+  reaction  String   @default("Like") @db.VarChar(20)  // "Like" | "Love" | "Fire" | "Haha" | "Wow" | "Sad"
+  createdAt DateTime @default(now())
+
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, profileId])
+  @@index([postId])
+  @@map("post_likes")
+}
+
+model PostComment {
+  id          String   @id @default(cuid())
+  postId      String
+  authorId    String   @db.Uuid
+  content     String   @db.Text
+  parentId    String?  // null = top-level comment; non-null = reply
+  mentions    String[] @default([]) // array of profile IDs (UUID strings) mentioned
+  likesCount  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  post        Post              @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author      Profile           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent      PostComment?      @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies     PostComment[]     @relation("CommentReplies")
+  likes       CommentLike[]
+  editHistory PostCommentEdit[]
+
+  @@index([postId])
+  @@index([parentId])
+  @@map("post_comments")
+}
+
+model PostCommentEdit {
+  id              String      @id @default(cuid())
+  commentId       String      @map("comment_id")
+  previousContent String      @db.Text @map("previous_content")
+  editedAt        DateTime    @default(now()) @map("edited_at")
+
+  comment         PostComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@index([commentId])
+  @@map("post_comment_edits")
+}
+
+model CommentLike {
+  id        String   @id @default(cuid())
+  commentId String
+  profileId String   @db.Uuid
+  reaction  String   @default("Like") @db.VarChar(20)
+  createdAt DateTime @default(now())
+
+  comment   PostComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  profile   Profile     @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, profileId])
+  @@index([commentId])
+  @@map("comment_likes")
+}
+
+// ============================================================
+// TAGS (shared across posts & projects)
+// ============================================================
+
+model Tag {
+  id       Int          @id @default(autoincrement())
+  name     String       @unique @db.VarChar(100)
+
+  postTags    PostTag[]
+  projectTags ProjectTag[]
+  eventTags   EventTag[]
+  jobTags     JobTag[]
+  launchpadTags LaunchpadTag[]
+
+  @@map("tags")
+}
+
+model PostTag {
+  postId String
+  tagId  Int
+
+  post   Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([postId, tagId])
+  @@map("post_tags")
+}
+
+// ============================================================
+// PROJECTS
+// ============================================================
+
+model Project {
+  id          String          @id @default(cuid())
+  authorId    String          @db.Uuid
+  name        String          @db.VarChar(100)
+  tagline     String          @db.VarChar(255)
+  description String          @db.Text
+  iconUrl     String?         @db.Text
+  bannerUrl   String?         @db.Text
+  demoUrl     String?         @db.Text
+  githubUrl   String?         @db.Text
+  type        ProjectType     @default(PERSONAL)
+  visibility  Visibility      @default(PUBLIC)
+  category    ProjectCategory @default(WEB_APP)
+  status      ProjectStatus   @default(ACTIVE)
+  isFeatured  Boolean         @default(false)
+  isTrending  Boolean         @default(false)
+
+  // Stats (denormalised)
+  starsCount    Int     @default(0)
+  forksCount    Int     @default(0)
+  likesCount    Int     @default(0)
+  roastsCount   Int     @default(0)
+  downloadsText String? @db.VarChar(20) // "50K+"
+  rating        Float   @default(0)
+  progress      Int?    // 0-100 for in-progress projects
+
+  // Leaderboard
+  rankTrend   Trend    @default(SAME)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  author        Profile          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  tags          ProjectTag[]
+  likes         ProjectLike[]
+  stars         ProjectStar[]
+  roasts        Roast[]
+  members       ProjectMember[]
+  notifications Notification[]
+
+  @@index([authorId])
+  @@index([isFeatured])
+  @@index([isTrending])
+  @@map("projects")
+}
+
+model ProjectTag {
+  projectId String
+  tagId     Int
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, tagId])
+  @@map("project_tags")
+}
+
+model ProjectLike {
+  id        String   @id @default(cuid())
+  projectId String
+  profileId String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, profileId])
+  @@map("project_likes")
+}
+
+model ProjectStar {
+  id        String   @id @default(cuid())
+  projectId String
+  profileId String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, profileId])
+  @@map("project_stars")
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  profileId String   @db.Uuid
+  role      String   @default("member") @db.VarChar(50)
+  joinedAt  DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, profileId])
+  @@map("project_members")
+}
+
+// ============================================================
+// ROAST SYSTEM (AI Project Feedback)
+// ============================================================
+
+model Roast {
+  id          String   @id @default(cuid())
+  projectId   String               // links to a Project
+  reviewerId  String   @db.Uuid    // who submitted the roast
+
+  // Structured roast content
+  strengths        String[] // array of strengths
+  improvements     String[] // array of improvements
+  detailedFeedback String?  @db.Text
+
+  // Scores (1-10)
+  designScore     Float?
+  codeScore       Float?
+  innovationScore Float?
+  usabilityScore  Float?
+  overallScore    Float
+
+  // Engagement
+  likesCount    Int     @default(0)
+
+  createdAt   DateTime @default(now())
+
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reviewer    Profile  @relation("RoastReviewer", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([reviewerId])
+  @@map("roasts")
+}
+
+// ============================================================
+// JOBS BOARD
+// ============================================================
+
+model Job {
+  id              String   @id @default(cuid())
+  postedById      String   @db.Uuid
+  title           String   @db.VarChar(200)
+  company         String   @db.VarChar(100)
+  companyLogoUrl  String?  @db.Text
+  location        String   @db.VarChar(100)
+  type            JobType  @default(FULL_TIME)
+  salary          String?  @db.VarChar(100)   // "₱80,000 - ₱120,000/month"
+  shortDesc       String   @db.Text
+  fullDesc        String   @db.Text
+  applyEmail      String?  @db.VarChar(255)
+  isFeatured      Boolean  @default(false)
+  isActive        Boolean  @default(true)
+
+  // Engagement
+  applicantsCount Int      @default(0)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  postedBy        Profile          @relation(fields: [postedById], references: [id], onDelete: Cascade)
+  tags            JobTag[]
+  applications    JobApplication[]
+  savedBy         SavedJob[]
+
+  @@index([postedById])
+  @@index([isFeatured])
+  @@index([isActive])
+  @@map("jobs")
+}
+
+model JobTag {
+  jobId String
+  tagId Int
+
+  job   Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  tag   Tag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([jobId, tagId])
+  @@map("job_tags")
+}
+
+model JobApplication {
+  id          String   @id @default(cuid())
+  jobId       String
+  applicantId String   @db.Uuid
+  firstName   String   @db.VarChar(100)
+  lastName    String   @db.VarChar(100)
+  email       String   @db.VarChar(255)
+  phone       String?  @db.VarChar(50)
+  portfolioUrl String? @db.Text
+  resumeUrl   String?  @db.Text  // stored in Supabase Storage
+  coverLetter String   @db.Text
+  createdAt   DateTime @default(now())
+
+  job         Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  applicant   Profile  @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, applicantId])
+  @@index([jobId])
+  @@map("job_applications")
+}
+
+model SavedJob {
+  id        String   @id @default(cuid())
+  jobId     String
+  profileId String   @db.Uuid
+  savedAt   DateTime @default(now())
+
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, profileId])
+  @@map("saved_jobs")
+}
+
+// ============================================================
+// EVENTS
+// ============================================================
+
+model Event {
+  id             String    @id @default(cuid())
+  organizerId    String    @db.Uuid
+  title          String    @db.VarChar(200)
+  shortDesc      String    @db.Text
+  fullDesc       String?   @db.Text
+  coverImageUrl  String?   @db.Text
+  startDate      DateTime
+  endDate        DateTime?
+  location       String?   @db.VarChar(200)
+  eventUrl       String?   @db.Text
+  type           EventType @default(MEETUP)
+  maxAttendees   Int?
+  isFeatured     Boolean   @default(false)
+  isActive       Boolean   @default(true)
+
+  // Engagement (denormalised)
+  attendeesCount Int       @default(0)
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organizer      Profile            @relation(fields: [organizerId], references: [id], onDelete: Cascade)
+  tags           EventTag[]
+  registrations  EventRegistration[]
+
+  @@index([organizerId])
+  @@index([startDate])
+  @@index([isFeatured])
+  @@map("events")
+}
+
+model EventTag {
+  eventId String
+  tagId   Int
+
+  event   Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  tag     Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, tagId])
+  @@map("event_tags")
+}
+
+model EventRegistration {
+  id        String   @id @default(cuid())
+  eventId   String
+  profileId String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, profileId])
+  @@index([eventId])
+  @@map("event_registrations")
+}
+
+// ============================================================
+// LAUNCHPAD
+// ============================================================
+
+model LaunchpadEvent {
+  id          String             @id @default(cuid())
+  creatorId   String             @db.Uuid
+  title       String             @db.VarChar(200)
+  type        LaunchpadEventType @default(LAUNCH)
+  shortDesc   String             @db.Text
+  fullDesc    String?            @db.Text
+  coverImageUrl String?          @db.Text
+  targetUrl   String?            @db.Text
+  launchDate  DateTime?
+  isFeatured  Boolean            @default(false)
+
+  // Engagement
+  interestedCount Int     @default(0)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  creator     Profile             @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  tags        LaunchpadTag[]
+  interests   LaunchpadInterest[]
+
+  @@index([creatorId])
+  @@map("launchpad_events")
+}
+
+model LaunchpadTag {
+  launchpadEventId String
+  tagId            Int
+
+  launchpadEvent   LaunchpadEvent @relation(fields: [launchpadEventId], references: [id], onDelete: Cascade)
+  tag              Tag            @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([launchpadEventId, tagId])
+  @@map("launchpad_tags")
+}
+
+model LaunchpadInterest {
+  id               String   @id @default(cuid())
+  launchpadEventId String
+  profileId        String   @db.Uuid
+  createdAt        DateTime @default(now())
+
+  launchpadEvent   LaunchpadEvent @relation(fields: [launchpadEventId], references: [id], onDelete: Cascade)
+  profile          Profile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([launchpadEventId, profileId])
+  @@map("launchpad_interests")
+}
+
+// ============================================================
+// NOTIFICATIONS
+// ============================================================
+
+model Notification {
+  id          String           @id @default(cuid())
+  recipientId String           @db.Uuid
+  actorId     String?          @db.Uuid   // who triggered the notification
+  type        NotificationType
+  postId      String?                     // optional post reference
+  projectId   String?                     // optional project reference
+  entityId    String?          @db.VarChar(200) // generic fallback
+  message     String?          @db.Text
+  isRead      Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+
+  recipient   Profile          @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  actor       Profile?         @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  post        Post?            @relation(fields: [postId], references: [id], onDelete: Cascade)
+  project     Project?         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, isRead])
+  @@index([createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+// ============================================================
+// RECOMMENDATION ENGINE SIGNALS
+// ============================================================
+
+// Tracks every user interaction for feed ranking signals
+model UserInteraction {
+  id          String          @id @default(cuid())
+  fromId      String          @db.Uuid  // the user who acted
+  toId        String?         @db.Uuid  // the user being interacted with (optional)
+  entityId    String?         @db.VarChar(200) // postId, projectId, etc.
+  type        InteractionType
+  weight      Float           @default(1.0) // signal strength
+  createdAt   DateTime        @default(now())
+
+  from        Profile         @relation("InteractionFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to          Profile?        @relation("InteractionTo", fields: [toId], references: [id], onDelete: SetNull)
+
+  @@index([fromId])
+  @@index([createdAt(sort: Desc)])
+  @@map("user_interactions")
+}
+
+// Per-user affinity score for each tag — drives personalized feed
+model UserTagAffinity {
+  id        String   @id @default(cuid())
+  profileId String   @db.Uuid
+  tagName   String   @db.VarChar(100)
+  score     Float    @default(0)
+  updatedAt DateTime @updatedAt
+
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, tagName])
+  @@index([profileId])
+  @@map("user_tag_affinities")
+}
+
+// ============================================================
+// PROFILE PHOTOS
+// ============================================================
+
+model ProfilePhoto {
+  id        String   @id @default(cuid())
+  profileId String   @db.Uuid
+  url       String   @db.Text
+  createdAt DateTime @default(now())
+
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@map("profile_photos")
+}

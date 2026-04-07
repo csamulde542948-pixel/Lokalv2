@@ -1,220 +1,109 @@
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { gql } from "@apollo/client/core";
+import { useQuery } from "@apollo/client/react";
+import { Card, CardContent } from "../components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { Skeleton } from "../components/ui/skeleton";
 import { Trophy, TrendingUp, Code2, Users, Star, GitFork, Crown, Zap, ExternalLink } from "lucide-react";
 import { Separator } from "../components/ui/separator";
 
-// Mock data for featured projects
-const featuredProjects = [
-  {
-    id: "f1",
-    name: "LokalShop Pro",
-    description: "Premium e-commerce platform for Philippine businesses with advanced analytics",
-    author: "Angela Torres",
-    avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop",
-    logo: "🛒",
-    stars: 1240,
-    forks: 234,
-    tech: ["Next.js", "Stripe", "PostgreSQL", "Analytics"],
-    featured: true,
-    featuredBadge: "Premium Sponsor",
-  },
-  {
-    id: "f2",
-    name: "CloudDeploy PH",
-    description: "One-click deployment platform built for Filipino developers",
-    author: "Carlos Reyes",
-    avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop",
-    logo: "☁️",
-    stars: 890,
-    forks: 156,
-    tech: ["Go", "Docker", "Kubernetes"],
-    featured: true,
-    featuredBadge: "Featured",
-  },
-  {
-    id: "f3",
-    name: "PayMaya SDK",
-    description: "Simplified payment integration for Philippine developers",
-    author: "Maria Santos",
-    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop",
-    logo: "💳",
-    stars: 756,
-    forks: 89,
-    tech: ["TypeScript", "React", "Node.js"],
-    featured: true,
-    featuredBadge: "Featured",
-  },
-];
+// ─── GraphQL ─────────────────────────────────────────────────────────────────
 
-// Mock data for developers leaderboard
-const mockDevelopers = [
-  {
-    id: "1",
-    rank: 1,
-    name: "Angela Torres",
-    username: "@angelat",
-    avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop",
-    points: 2847,
-    projects: 12,
-    trend: "up",
-  },
-  {
-    id: "2",
-    rank: 2,
-    name: "Carlos Reyes",
-    username: "@carlosr",
-    avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop",
-    points: 2653,
-    projects: 8,
-    trend: "up",
-  },
-  {
-    id: "3",
-    rank: 3,
-    name: "Maria Santos",
-    username: "@mariasantos",
-    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop",
-    points: 2541,
-    projects: 15,
-    trend: "same",
-  },
-  {
-    id: "4",
-    rank: 4,
-    name: "Juan dela Cruz",
-    username: "@juandc",
-    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop",
-    points: 2398,
-    projects: 9,
-    trend: "down",
-  },
-  {
-    id: "5",
-    rank: 5,
-    name: "Miguel Fernandez",
-    username: "@miguelf",
-    avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop",
-    points: 2187,
-    projects: 7,
-    trend: "up",
-  },
-  {
-    id: "6",
-    rank: 6,
-    name: "Sofia Reyes",
-    username: "@sofiar",
-    avatar: "https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=100&h=100&fit=crop",
-    points: 1956,
-    projects: 11,
-    trend: "up",
-  },
-  {
-    id: "7",
-    rank: 7,
-    name: "Diego Martinez",
-    username: "@diegom",
-    avatar: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=100&h=100&fit=crop",
-    points: 1843,
-    projects: 6,
-    trend: "same",
-  },
-  {
-    id: "8",
-    rank: 8,
-    name: "Isabella Cruz",
-    username: "@isabellac",
-    avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&h=100&fit=crop",
-    points: 1725,
-    projects: 10,
-    trend: "up",
-  },
-];
+const GET_LEADERBOARD = gql`
+  query GetLeaderboard {
+    leaderboard {
+      developers {
+        rank
+        xp
+        trend
+        profile {
+          id
+          name
+          username
+          avatarUrl
+          projectsCount
+        }
+      }
+      projects {
+        rank
+        trend
+        project {
+          id
+          name
+          tagline
+          starsCount
+          forksCount
+          likesCount
+          tags { name }
+          owner { name username avatarUrl }
+        }
+      }
+      featuredProjects {
+        id
+        name
+        tagline
+        starsCount
+        forksCount
+        demoUrl
+        tags { name }
+        owner { name username avatarUrl }
+      }
+    }
+  }
+`;
 
-// Mock data for projects leaderboard
-const mockProjects = [
-  {
-    id: "1",
-    rank: 1,
-    name: "LokalShop",
-    description: "E-commerce platform for local Philippine businesses",
-    author: "Angela Torres",
-    avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop",
-    stars: 847,
-    forks: 123,
-    trend: "up",
-    tech: ["Next.js", "Stripe", "PostgreSQL"],
-  },
-  {
-    id: "2",
-    rank: 2,
-    name: "FarmConnect",
-    description: "Connecting local farmers with buyers",
-    author: "Maria Santos",
-    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop",
-    stars: 763,
-    forks: 89,
-    trend: "up",
-    tech: ["React Native", "Firebase"],
-  },
-  {
-    id: "3",
-    rank: 3,
-    name: "FreelancerHub PH",
-    description: "Project management tool for Filipino freelancers",
-    author: "Juan dela Cruz",
-    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop",
-    stars: 654,
-    forks: 67,
-    trend: "same",
-    tech: ["Next.js", "Supabase"],
-  },
-  {
-    id: "4",
-    rank: 4,
-    name: "DeployMaster",
-    description: "CLI tool for automating deployment tasks",
-    author: "Miguel Fernandez",
-    avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop",
-    stars: 589,
-    forks: 45,
-    trend: "up",
-    tech: ["Rust", "CLI"],
-  },
-  {
-    id: "5",
-    rank: 5,
-    name: "BudgetBuddy PH",
-    description: "Personal finance tracker for Filipinos",
-    author: "Sofia Reyes",
-    avatar: "https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=100&h=100&fit=crop",
-    stars: 521,
-    forks: 34,
-    trend: "down",
-    tech: ["React", "Node.js", "MongoDB"],
-  },
-  {
-    id: "6",
-    rank: 6,
-    name: "SkillMatch",
-    description: "Job matching platform for tech workers",
-    author: "Diego Martinez",
-    avatar: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=100&h=100&fit=crop",
-    stars: 478,
-    forks: 28,
-    trend: "up",
-    tech: ["Vue.js", "Laravel"],
-  },
-];
+// ─── Skeletons ────────────────────────────────────────────────────────────────
+
+function RowSkeleton() {
+  return (
+    <div className="flex items-center gap-3 p-3">
+      <Skeleton className="w-6 h-4 rounded" />
+      <Skeleton className="w-10 h-10 rounded-full" />
+      <div className="flex-1 space-y-1.5">
+        <Skeleton className="h-3 w-32" />
+        <Skeleton className="h-2.5 w-20" />
+      </div>
+      <Skeleton className="h-3 w-12" />
+    </div>
+  );
+}
+
+function FeaturedSkeleton() {
+  return (
+    <div className="rounded-lg border-2 border-primary/20 bg-card p-4 space-y-3">
+      <div className="flex items-start gap-3">
+        <Skeleton className="w-10 h-10 rounded-full" />
+        <div className="space-y-1.5 flex-1">
+          <Skeleton className="h-3 w-28" />
+          <Skeleton className="h-4 w-16 rounded-md" />
+        </div>
+      </div>
+      <Skeleton className="h-3 w-full" />
+      <Skeleton className="h-3 w-4/5" />
+      <div className="flex gap-1">
+        <Skeleton className="h-5 w-14 rounded-md" />
+        <Skeleton className="h-5 w-16 rounded-md" />
+      </div>
+    </div>
+  );
+}
 
 export function Leaderboard() {
   const [activeTab, setActiveTab] = useState<"developers" | "projects">("developers");
 
+  const { data, loading, error } = useQuery(GET_LEADERBOARD, {
+    fetchPolicy: "cache-and-network",
+  });
+
+  const developers = data?.leaderboard?.developers ?? [];
+  const projects   = data?.leaderboard?.projects   ?? [];
+  const featured   = data?.leaderboard?.featuredProjects ?? [];
+
   const getTrendIcon = (trend: string) => {
-    if (trend === "up") return <TrendingUp className="w-3.5 h-3.5 text-green-600" strokeWidth={2} />;
-    if (trend === "down") return <TrendingUp className="w-3.5 h-3.5 text-red-600 rotate-180" strokeWidth={2} />;
+    if (trend === "UP")   return <TrendingUp className="w-3.5 h-3.5 text-green-600" strokeWidth={2} />;
+    if (trend === "DOWN") return <TrendingUp className="w-3.5 h-3.5 text-red-600 rotate-180" strokeWidth={2} />;
     return null;
   };
 
@@ -232,15 +121,20 @@ export function Leaderboard() {
           </div>
         </div>
 
-        {/* Featured Projects Section */}
-        <div className="mb-6">
+        {/* Error */}
+        {error && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive mb-6 font-mono">
+            ⚠ {error.message}
+          </div>
+        )}
+
+        {/* Featured Projects */}
+        <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Crown className="w-5 h-5 text-primary" strokeWidth={2} />
               <h2 className="text-lg font-semibold">Featured Projects</h2>
-              <Badge variant="secondary" className="text-xs rounded-md font-normal">
-                Premium
-              </Badge>
+              <Badge variant="secondary" className="text-xs rounded-md font-normal">Premium</Badge>
             </div>
             <Button variant="outline" size="sm" className="gap-2 h-8 text-xs">
               <Zap className="w-3.5 h-3.5" strokeWidth={2} />
@@ -248,54 +142,49 @@ export function Leaderboard() {
             </Button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            {featuredProjects.map((project) => (
-              <Card key={project.id} className="border-2 border-primary/20 bg-gradient-to-br from-card to-primary/5 hover:border-primary/40 transition-all">
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-3 mb-3">
-                    <div className="text-3xl flex-shrink-0">{project.logo}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-semibold text-sm text-primary truncate">{project.name}</h3>
-                        <Crown className="w-3.5 h-3.5 text-primary flex-shrink-0" strokeWidth={2} fill="currentColor" />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {loading && featured.length === 0
+              ? [...Array(3)].map((_, i) => <FeaturedSkeleton key={i} />)
+              : featured.map((p: any) => (
+                <Card key={p.id} className="border-2 border-primary/20 bg-gradient-to-br from-card to-primary/5 hover:border-primary/40 transition-all">
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3 mb-3">
+                      <Avatar className="w-10 h-10 border border-border flex-shrink-0">
+                        <AvatarImage src={p.owner?.avatarUrl} />
+                        <AvatarFallback>{p.name?.[0]}</AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-semibold text-sm text-primary truncate">{p.name}</h3>
+                          <Crown className="w-3.5 h-3.5 text-primary flex-shrink-0" strokeWidth={2} fill="currentColor" />
+                        </div>
+                        <Badge variant="outline" className="text-xs rounded-md font-normal border-primary/50 text-primary">
+                          Featured
+                        </Badge>
                       </div>
-                      <Badge variant="outline" className="text-xs rounded-md font-normal border-primary/50 text-primary mb-2">
-                        {project.featuredBadge}
-                      </Badge>
                     </div>
-                  </div>
-
-                  <p className="text-xs text-muted-foreground mb-3 line-clamp-2 leading-relaxed">
-                    {project.description}
-                  </p>
-
-                  <div className="flex flex-wrap gap-1 mb-3">
-                    {project.tech.slice(0, 3).map((tech) => (
-                      <Badge key={tech} variant="secondary" className="text-xs rounded-md py-0 font-normal">
-                        {tech}
-                      </Badge>
-                    ))}
-                  </div>
-
-                  <div className="flex items-center justify-between pt-3 border-t">
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Star className="w-3 h-3" strokeWidth={2} />
-                        {project.stars}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <GitFork className="w-3 h-3" strokeWidth={2} />
-                        {project.forks}
-                      </span>
+                    <p className="text-xs text-muted-foreground mb-3 line-clamp-2 leading-relaxed">{p.tagline}</p>
+                    <div className="flex flex-wrap gap-1 mb-3">
+                      {(p.tags ?? []).slice(0, 3).map((t: any) => (
+                        <Badge key={t.name} variant="secondary" className="text-xs rounded-md py-0 font-normal">{t.name}</Badge>
+                      ))}
                     </div>
-                    <Button variant="ghost" size="sm" className="h-6 px-2 text-xs hover:bg-primary/10 gap-1">
-                      <ExternalLink className="w-3 h-3" strokeWidth={2} />
-                      View
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                    <div className="flex items-center justify-between pt-3 border-t">
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1"><Star className="w-3 h-3" strokeWidth={2} />{p.starsCount}</span>
+                        <span className="flex items-center gap-1"><GitFork className="w-3 h-3" strokeWidth={2} />{p.forksCount}</span>
+                      </div>
+                      {p.demoUrl && (
+                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs hover:bg-primary/10 gap-1" asChild>
+                          <a href={p.demoUrl} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="w-3 h-3" strokeWidth={2} /> View
+                          </a>
+                        </Button>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
           </div>
         </div>
 
@@ -311,42 +200,42 @@ export function Leaderboard() {
             </div>
             <Card className="border">
               <CardContent className="p-0">
-                {mockDevelopers.map((dev, index) => (
-                  <div key={dev.id}>
-                    <div className="p-3 hover:bg-muted cursor-pointer transition-colors">
-                      <div className="flex items-center gap-3">
-                        {/* Rank */}
-                        <div className="text-sm font-semibold w-6 text-center flex-shrink-0 text-muted-foreground">
-                          #{dev.rank}
-                        </div>
-
-                        {/* Avatar */}
-                        <Avatar className="w-10 h-10 border-2 border-border flex-shrink-0">
-                          <AvatarImage src={dev.avatar} />
-                          <AvatarFallback>{dev.name[0]}</AvatarFallback>
-                        </Avatar>
-
-                        {/* Info */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-semibold text-sm truncate">{dev.name}</h3>
-                            {getTrendIcon(dev.trend)}
+                {loading && developers.length === 0
+                  ? [...Array(6)].map((_, i) => (
+                    <div key={i}><RowSkeleton />{i < 5 && <Separator />}</div>
+                  ))
+                  : developers.map((dev: any, index: number) => (
+                    <div key={dev.profile.id}>
+                      <div className="p-3 hover:bg-muted cursor-pointer transition-colors">
+                        <div className="flex items-center gap-3">
+                          <div className="text-sm font-semibold w-6 text-center flex-shrink-0 text-muted-foreground">
+                            #{dev.rank}
                           </div>
-                          <p className="text-xs text-muted-foreground">{dev.username} · {dev.projects} projects</p>
-                        </div>
-
-                        {/* Points */}
-                        <div className="text-right flex-shrink-0">
-                          <div className="flex items-center gap-1 justify-end">
-                            <Star className="w-3.5 h-3.5 text-muted-foreground" strokeWidth={2} />
-                            <span className="text-sm font-semibold">{dev.points.toLocaleString()}</span>
+                          <Avatar className="w-10 h-10 border-2 border-border flex-shrink-0">
+                            <AvatarImage src={dev.profile.avatarUrl} />
+                            <AvatarFallback>{dev.profile.name?.[0]}</AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-semibold text-sm truncate">{dev.profile.name}</h3>
+                              {getTrendIcon(dev.trend)}
+                            </div>
+                            <p className="text-xs text-muted-foreground">@{dev.profile.username} · {dev.profile.projectsCount} projects</p>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <div className="flex items-center gap-1 justify-end">
+                              <Star className="w-3.5 h-3.5 text-muted-foreground" strokeWidth={2} />
+                              <span className="text-sm font-semibold">{dev.xp.toLocaleString()}</span>
+                            </div>
                           </div>
                         </div>
                       </div>
+                      {index < developers.length - 1 && <Separator />}
                     </div>
-                    {index < mockDevelopers.length - 1 && <Separator />}
-                  </div>
-                ))}
+                  ))}
+                {!loading && developers.length === 0 && (
+                  <p className="p-6 text-center text-sm text-muted-foreground">No developers yet.</p>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -361,61 +250,56 @@ export function Leaderboard() {
             </div>
             <Card className="border">
               <CardContent className="p-0">
-                {mockProjects.map((project, index) => (
-                  <div key={project.id}>
-                    <div 
-                      className="p-3 hover:bg-muted cursor-pointer transition-colors"
-                      onClick={() => window.location.href = `/project/${project.id}`}
-                    >
-                      <div className="flex items-start gap-3">
-                        {/* Rank */}
-                        <div className="text-sm font-semibold w-6 text-center pt-1 flex-shrink-0 text-muted-foreground">
-                          #{project.rank}
-                        </div>
-
-                        {/* Project Info */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-semibold text-sm truncate text-primary">{project.name}</h3>
-                            {getTrendIcon(project.trend)}
-                          </div>
-                          <p className="text-xs text-muted-foreground mb-2 line-clamp-1">{project.description}</p>
-                          
-                          {/* Tech Stack */}
-                          <div className="flex flex-wrap gap-1 mb-2">
-                            {project.tech.map((tech) => (
-                              <Badge key={tech} variant="secondary" className="text-xs rounded-md py-0 font-normal">
-                                {tech}
-                              </Badge>
-                            ))}
-                          </div>
-
-                          {/* Author & Stats */}
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5">
-                              <Avatar className="w-4 h-4 border border-border">
-                                <AvatarImage src={project.avatar} />
-                                <AvatarFallback>{project.author[0]}</AvatarFallback>
-                              </Avatar>
-                              <span className="text-xs text-muted-foreground truncate">{project.author}</span>
+                {loading && projects.length === 0
+                  ? [...Array(6)].map((_, i) => (
+                    <div key={i}><RowSkeleton />{i < 5 && <Separator />}</div>
+                  ))
+                  : projects.map((item: any, index: number) => {
+                    const p = item.project;
+                    return (
+                      <div key={p.id}>
+                        <div
+                          className="p-3 hover:bg-muted cursor-pointer transition-colors"
+                          onClick={() => window.location.href = `/project/${p.id}`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="text-sm font-semibold w-6 text-center pt-1 flex-shrink-0 text-muted-foreground">
+                              #{item.rank}
                             </div>
-                            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                <Star className="w-3 h-3" strokeWidth={2} />
-                                {project.stars}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <GitFork className="w-3 h-3" strokeWidth={2} />
-                                {project.forks}
-                              </span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h3 className="font-semibold text-sm truncate text-primary">{p.name}</h3>
+                                {getTrendIcon(item.trend)}
+                              </div>
+                              <p className="text-xs text-muted-foreground mb-2 line-clamp-1">{p.tagline}</p>
+                              <div className="flex flex-wrap gap-1 mb-2">
+                                {(p.tags ?? []).slice(0, 3).map((t: any) => (
+                                  <Badge key={t.name} variant="secondary" className="text-xs rounded-md py-0 font-normal">{t.name}</Badge>
+                                ))}
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <Avatar className="w-4 h-4 border border-border">
+                                    <AvatarImage src={p.owner?.avatarUrl} />
+                                    <AvatarFallback>{p.owner?.name?.[0]}</AvatarFallback>
+                                  </Avatar>
+                                  <span className="text-xs text-muted-foreground truncate">{p.owner?.name}</span>
+                                </div>
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                  <span className="flex items-center gap-1"><Star className="w-3 h-3" strokeWidth={2} />{p.starsCount}</span>
+                                  <span className="flex items-center gap-1"><GitFork className="w-3 h-3" strokeWidth={2} />{p.forksCount}</span>
+                                </div>
+                              </div>
                             </div>
                           </div>
                         </div>
+                        {index < projects.length - 1 && <Separator />}
                       </div>
-                    </div>
-                    {index < mockProjects.length - 1 && <Separator />}
-                  </div>
-                ))}
+                    );
+                  })}
+                {!loading && projects.length === 0 && (
+                  <p className="p-6 text-center text-sm text-muted-foreground">No projects yet.</p>
+                )}
               </CardContent>
             </Card>
           </div>

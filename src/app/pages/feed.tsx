@@ -1,163 +1,346 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { gql } from "@apollo/client/core";
+import { useQuery, useMutation } from "@apollo/client/react";
 import { CreatePost } from "../components/create-post";
 import { PostCard } from "../components/post-card";
 // import { RoastedPostCard } from "../components/roasted-post-card";
-import { RoastedProjectCard, RoastedProject } from "../components/roasted-project-card";
+import { RoastedProjectCard, FeedPost } from "../components/roasted-project-card";
 import { LeftSidebar } from "../components/left-sidebar";
 import { RightSidebar } from "../components/right-sidebar";
 import { FeaturedProjects } from "../components/featured-projects";
 import { FeaturedProjectCard, FeaturedProject } from "../components/featured-project-card";
 import { Separator } from "../components/ui/separator";
+import { Skeleton } from "../components/ui/skeleton";
 import { Fragment } from "react";
 
-// Mock data
-const mockPosts = [
-  {
-    id: "1",
-    author: {
-      name: "Juan dela Cruz",
-      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop",
-      username: "@juandc",
-    },
-    content: "Just shipped my first SaaS product built with Next.js and Supabase! 🚀 It's a project management tool specifically for Filipino freelancers. Check it out and let me know what you think!",
-    image: "https://images.unsplash.com/photo-1551650975-87deedd944c3?w=800&h=400&fit=crop",
-    likes: 47,
-    comments: 12,
-    shares: 5,
-    timestamp: "2h ago",
-    projectName: "FreelancerHub PH",
-  },
-  {
-    id: "2",
-    author: {
-      name: "Maria Santos",
-      avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop",
-      username: "@mariasantos",
-    },
-    content: "Working on a mobile app for connecting local farmers with buyers. Built with React Native and Firebase. Any feedback from fellow devs?",
-    image: "https://images.unsplash.com/photo-1498049794561-7780e7231661?w=800&h=400&fit=crop",
-    likes: 63,
-    comments: 8,
-    shares: 3,
-    timestamp: "4h ago",
-    projectName: "FarmConnect",
-  },
-  {
-    id: "3",
-    author: {
-      name: "Carlos Reyes",
-      avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop",
-      username: "@carlosr",
-    },
-    content: "Finally finished my portfolio website! Used Three.js for some cool 3D effects. Would love to hear your thoughts on the design 💻✨",
-    likes: 89,
-    comments: 23,
-    shares: 12,
-    timestamp: "6h ago",
-    projectName: "Portfolio 2026",
-  },
-  {
-    id: "4",
-    author: {
-      name: "Angela Torres",
-      avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop",
-      username: "@angelat",
-    },
-    content: "Been coding for 12 hours straight on this e-commerce platform for local businesses. The payment integration was tricky but we got it working! 🎉",
-    image: "https://images.unsplash.com/photo-1556742502-ec7c0e9f34b1?w=800&h=400&fit=crop",
-    likes: 124,
-    comments: 31,
-    shares: 18,
-    timestamp: "1d ago",
-    projectName: "LokalShop",
-  },
-  {
-    id: "5",
-    author: {
-      name: "Miguel Fernandez",
-      avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop",
-      username: "@miguelf",
-    },
-    content: "Learning Rust and building a CLI tool for automating deployment tasks. Any Rustaceans here who can help me with lifetimes? 🦀",
-    likes: 34,
-    comments: 15,
-    shares: 2,
-    timestamp: "1d ago",
-    projectName: "DeployMaster",
-  },
-];
+// ─── GraphQL ─────────────────────────────────────────────────────────────────
 
-// Roasted projects data
-const roastedProjects: RoastedProject[] = [
-  {
-    id: "roast-1",
-    author: {
-      name: "Sofia Garcia",
-      username: "@sofiag",
-      avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&h=100&fit=crop",
-    },
-    project: {
-      name: "TaskMaster Pro",
-      description: "AI-powered task management app with smart scheduling",
-      url: "https://taskmaster.dev",
-      image: "https://images.unsplash.com/photo-1484480974693-6ca0a78fb36b?w=800&h=400&fit=crop",
-      tags: ["React", "TypeScript", "AI", "Productivity"],
-    },
-    roast: {
-      rating: 7.5,
-      text: "Solid foundation but the UI looks like it time-traveled from 2015. The AI scheduling is impressive, but your landing page couldn't convince a goldfish to buy water. Also, 'TaskMaster Pro'? Really? Did you use AI to generate that name too?",
-      strengths: [
-        "AI scheduling algorithm is actually clever",
-        "Clean code architecture",
-        "Fast performance"
-      ],
-      improvements: [
-        "UI needs a complete redesign",
-        "Landing page is unconvincing",
-        "Better marketing copy needed"
-      ],
-    },
-    timestamp: "3h ago",
-    likes: 156,
-    comments: 34,
-    shares: 12,
-  },
-  {
-    id: "roast-2",
-    author: {
-      name: "Ricardo Tan",
-      username: "@ricardot",
-      avatar: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=100&h=100&fit=crop",
-    },
-    project: {
-      name: "DevChat",
-      description: "Real-time chat for developer teams with code sharing",
-      url: "https://devchat.ph",
-      image: "https://images.unsplash.com/photo-1611746872915-64382b5c76da?w=800&h=400&fit=crop",
-      tags: ["WebRTC", "Node.js", "Socket.io", "Chat"],
-    },
-    roast: {
-      rating: 8.2,
-      text: "You built another chat app in 2026? Bold move. But I'll admit, the code sharing feature is slick. However, your onboarding flow has more steps than assembling IKEA furniture. Slack is shaking... with laughter.",
-      strengths: [
-        "Code sharing feature is innovative",
-        "Smooth real-time performance",
-        "Great mobile responsiveness"
-      ],
-      improvements: [
-        "Simplify onboarding flow",
-        "Add more unique features",
-        "Improve competitive positioning"
-      ],
-    },
-    timestamp: "1d ago",
-    likes: 203,
-    comments: 56,
-    shares: 28,
-  },
-];
+const GET_FEED = gql`
+  query GetFeed($limit: Int, $offset: Int) {
+    exploreFeed(limit: $limit, offset: $offset) {
+      posts {
+        id
+        content
+        imageUrl
+        imageUrls
+        projectName
+        likesCount
+        commentsCount
+        sharesCount
+        likedByMe
+        myReaction
+        postType
+        createdAt
+        author {
+          id
+          name
+          username
+          avatarUrl
+        }
+        tags {
+          id
+          name
+        }
+        comments(limit: 10) {
+          id
+          content
+          likesCount
+          likedByMe
+          myReaction
+          parentId
+          mentions
+          isEdited
+          editHistory { id previousContent editedAt }
+          createdAt
+          author {
+            id
+            name
+            username
+            avatarUrl
+          }
+          replies {
+            id
+            content
+            likesCount
+            likedByMe
+            myReaction
+            parentId
+            mentions
+            isEdited
+            editHistory { id previousContent editedAt }
+            createdAt
+            author {
+              id
+              name
+              username
+              avatarUrl
+            }
+          }
+        }
+      }
+      hasMore
+      nextOffset
+    }
+  }
+`;
 
-// Featured projects data (ads-like)
+const CREATE_POST_MUTATION = gql`
+  mutation CreateFeedPost($input: CreatePostInput!) {
+    createPost(input: $input) {
+      id
+      content
+      imageUrl
+      imageUrls
+      projectName
+      likesCount
+      commentsCount
+      sharesCount
+      likedByMe
+      postType
+      createdAt
+      author {
+        id
+        name
+        username
+        avatarUrl
+      }
+      tags {
+        id
+        name
+      }
+      comments(limit: 10) {
+        id
+        content
+        likesCount
+        likedByMe
+        myReaction
+        parentId
+        mentions
+        isEdited
+        editHistory { id previousContent editedAt }
+        createdAt
+        author {
+          id
+          name
+          username
+          avatarUrl
+        }
+        replies {
+          id
+          content
+          likesCount
+          likedByMe
+          myReaction
+          parentId
+          mentions
+          isEdited
+          editHistory { id previousContent editedAt }
+          createdAt
+          author {
+            id
+            name
+            username
+            avatarUrl
+          }
+        }
+      }
+    }
+  }
+`;
+
+const LIKE_POST_MUTATION = gql`
+  mutation LikeFeedPost($postId: ID!, $reaction: String) {
+    likePost(postId: $postId, reaction: $reaction) {
+      id
+      likesCount
+      likedByMe
+      myReaction
+    }
+  }
+`;
+
+const UNLIKE_POST_MUTATION = gql`
+  mutation UnlikeFeedPost($postId: ID!) {
+    unlikePost(postId: $postId) {
+      id
+      likesCount
+      likedByMe
+    }
+  }
+`;
+
+// ─── Post skeleton loader ─────────────────────────────────────────────────────
+
+/**
+ * Variant A — Standard text post (avatar + 3 lines + action bar)
+ */
+function PostSkeletonA() {
+  return (
+    <div className="rounded-lg border bg-card overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 py-3">
+        <Skeleton className="w-10 h-10 rounded-full flex-shrink-0" />
+        <div className="flex-1 space-y-1.5 min-w-0">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-3 w-28" />
+            <Skeleton className="h-4 w-16 rounded-md" />
+          </div>
+          <Skeleton className="h-2.5 w-20" />
+        </div>
+        <Skeleton className="h-7 w-20 rounded-md flex-shrink-0" />
+      </div>
+
+      {/* Body — 3 lines of text */}
+      <div className="px-4 pb-3 space-y-2">
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="h-3 w-[90%]" />
+        <Skeleton className="h-3 w-[65%]" />
+      </div>
+
+      {/* Stats row */}
+      <div className="px-4 py-2 flex items-center justify-between">
+        <Skeleton className="h-2.5 w-12" />
+        <div className="flex gap-3">
+          <Skeleton className="h-2.5 w-16" />
+          <Skeleton className="h-2.5 w-12" />
+        </div>
+      </div>
+
+      {/* Action bar */}
+      <div className="border-t flex">
+        {[...Array(3)].map((_, i) => (
+          <div key={i} className="flex-1 flex items-center justify-center gap-2 py-2.5 border-r last:border-r-0">
+            <Skeleton className="h-4 w-4 rounded" />
+            <Skeleton className="h-2.5 w-10" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Variant B — Post with image banner (like a project share with cover photo)
+ */
+function PostSkeletonB() {
+  return (
+    <div className="rounded-lg border bg-card overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 py-3">
+        <Skeleton className="w-10 h-10 rounded-full flex-shrink-0" />
+        <div className="flex-1 space-y-1.5">
+          <Skeleton className="h-3 w-36" />
+          <Skeleton className="h-2.5 w-24" />
+        </div>
+        <Skeleton className="h-7 w-7 rounded-md flex-shrink-0" />
+      </div>
+
+      {/* 2 lines of text before image */}
+      <div className="px-4 pb-3 space-y-2">
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="h-3 w-4/5" />
+      </div>
+
+      {/* Image banner */}
+      <Skeleton className="w-full h-48 rounded-none" />
+
+      {/* Stats + actions */}
+      <div className="px-4 py-2 flex items-center justify-between">
+        <Skeleton className="h-2.5 w-14" />
+        <Skeleton className="h-2.5 w-24" />
+      </div>
+      <div className="border-t flex">
+        {[...Array(3)].map((_, i) => (
+          <div key={i} className="flex-1 flex items-center justify-center gap-2 py-2.5 border-r last:border-r-0">
+            <Skeleton className="h-4 w-4 rounded" />
+            <Skeleton className="h-2.5 w-10" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Variant C — Compact card (no image, tighter layout, badge pill, longer excerpt)
+ */
+function PostSkeletonC() {
+  return (
+    <div className="rounded-lg border bg-card overflow-hidden">
+      {/* Header with follow button */}
+      <div className="flex items-start gap-3 px-4 pt-4 pb-2">
+        {/* Square avatar */}
+        <Skeleton className="w-10 h-10 rounded-md flex-shrink-0" />
+        <div className="flex-1 min-w-0 space-y-1.5">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-3 w-3 rounded-full" />
+            <Skeleton className="h-2.5 w-10" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-2.5 w-16" />
+            <Skeleton className="h-4 w-14 rounded-full" />
+            <Skeleton className="h-4 w-14 rounded-full" />
+          </div>
+        </div>
+        <Skeleton className="h-7 w-24 rounded-md flex-shrink-0" />
+      </div>
+
+      {/* 4-line body */}
+      <div className="px-4 py-2 space-y-2">
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="h-3 w-[95%]" />
+        <Skeleton className="h-3 w-[80%]" />
+        <Skeleton className="h-3 w-[55%]" />
+      </div>
+
+      {/* Tags row */}
+      <div className="px-4 pb-3 flex items-center gap-2 flex-wrap">
+        <Skeleton className="h-5 w-16 rounded-full" />
+        <Skeleton className="h-5 w-20 rounded-full" />
+        <Skeleton className="h-5 w-12 rounded-full" />
+      </div>
+
+      {/* Stats + actions */}
+      <div className="px-4 py-2 flex items-center justify-between border-t">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-2.5 w-10" />
+          <Skeleton className="h-2.5 w-10" />
+        </div>
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-7 w-7 rounded-md" />
+          <Skeleton className="h-7 w-7 rounded-md" />
+          <Skeleton className="h-7 w-7 rounded-md" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Cycles through A → B → C → A … based on index */
+function PostSkeleton({ index = 0 }: { index?: number }) {
+  const variant = index % 3;
+  if (variant === 1) return <PostSkeletonB />;
+  if (variant === 2) return <PostSkeletonC />;
+  return <PostSkeletonA />;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function timeAgo(date: string) {
+  const diff = Date.now() - new Date(date).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "Just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+// ─── Static placeholders (shown when feed is empty / for featured cards) ───────
+// Note: roast posts from the real feed are detected via postType === "roast" and
+// rendered with RoastedProjectCard automatically — no static placeholders needed.
+
 const featuredProjects: FeaturedProject[] = [
   {
     id: "featured-1",
@@ -179,7 +362,7 @@ const featuredProjects: FeaturedProject[] = [
   {
     id: "featured-2",
     name: "Pinoy DevTools",
-    description: "Essential development tools and utilities designed for Filipino developers. Includes code snippets, deployment scripts, and productivity boosters.",
+    description: "Essential development tools and utilities designed for Filipino developers.",
     author: {
       name: "DevTools Team",
       avatar: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=100&h=100&fit=crop",
@@ -190,13 +373,13 @@ const featuredProjects: FeaturedProject[] = [
     stars: 1923,
     forks: 156,
     url: "https://pinoydevtools.com",
-    tags: ["CLI", "Productivity", "Open Source", "Developer Tools"],
+    tags: ["CLI", "Productivity", "Open Source"],
     isSponsored: false,
   },
   {
     id: "featured-3",
     name: "Manila Jobs Board",
-    description: "Job marketplace connecting Filipino developers with local and international companies. Features remote work opportunities and salary transparency.",
+    description: "Job marketplace connecting Filipino developers with local and international companies.",
     author: {
       name: "CareerHub",
       avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop",
@@ -206,41 +389,166 @@ const featuredProjects: FeaturedProject[] = [
     category: "Career",
     stars: 3421,
     url: "https://manilajobs.dev",
-    tags: ["Jobs", "Remote Work", "Careers", "Marketplace"],
+    tags: ["Jobs", "Remote Work", "Careers"],
     isSponsored: true,
   },
 ];
 
-export function Feed() {
-  const [posts, setPosts] = useState(mockPosts);
-  const [followedUsers, setFollowedUsers] = useState<Set<string>>(new Set());
+// ─── Feed Component ───────────────────────────────────────────────────────────
 
-  const handleNewPost = (content: string, image?: string) => {
-    const newPost = {
-      id: Date.now().toString(),
+// Adapter: map GraphQL post shape → PostCard shape
+function adaptComment(c: any): any {
+  return {
+    id: c.id,
+    content: c.content,
+    likesCount: c.likesCount ?? 0,
+    likedByMe: c.likedByMe ?? false,
+    myReaction: c.myReaction ?? null,
+    parentId: c.parentId ?? null,
+    mentions: c.mentions ?? [],
+    isEdited: c.isEdited ?? false,
+    editHistory: (c.editHistory ?? []).map((e: any) => ({
+      id: e.id,
+      previousContent: e.previousContent,
+      editedAt: e.editedAt,
+    })),
+    createdAt: c.createdAt,
+    author: {
+      id: c.author?.id,
+      name: c.author?.name ?? "Unknown",
+      username: c.author?.username ?? "",
+      avatarUrl: c.author?.avatarUrl,
+    },
+    replies: (c.replies ?? []).map((r: any) => ({
+      id: r.id,
+      content: r.content,
+      likesCount: r.likesCount ?? 0,
+      likedByMe: r.likedByMe ?? false,
+      myReaction: r.myReaction ?? null,
+      parentId: r.parentId ?? null,
+      mentions: r.mentions ?? [],
+      isEdited: r.isEdited ?? false,
+      editHistory: (r.editHistory ?? []).map((e: any) => ({
+        id: e.id,
+        previousContent: e.previousContent,
+        editedAt: e.editedAt,
+      })),
+      createdAt: r.createdAt,
       author: {
-        name: "You",
-        avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop",
-        username: "@you",
+        id: r.author?.id,
+        name: r.author?.name ?? "Unknown",
+        username: r.author?.username ?? "",
+        avatarUrl: r.author?.avatarUrl,
       },
+      replies: [],
+    })),
+  };
+}
+
+function adaptPost(p: any) {
+  return {
+    id: p.id,
+    author: {
+      id: p.author.id,
+      name: p.author.name,
+      avatar: p.author.avatarUrl ?? `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(p.author.name)}`,
+      username: `@${p.author.username}`,
+    },
+    content: p.content,
+    image: p.imageUrl,
+    images: p.imageUrls ?? (p.imageUrl ? [p.imageUrl] : []),
+    likes: p.likesCount,
+    comments: p.commentsCount,
+    shares: p.sharesCount,
+    timestamp: timeAgo(p.createdAt),
+    projectName: p.projectName ?? undefined,
+    likedByMe: p.likedByMe,
+    myReaction: p.myReaction ?? null,
+    postType: (p.postType ?? "post") as "post" | "roast",
+    tags: p.tags ?? [],
+    initialComments: (p.comments ?? []).map(adaptComment),
+  };
+}
+
+const DUMMY: never[] = []; // empty fallback so TS stays happy
+
+export function Feed() {
+  const [followedUsers, setFollowedUsers] = useState<Set<string>>(new Set());
+  // Optimistic local posts prepended before the server list
+  const [localPosts, setLocalPosts] = useState<ReturnType<typeof adaptPost>[]>([]);
+
+  const [offset, setOffset] = useState(0);
+  const { data, loading: feedLoading, error: feedError, refetch, fetchMore } = useQuery(GET_FEED, {
+    variables: { limit: 20, offset: 0 },
+    fetchPolicy: "cache-and-network",
+  });
+
+  const [createPostMutation] = useMutation(CREATE_POST_MUTATION);
+  const [likePost] = useMutation(LIKE_POST_MUTATION);
+  const [unlikePost] = useMutation(UNLIKE_POST_MUTATION);
+
+  const serverPosts: ReturnType<typeof adaptPost>[] = (data?.exploreFeed?.posts ?? DUMMY).map(adaptPost);
+  // Merge: local (optimistic) first, then server (deduped by id)
+  const serverIds = new Set(serverPosts.map((p) => p.id));
+  const allPosts = [
+    ...localPosts.filter((p) => !serverIds.has(p.id)),
+    ...serverPosts,
+  ];
+
+  const handleNewPost = useCallback(async (content: string, images?: string[], videoUrl?: string) => {
+    // Optimistic: add to local list immediately
+    const tempId = `temp-${Date.now()}`;
+    const optimistic = {
+      id: tempId,
+      author: { name: "You", avatar: "", username: "@you" },
       content,
-      image,
+      image: images?.[0],
+      images: images ?? [],
       likes: 0,
       comments: 0,
       shares: 0,
       timestamp: "Just now",
       projectName: undefined,
+      likedByMe: false,
+      tags: [],
+      initialComments: [],
     };
-    setPosts([newPost, ...posts]);
-  };
+    setLocalPosts((prev) => [optimistic, ...prev]);
 
-  const handleLike = (postId: string) => {
-    setPosts(posts.map(post => 
-      post.id === postId 
-        ? { ...post, likes: post.likes + 1 }
-        : post
-    ));
-  };
+    try {
+      await createPostMutation({
+        variables: { input: { content, imageUrl: images?.[0], imageUrls: images ?? [] } },
+      });
+      // On success, refetch to get the real post from server
+      refetch();
+      // Remove the optimistic post
+      setLocalPosts((prev) => prev.filter((p) => p.id !== tempId));
+    } catch (err) {
+      console.error("createPost failed:", err);
+      // Keep optimistic post but mark it somehow (for now just leave it)
+    }
+  }, [createPostMutation, refetch]);
+
+  const handleLike = useCallback(async (postId: string, wantsLike: boolean, reaction?: string) => {
+    try {
+      if (wantsLike) {
+        await likePost({ variables: { postId, reaction: reaction ?? "Like" } });
+      } else {
+        await unlikePost({ variables: { postId } });
+      }
+    } catch (err) {
+      console.error("like/unlike failed:", err);
+    }
+  }, [likePost, unlikePost]);
+
+  const handleLoadMore = useCallback(async () => {
+    const next = data?.exploreFeed?.nextOffset ?? offset + 20;
+    setOffset(next);
+    await fetchMore({ variables: { limit: 20, offset: next }, updateQuery: (prev, { fetchMoreResult }) => {
+      if (!fetchMoreResult) return prev;
+      return { exploreFeed: { ...fetchMoreResult.exploreFeed, posts: [...(prev.exploreFeed?.posts ?? []), ...fetchMoreResult.exploreFeed.posts] } };
+    }});
+  }, [fetchMore, data, offset]);
 
   const handleFollowToggle = (username: string) => {
     setFollowedUsers(prev => {
@@ -254,9 +562,11 @@ export function Feed() {
     });
   };
 
+  const showSkeletons = feedLoading && allPosts.length === 0;
+
   return (
     <div className="flex min-h-screen">
-      {/* Left Sidebar - Hidden on mobile */}
+      {/* Left Sidebar */}
       <LeftSidebar className="hidden xl:block sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto" />
 
       {/* Center Feed */}
@@ -270,44 +580,78 @@ export function Feed() {
 
           <Separator />
 
+          {/* Error banner */}
+          {feedError && !feedLoading && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive font-mono">
+              ⚠ Could not load feed — {feedError.message}
+            </div>
+          )}
+
+          {/* Skeletons while loading */}
+          {showSkeletons && (
+            <div className="space-y-4">
+              {[...Array(4)].map((_, i) => <PostSkeleton key={i} index={i} />)}
+            </div>
+          )}
+
           {/* Posts Feed */}
-          <div className="space-y-4">
-            {posts.map((post, index) => (
-              <Fragment key={post.id}>
-                <PostCard 
-                  post={post}
-                  onLike={() => handleLike(post.id)}
-                  isFollowing={followedUsers.has(post.author.username)}
-                  onFollowToggle={() => handleFollowToggle(post.author.username)}
-                />
-                {/* Insert roasted project after index 1 (2nd post) */}
-                {index === 1 && roastedProjects[0] && (
-                  <RoastedProjectCard 
-                    post={roastedProjects[0]}
-                    onLike={() => {}}
-                  />
-                )}
-                {/* Insert featured project after every 3 posts (index 2, 5, etc.) */}
-                {(index + 1) % 3 === 0 && featuredProjects[(Math.floor(index / 3)) % featuredProjects.length] && (
-                  <FeaturedProjectCard 
-                    project={featuredProjects[(Math.floor(index / 3)) % featuredProjects.length]}
-                  />
-                )}
-                {/* Insert second roasted project after index 4 (5th post) */}
-                {index === 4 && roastedProjects[1] && (
-                  <RoastedProjectCard 
-                    post={roastedProjects[1]}
-                    onLike={() => {}}
-                  />
-                )}
-              </Fragment>
-            ))}
-          </div>
+          {!showSkeletons && (
+            <div className="space-y-4">
+              {allPosts.map((post, index) => (
+                <Fragment key={post.id}>
+                  {post.postType === "roast" ? (
+                    <RoastedProjectCard
+                      post={post as unknown as FeedPost}
+                      onLike={(wantsLike, reaction) => handleLike(post.id, wantsLike, reaction)}
+                    />
+                  ) : (
+                    <PostCard
+                      post={post}
+                      onLike={(wantsLike, reaction) => handleLike(post.id, wantsLike, reaction)}
+                      onDelete={() => {
+                        setLocalPosts((prev) => prev.filter((p) => p.id !== post.id));
+                        refetch();
+                      }}
+                      isFollowing={followedUsers.has(post.author.username)}
+                      onFollowToggle={() => handleFollowToggle(post.author.username)}
+                    />
+                  )}
+                  {/* Featured project after every 3rd post */}
+                  {(index + 1) % 3 === 0 && featuredProjects[(Math.floor(index / 3)) % featuredProjects.length] && (
+                    <FeaturedProjectCard project={featuredProjects[(Math.floor(index / 3)) % featuredProjects.length]} />
+                  )}
+                </Fragment>
+              ))}
+
+              {/* Empty state */}
+              {allPosts.length === 0 && !feedLoading && (
+                <div className="text-center py-16 text-muted-foreground font-mono text-sm">
+                  <p className="text-2xl mb-2">📭</p>
+                  <p>No posts yet. Be the first to share something!</p>
+                </div>
+              )}
+
+              {/* Load more */}
+              {data?.exploreFeed?.hasMore && (
+                <div className="flex justify-center py-4">
+                  <button
+                    onClick={handleLoadMore}
+                    disabled={feedLoading}
+                    className="px-6 py-2 rounded-full border text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
+                  >
+                    {feedLoading ? "Loading…" : "Load more posts"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Right Sidebar - Hidden on mobile and tablet */}
+      {/* Right Sidebar */}
       <RightSidebar category="home" className="hidden lg:block sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto" />
     </div>
   );
 }
+
+// ─── (end of file) ─────────────────────────────────────────────────────────
