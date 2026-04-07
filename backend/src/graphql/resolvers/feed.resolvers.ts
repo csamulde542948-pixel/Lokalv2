@@ -622,9 +622,21 @@ export const feedResolvers = {
         skip: offset,
         include: {
           author: { include: { rank: true } },
+          editHistory: { orderBy: { editedAt: "desc" } },
           replies: {
             orderBy: { createdAt: "asc" },
-            include: { author: { include: { rank: true } } },
+            include: {
+              author: { include: { rank: true } },
+              editHistory: { orderBy: { editedAt: "desc" } },
+              replies: {
+                orderBy: { createdAt: "asc" },
+                include: {
+                  author: { include: { rank: true } },
+                  editHistory: { orderBy: { editedAt: "desc" } },
+                  replies: { select: { id: true } }, // depth-3 not rendered but we need the array
+                },
+              },
+            },
           },
         },
       });
@@ -691,6 +703,14 @@ export const feedResolvers = {
         include: {
           author: { include: { rank: true } },
           editHistory: { orderBy: { editedAt: "desc" } },
+          replies: {
+            orderBy: { createdAt: "asc" },
+            include: {
+              author: { include: { rank: true } },
+              editHistory: { orderBy: { editedAt: "desc" } },
+              replies: { select: { id: true } },
+            },
+          },
         },
       });
     },

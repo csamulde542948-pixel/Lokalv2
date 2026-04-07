@@ -75,6 +75,24 @@ const GET_FEED = gql`
               username
               avatarUrl
             }
+            replies {
+              id
+              content
+              likesCount
+              likedByMe
+              myReaction
+              parentId
+              mentions
+              isEdited
+              editHistory { id previousContent editedAt }
+              createdAt
+              author {
+                id
+                name
+                username
+                avatarUrl
+              }
+            }
           }
         }
       }
@@ -141,6 +159,24 @@ const CREATE_POST_MUTATION = gql`
             name
             username
             avatarUrl
+          }
+          replies {
+            id
+            content
+            likesCount
+            likedByMe
+            myReaction
+            parentId
+            mentions
+            isEdited
+            editHistory { id previousContent editedAt }
+            createdAt
+            author {
+              id
+              name
+              username
+              avatarUrl
+            }
           }
         }
       }
