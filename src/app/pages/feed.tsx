@@ -16,8 +16,8 @@ import { Fragment } from "react";
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
 
 const GET_FEED = gql`
-  query GetFeed($limit: Int, $offset: Int, $seenIds: [ID!], $feedVariant: String) {
-    feed(limit: $limit, offset: $offset, seenIds: $seenIds, feedVariant: $feedVariant) {
+  query GetFeed($limit: Int, $offset: Int, $seenIds: [ID!], $feedVariant: String, $sessionId: String) {
+    feed(limit: $limit, offset: $offset, seenIds: $seenIds, feedVariant: $feedVariant, sessionId: $sessionId) {
       posts {
         id
         content
@@ -712,7 +712,8 @@ export function Feed() {
     const next = data?.feed?.nextOffset ?? offset + 20;
     setOffset(next);
     const seen = Array.from(seenIdsRef.current);
-    await fetchMore({ variables: { limit: 20, offset: next, seenIds: seen }, updateQuery: (prev, { fetchMoreResult }) => {
+    const currentSessionId = data?.feed?.sessionId ?? undefined;
+    await fetchMore({ variables: { limit: 20, offset: next, seenIds: seen, sessionId: currentSessionId }, updateQuery: (prev, { fetchMoreResult }) => {
       if (!fetchMoreResult) return prev;
       return { feed: { ...fetchMoreResult.feed, posts: [...(prev.feed?.posts ?? []), ...fetchMoreResult.feed.posts] } };
     }});

@@ -67,6 +67,7 @@ export const typeDefs = gql`
     LIKE
     COMMENT
     FOLLOW
+    SHARE
     PROJECT_ROAST
     JOB_APPLICATION
     EVENT_REMINDER
@@ -298,6 +299,7 @@ export const typeDefs = gql`
     likesCount: Int!
     commentsCount: Int!
     sharesCount: Int!
+    rankScore: Float
     likedByMe: Boolean!
     createdAt: DateTime!
   }
@@ -509,7 +511,7 @@ export const typeDefs = gql`
     suggestedUsers(limit: Int): [Profile!]!
 
     # Feed (ranked + personalized)
-    feed(limit: Int, offset: Int, seenIds: [ID!], feedVariant: String): FeedResult!
+    feed(limit: Int, offset: Int, seenIds: [ID!], feedVariant: String, sessionId: String): FeedResult!
     exploreFeed(limit: Int, offset: Int): FeedResult!
 
     # Feed metrics (Phase 3: A/B comparison dashboard)
@@ -686,6 +688,28 @@ export const typeDefs = gql`
     # Feed ranking signals
     recordPostView(postId: ID!, dwellMs: Int!, source: String, feedVariant: String, position: Int, sessionId: String): ID
     markNotInterestedInPost(postId: ID!): Boolean!
+
+    # Admin: Feed config management (P2 #10)
+    updateFeedConfig(entries: [FeedConfigInput!]!): [FeedConfigEntry!]!
+
+    # Admin: Cleanup old interactions (P3 #15)
+    cleanupOldInteractions(olderThanDays: Int!): Int!
+
+    # Admin: Cleanup old feed_score_logs (P2 #6)
+    cleanupOldScoreLogs(olderThanDays: Int!): Int!
+  }
+
+  # Feed config entry for admin tuning (P2 #10)
+  type FeedConfigEntry {
+    key: String!
+    value: Float!
+    label: String
+  }
+
+  input FeedConfigInput {
+    key: String!
+    value: Float!
+    label: String
   }
 
   # =============================================
