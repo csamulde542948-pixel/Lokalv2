@@ -1031,13 +1031,13 @@ export const feedResolvers = {
     ) => {
       if (!user) throw new Error("Unauthorized");
 
-      await prisma.commentLike.deleteMany({
+      const deleted = await prisma.commentLike.deleteMany({
         where: { commentId, profileId: user.id },
       });
 
       return prisma.postComment.update({
         where: { id: commentId },
-        data: { likesCount: { decrement: 1 } },
+        data: deleted.count > 0 ? { likesCount: { decrement: 1 } } : {},
         include: {
           author: { include: { rank: true } },
           post: true,
@@ -1231,8 +1231,8 @@ export const feedResolvers = {
       { user, prisma }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
-      // TODO: Add admin role check when admin system is built
-      // For now, any authenticated user can update config (lock down later)
+      // Admin role check — only users with an "admin" role can modify feed config
+      await assertAdminRole(prisma, user.id);
 
       const results = [];
       for (const entry of entries) {
@@ -1261,6 +1261,7 @@ export const feedResolvers = {
       { user, prisma }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
+      await assertAdminRole(prisma, user.id);
       const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
 
       const result = await prisma.userInteraction.deleteMany({
@@ -1281,6 +1282,7 @@ export const feedResolvers = {
       { user, prisma }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
+      await assertAdminRole(prisma, user.id);
       const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
 
       const result = await prisma.feedScoreLog.deleteMany({
@@ -1633,6 +1635,22 @@ async function updateAuthorAffinity(
 // ─────────────────────────────────────────────────────────────
 
 /**
+ * Assert the current user has an "admin" role.
+ * Throws a Forbidden error if not.
+ */
+async function assertAdminRole(prisma: any, userId: string): Promise<void> {
+  const adminRole = await prisma.userRole.findFirst({
+    where: {
+      profileId: userId,
+      role: { name: { in: ["admin", "Admin", "ADMIN"] } },
+    },
+  });
+  if (!adminRole) {
+    throw new Error("Forbidden: admin role required");
+  }
+}
+
+/**
  * Log full score breakdown for every post in a feed response.
  * Fire-and-forget batch insert — never blocks the response.
  */
@@ -1646,18 +1664,17 @@ async function updatePostRankScores(
 ): Promise<void> {
   if (posts.length === 0) return;
 
-  // Batch update using a raw query for efficiency (single round-trip)
-  const cases = posts
-    .map(
-      (p) => `WHEN id = '${p.postId}' THEN ${p._breakdown.finalScore}`
-    )
-    .join(" ");
-  const ids = posts.map((p) => `'${p.postId}'`).join(",");
+  // Batch update using individual parameterized queries to avoid SQL injection
+  // Prisma doesn't support CASE expressions with $queryRaw, so we batch individual updates
+  const updates = posts.map((p) =>
+    prisma.post.update({
+      where: { id: p.postId },
+      data: { rankScore: p._breakdown.finalScore },
+      select: { id: true },
+    })
+  );
 
-  await prisma.$executeRawUnsafe(`
-    UPDATE posts SET "rankScore" = CASE ${cases} END
-    WHERE id IN (${ids})
-  `);
+  await Promise.allSettled(updates);
 }
 
 async function logFeedScoreLogs(
@@ -1728,23 +1745,21 @@ async function markPostViewEngaged(
     const position = recentView.position ?? 0;
     const positionWeight = 1.0 + Math.min(position / 20, 1.0); // 1.0x at top, up to 2.0x at position 20+
 
-    // Update session engagement count + CTR (position-weighted)
+    // Store positionWeight on the view itself for offline analysis
+    await prisma.postView.update({
+      where: { id: recentView.id },
+      data: { engagementWeight: positionWeight },
+    }).catch(() => {}); // best-effort — column may not exist yet
+
+    // Atomic session engagement + CTR update — avoids read-compute-write race condition
     if (recentView.sessionId) {
-      const session = await prisma.feedSession.findUnique({
-        where: { id: recentView.sessionId },
-        select: { postsShown: true, postsEngaged: true },
-      });
-      if (session) {
-        const newEngaged = session.postsEngaged + 1;
-        const newCtr = session.postsShown > 0 ? newEngaged / session.postsShown : 0;
-        await prisma.feedSession.update({
-          where: { id: recentView.sessionId },
-          data: {
-            postsEngaged: { increment: 1 },
-            ctr: newCtr,
-          },
-        });
-      }
+      await prisma.$executeRawUnsafe(
+        `UPDATE feed_sessions
+         SET "postsEngaged" = "postsEngaged" + 1,
+             ctr = ("postsEngaged" + 1)::float / GREATEST("postsShown", 1)
+         WHERE id = $1`,
+        recentView.sessionId
+      );
     }
   } catch (err) {
     console.error("[markPostViewEngaged] error:", err);

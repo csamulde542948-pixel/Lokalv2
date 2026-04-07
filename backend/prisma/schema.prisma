@@ -812,6 +812,7 @@ model PostView {
   feedVariant String?  @db.VarChar(20) // "ranked" | "chronological" — A/B testing
   position    Int?     // rank position in the feed (0-indexed) — for CTR analysis
   engaged     Boolean  @default(false) // did the user like/comment/share after viewing?
+  engagementWeight Float?  // P3 #13: position-based weight (1.0–2.0x) for engagement quality
   sessionId   String?  @db.VarChar(60) // links to FeedSession for session-level analysis
   createdAt   DateTime @default(now())
 
