@@ -163,6 +163,9 @@ model Profile {
   earnedRoles         UserRole[]
   savedJobs           SavedJob[]
   photos              ProfilePhoto[]
+  postViews           PostView[]           @relation("PostViews")
+  authorAffinityFrom  UserAuthorAffinity[] @relation("AffinityFrom")
+  authorAffinityTo    UserAuthorAffinity[] @relation("AffinityTo")
 
   // Interest vector for recommendation engine (pgvector)
   interestEmbedding Unsupported("vector(1536)")?
@@ -288,6 +291,7 @@ model Post {
   likes         PostLike[]
   comments      PostComment[]
   tags          PostTag[]
+  views         PostView[]
   notifications Notification[]
 
   // Embedding for semantic feed ranking (pgvector)
@@ -782,6 +786,47 @@ model UserTagAffinity {
   @@unique([profileId, tagName])
   @@index([profileId])
   @@map("user_tag_affinities")
+}
+
+// ============================================================
+// FEED RANKING — POST VIEWS & AUTHOR AFFINITY
+// ============================================================
+
+// Tracks every post view with dwell time — the most important ranking signal
+model PostView {
+  id        String   @id @default(cuid())
+  postId    String
+  viewerId  String   @db.Uuid
+  dwellMs   Int      // milliseconds the post was in viewport
+  source    String   @default("feed") @db.VarChar(30) // "feed" | "explore" | "profile" | "direct"
+  createdAt DateTime @default(now())
+
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  viewer    Profile  @relation("PostViews", fields: [viewerId], references: [id], onDelete: Cascade)
+
+  @@index([viewerId, createdAt(sort: Desc)])
+  @@index([postId])
+  @@map("post_views")
+}
+
+// Per-user affinity score for each author — tracks interaction history between user pairs
+model UserAuthorAffinity {
+  id           String   @id @default(cuid())
+  userId       String   @db.Uuid   // the viewer
+  authorId     String   @db.Uuid   // the content creator
+  likeCount    Int      @default(0)
+  commentCount Int      @default(0)
+  shareCount   Int      @default(0)
+  viewCount    Int      @default(0)
+  score        Float    @default(0) // composite score, recomputed on each update
+  updatedAt    DateTime @updatedAt
+
+  user         Profile  @relation("AffinityFrom", fields: [userId], references: [id], onDelete: Cascade)
+  author       Profile  @relation("AffinityTo", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, authorId])
+  @@index([userId, score(sort: Desc)])
+  @@map("user_author_affinities")
 }
 
 // ============================================================

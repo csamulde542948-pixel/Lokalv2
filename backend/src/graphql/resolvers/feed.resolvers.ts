@@ -22,7 +22,7 @@ export const feedResolvers = {
      */
     feed: async (
       _: unknown,
-      { limit = 20, offset = 0 }: { limit?: number; offset?: number },
+      { limit = 20, offset = 0, seenIds = [] }: { limit?: number; offset?: number; seenIds?: string[] },
       { user, prisma }: GraphQLContext
     ) => {
       // Unauthenticated users get the explore feed
@@ -41,14 +41,18 @@ export const feedResolvers = {
         })
         .filter(Boolean) as string[];
 
-      if (postIds.length === 0) {
+      // Filter out already-seen posts to avoid showing duplicates across refreshes
+      const seenSet = new Set(seenIds);
+      const freshPostIds = postIds.filter((id) => !seenSet.has(id));
+
+      if (freshPostIds.length === 0) {
         return exploreFeed(limit, offset, prisma);
       }
 
       // 2. Fetch full post data + signals in parallel
       const [posts, userTagAffinities, userFollows] = await Promise.all([
         prisma.post.findMany({
-          where: { id: { in: postIds } },
+          where: { id: { in: freshPostIds } },
           include: {
             author: { include: { rank: true } },
             tags: { include: { tag: true } },
@@ -66,6 +70,41 @@ export const feedResolvers = {
         userTagAffinities.map((a: any) => [a.tagName, a.score])
       );
       const followingSet = new Set(userFollows.map((f: any) => f.followingId));
+
+      // Collect unique author IDs from posts for affinity lookup
+      const authorIds = [...new Set(posts.map((p: any) => p.authorId))];
+
+      // Social proof + author affinity queries (run in parallel)
+      const [mutualLikeResults, authorAffinities] = await Promise.all([
+        followingSet.size > 0
+          ? prisma.postLike.findMany({
+              where: {
+                postId: { in: freshPostIds },
+                profileId: { in: Array.from(followingSet) },
+              },
+              select: { postId: true },
+            })
+          : Promise.resolve([]),
+        prisma.userAuthorAffinity.findMany({
+          where: {
+            userId: user.id,
+            authorId: { in: authorIds },
+          },
+          select: { authorId: true, score: true },
+        }),
+      ]);
+
+      const socialProofMap = new Map<string, number>();
+      for (const like of mutualLikeResults) {
+        socialProofMap.set(like.postId, (socialProofMap.get(like.postId) ?? 0) + 1);
+      }
+
+      // Normalize author affinity to 0–1 range (max raw score ~ 50)
+      const authorAffinityMap = new Map<string, number>();
+      const maxRawAffinity = 50;
+      for (const aff of authorAffinities) {
+        authorAffinityMap.set(aff.authorId, Math.min(aff.score / maxRawAffinity, 1.0));
+      }
 
       // 3. Build signals for each post
       const signals: (PostSignals & { post: any })[] = posts.map((post: any) => {
@@ -86,8 +125,9 @@ export const feedResolvers = {
           createdAt: post.createdAt,
           authorXp: (post.author as any).xp,
           tagAffinityScore: Math.min(tagAffinityScore, 1.0),
-          socialProof: 0, // TODO Phase 2: query mutual likes
+          socialProof: socialProofMap.get(post.id) ?? 0,
           isFromFollowing: followingSet.has(post.authorId),
+          authorAffinityScore: authorAffinityMap.get(post.authorId) ?? 0,
           postType: "post" as const,
         };
       });
@@ -273,6 +313,12 @@ export const feedResolvers = {
       // Award XP to post author
       awardXp(post.authorId, "RECEIVE_LIKE").catch(console.error);
 
+      // Track author affinity + tag affinity for feed ranking
+      if (!existing) {
+        updateAuthorAffinity(user.id, post.authorId, "likeCount", prisma).catch(console.error);
+        updateTagAffinitiesOnEngagement(user.id, postId, 0.1, prisma).catch(console.error);
+      }
+
       // Notify post author
       if (post.authorId !== user.id) {
         prisma.notification.create({
@@ -373,6 +419,10 @@ export const feedResolvers = {
       // Award XP to sharer
       awardXp(user.id, "CREATE_POST").catch(console.error);
 
+      // Track author affinity + tag affinity for feed ranking
+      updateAuthorAffinity(user.id, rootOriginal.authorId, "shareCount", prisma).catch(console.error);
+      updateTagAffinitiesOnEngagement(user.id, rootOriginalId, 0.3, prisma).catch(console.error);
+
       return newPost;
     },
 
@@ -407,6 +457,10 @@ export const feedResolvers = {
         where: { id: input.postId },
         data: { commentsCount: { increment: 1 } },
       });
+
+      // Track author affinity + tag affinity for feed ranking
+      updateAuthorAffinity(user.id, comment.post.authorId, "commentCount", prisma).catch(console.error);
+      updateTagAffinitiesOnEngagement(user.id, input.postId, 0.2, prisma).catch(console.error);
 
       // Award XP to post author
       awardXp(comment.post.authorId, "RECEIVE_COMMENT").catch(console.error);
@@ -625,6 +679,51 @@ export const feedResolvers = {
       });
       return true;
     },
+
+    /**
+     * Record a post view with dwell time — the most important ranking signal.
+     * Also updates UserAuthorAffinity (view count) and tag affinities.
+     */
+    recordPostView: async (
+      _: unknown,
+      { postId, dwellMs, source = "feed" }: { postId: string; dwellMs: number; source?: string },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) return false;
+
+      try {
+        // 1. Record the view
+        await prisma.postView.create({
+          data: {
+            postId,
+            viewerId: user.id,
+            dwellMs: Math.min(dwellMs, 300_000), // cap at 5 min
+            source,
+          },
+        });
+
+        // 2. Fetch the post to get authorId
+        const post = await prisma.post.findUnique({
+          where: { id: postId },
+          select: { authorId: true },
+        });
+        if (!post) return false;
+
+        // 3. Update author affinity (async, don't block response)
+        updateAuthorAffinity(user.id, post.authorId, "viewCount", prisma).catch(console.error);
+
+        // 4. Update tag affinity based on dwell time
+        // Only meaningful if user dwelled ≥ 2 seconds
+        if (dwellMs >= 2000) {
+          updateTagAffinitiesOnEngagement(user.id, postId, 0.05, prisma).catch(console.error);
+        }
+
+        return true;
+      } catch (err) {
+        console.error("[recordPostView] error:", err);
+        return false;
+      }
+    },
   },
 
   Post: {
@@ -837,5 +936,91 @@ async function updateTagAffinities(
       create: { profileId, tagName, score: 0.1 },
       update: { score: { increment: 0.05 } }, // boost affinity each time they use tag
     });
+  }
+}
+
+/**
+ * Boost tag affinity when a user ENGAGES with someone else's tagged post.
+ * Deltas are smaller than "create" because engagement is a weaker signal.
+ */
+async function updateTagAffinitiesOnEngagement(
+  profileId: string,
+  postId: string,
+  delta: number,
+  prisma: any
+) {
+  try {
+    const postTags = await prisma.postTag.findMany({
+      where: { postId },
+      include: { tag: true },
+    });
+    for (const pt of postTags) {
+      await prisma.userTagAffinity.upsert({
+        where: { profileId_tagName: { profileId, tagName: pt.tag.name } },
+        create: { profileId, tagName: pt.tag.name, score: delta },
+        update: { score: { increment: delta } },
+      });
+    }
+  } catch (err) {
+    console.error("[feedRanking] updateTagAffinitiesOnEngagement:", err);
+  }
+}
+
+/**
+ * Recompute composite score formula:
+ * score = likeCount * 1.5 + commentCount * 3.0 + shareCount * 5.0 + viewCount * 0.2
+ */
+function computeAuthorAffinityScore(row: {
+  likeCount: number;
+  commentCount: number;
+  shareCount: number;
+  viewCount: number;
+}): number {
+  return (
+    row.likeCount * 1.5 +
+    row.commentCount * 3.0 +
+    row.shareCount * 5.0 +
+    row.viewCount * 0.2
+  );
+}
+
+/**
+ * Increment one field on UserAuthorAffinity and recompute the composite score.
+ */
+async function updateAuthorAffinity(
+  userId: string,
+  authorId: string,
+  field: "likeCount" | "commentCount" | "shareCount" | "viewCount",
+  prisma: any
+) {
+  if (userId === authorId) return; // don't track self-affinity
+
+  try {
+    const existing = await prisma.userAuthorAffinity.findUnique({
+      where: { userId_authorId: { userId, authorId } },
+    });
+
+    if (existing) {
+      const updated = { ...existing, [field]: existing[field] + 1 };
+      await prisma.userAuthorAffinity.update({
+        where: { userId_authorId: { userId, authorId } },
+        data: {
+          [field]: { increment: 1 },
+          score: computeAuthorAffinityScore(updated),
+        },
+      });
+    } else {
+      const seed = { likeCount: 0, commentCount: 0, shareCount: 0, viewCount: 0, [field]: 1 };
+      await prisma.userAuthorAffinity.create({
+        data: {
+          userId,
+          authorId,
+          ...seed,
+          score: computeAuthorAffinityScore(seed as any),
+        },
+      });
+    }
+  } catch (err) {
+    console.error("[feedRanking] updateAuthorAffinity:", err);
   }
 }

@@ -21,6 +21,7 @@ export interface PostSignals {
   tagAffinityScore: number; // cosine sim between user interests & post tags
   socialProof: number;      // how many of the user's follows liked this
   isFromFollowing: boolean; // is this from someone the user follows?
+  authorAffinityScore: number; // composite author affinity (0–1 normalized)
   postType: "post" | "roast" | "project" | "event"; // content type multiplier
 }
 
@@ -77,9 +78,10 @@ export function scorePost(signals: PostSignals): number {
   const typeBoost = TYPE_MULTIPLIER[signals.postType];
   const interestBoost = 1.0 + signals.tagAffinityScore; // 1.0–2.0
   const followingBoost = signals.isFromFollowing ? 1.5 : 1.0;
+  const authorAffinityBoost = 1.0 + Math.min(signals.authorAffinityScore, 1.0); // 1.0–2.0
 
   const score =
-    engagementScore * decay * rankBoost * socialBoost * typeBoost * interestBoost * followingBoost;
+    engagementScore * decay * rankBoost * socialBoost * typeBoost * interestBoost * followingBoost * authorAffinityBoost;
 
   return score;
 }

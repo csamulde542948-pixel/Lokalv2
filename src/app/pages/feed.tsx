@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { gql } from "@apollo/client/core";
 import { useQuery, useMutation } from "@apollo/client/react";
 import { CreatePost } from "../components/create-post";
@@ -16,8 +16,8 @@ import { Fragment } from "react";
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
 
 const GET_FEED = gql`
-  query GetFeed($limit: Int, $offset: Int) {
-    exploreFeed(limit: $limit, offset: $offset) {
+  query GetFeed($limit: Int, $offset: Int, $seenIds: [ID!]) {
+    feed(limit: $limit, offset: $offset, seenIds: $seenIds) {
       posts {
         id
         content
@@ -236,6 +236,58 @@ const UNLIKE_POST_MUTATION = gql`
     }
   }
 `;
+
+const RECORD_POST_VIEW = gql`
+  mutation RecordPostView($postId: ID!, $dwellMs: Int!, $source: String) {
+    recordPostView(postId: $postId, dwellMs: $dwellMs, source: $source)
+  }
+`;
+
+// ─── Post view tracking ──────────────────────────────────────────────────────
+
+/**
+ * Wraps a post element and fires `recordPostView` when the post has been
+ * in the viewport for ≥ 1 second. Only fires once per session per post.
+ */
+function PostViewTracker({
+  postId,
+  children,
+  recordView,
+}: {
+  postId: string;
+  children: React.ReactNode;
+  recordView: (postId: string, dwellMs: number) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const enteredAt = useRef<number | null>(null);
+  const firedRef = useRef(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || firedRef.current) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          enteredAt.current = Date.now();
+        } else if (enteredAt.current) {
+          const dwellMs = Date.now() - enteredAt.current;
+          enteredAt.current = null;
+          if (dwellMs >= 1000 && !firedRef.current) {
+            firedRef.current = true;
+            recordView(postId, dwellMs);
+          }
+        }
+      },
+      { threshold: 0.5 }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [postId, recordView]);
+
+  return <div ref={ref}>{children}</div>;
+}
 
 // ─── Post skeleton loader ─────────────────────────────────────────────────────
 
@@ -542,6 +594,7 @@ export function Feed() {
   const [localPosts, setLocalPosts] = useState<ReturnType<typeof adaptPost>[]>([]);
 
   const [offset, setOffset] = useState(0);
+  const seenIdsRef = useRef<Set<string>>(new Set());
   const { data, loading: feedLoading, error: feedError, refetch, fetchMore } = useQuery(GET_FEED, {
     variables: { limit: 20, offset: 0 },
     fetchPolicy: "cache-and-network",
@@ -550,8 +603,14 @@ export function Feed() {
   const [createPostMutation] = useMutation(CREATE_POST_MUTATION);
   const [likePost] = useMutation(LIKE_POST_MUTATION);
   const [unlikePost] = useMutation(UNLIKE_POST_MUTATION);
+  const [recordPostViewMutation] = useMutation(RECORD_POST_VIEW);
 
-  const serverPosts: ReturnType<typeof adaptPost>[] = (data?.exploreFeed?.posts ?? DUMMY).map(adaptPost);
+  const recordView = useCallback((postId: string, dwellMs: number) => {
+    seenIdsRef.current.add(postId);
+    recordPostViewMutation({ variables: { postId, dwellMs, source: "feed" } }).catch(console.error);
+  }, [recordPostViewMutation]);
+
+  const serverPosts: ReturnType<typeof adaptPost>[] = (data?.feed?.posts ?? DUMMY).map(adaptPost);
   // Merge: local (optimistic) first, then server (deduped by id)
   const serverIds = new Set(serverPosts.map((p) => p.id));
   const allPosts = [
@@ -606,11 +665,12 @@ export function Feed() {
   }, [likePost, unlikePost]);
 
   const handleLoadMore = useCallback(async () => {
-    const next = data?.exploreFeed?.nextOffset ?? offset + 20;
+    const next = data?.feed?.nextOffset ?? offset + 20;
     setOffset(next);
-    await fetchMore({ variables: { limit: 20, offset: next }, updateQuery: (prev, { fetchMoreResult }) => {
+    const seen = Array.from(seenIdsRef.current);
+    await fetchMore({ variables: { limit: 20, offset: next, seenIds: seen }, updateQuery: (prev, { fetchMoreResult }) => {
       if (!fetchMoreResult) return prev;
-      return { exploreFeed: { ...fetchMoreResult.exploreFeed, posts: [...(prev.exploreFeed?.posts ?? []), ...fetchMoreResult.exploreFeed.posts] } };
+      return { feed: { ...fetchMoreResult.feed, posts: [...(prev.feed?.posts ?? []), ...fetchMoreResult.feed.posts] } };
     }});
   }, [fetchMore, data, offset]);
 
@@ -663,23 +723,25 @@ export function Feed() {
             <div className="space-y-4">
               {allPosts.map((post, index) => (
                 <Fragment key={post.id}>
-                  {post.postType === "roast" ? (
-                    <RoastedProjectCard
-                      post={post as unknown as FeedPost}
-                      onLike={(wantsLike, reaction) => handleLike(post.id, wantsLike, reaction)}
-                    />
-                  ) : (
-                    <PostCard
-                      post={post}
-                      onLike={(wantsLike, reaction) => handleLike(post.id, wantsLike, reaction)}
-                      onDelete={() => {
-                        setLocalPosts((prev) => prev.filter((p) => p.id !== post.id));
-                        refetch();
-                      }}
-                      isFollowing={followedUsers.has(post.author.username)}
-                      onFollowToggle={() => handleFollowToggle(post.author.username)}
-                    />
-                  )}
+                  <PostViewTracker postId={post.id} recordView={recordView}>
+                    {post.postType === "roast" ? (
+                      <RoastedProjectCard
+                        post={post as unknown as FeedPost}
+                        onLike={(wantsLike, reaction) => handleLike(post.id, wantsLike, reaction)}
+                      />
+                    ) : (
+                      <PostCard
+                        post={post}
+                        onLike={(wantsLike, reaction) => handleLike(post.id, wantsLike, reaction)}
+                        onDelete={() => {
+                          setLocalPosts((prev) => prev.filter((p) => p.id !== post.id));
+                          refetch();
+                        }}
+                        isFollowing={followedUsers.has(post.author.username)}
+                        onFollowToggle={() => handleFollowToggle(post.author.username)}
+                      />
+                    )}
+                  </PostViewTracker>
                   {/* Featured project after every 3rd post */}
                   {(index + 1) % 3 === 0 && featuredProjects[(Math.floor(index / 3)) % featuredProjects.length] && (
                     <FeaturedProjectCard project={featuredProjects[(Math.floor(index / 3)) % featuredProjects.length]} />
@@ -696,7 +758,7 @@ export function Feed() {
               )}
 
               {/* Load more */}
-              {data?.exploreFeed?.hasMore && (
+              {data?.feed?.hasMore && (
                 <div className="flex justify-center py-4">
                   <button
                     onClick={handleLoadMore}

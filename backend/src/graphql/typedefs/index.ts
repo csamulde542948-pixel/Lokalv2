@@ -492,7 +492,7 @@ export const typeDefs = gql`
     suggestedUsers(limit: Int): [Profile!]!
 
     # Feed (ranked + personalized)
-    feed(limit: Int, offset: Int): FeedResult!
+    feed(limit: Int, offset: Int, seenIds: [ID!]): FeedResult!
     exploreFeed(limit: Int, offset: Int): FeedResult!
 
     # Posts
@@ -662,6 +662,9 @@ export const typeDefs = gql`
     # Profile photos
     addProfilePhoto(url: String!): ProfilePhoto!
     deleteProfilePhoto(photoId: ID!): Boolean!
+
+    # Feed ranking signals
+    recordPostView(postId: ID!, dwellMs: Int!, source: String): Boolean!
   }
 
   # =============================================
