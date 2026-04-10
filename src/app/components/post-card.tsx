@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
 import { avatarSrc, DEFAULT_AVATAR } from "../../lib/defaults";
@@ -188,7 +188,7 @@ function extractFirstUrl(text: string): string | null {
 }
 
 /* ─── LinkPreviewCard ─────────────────────────────────────────────────────── */
-const OG_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+const OG_BASE = import.meta.env.VITE_BACKEND_URL ?? "http://localhost:4000";
 
 interface OgData {
   url: string;
