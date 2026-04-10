@@ -108,7 +108,7 @@ export function CreatePost({ onPost }: CreatePostProps) {
     if (!previewUrl || previewUrl === dismissedUrl) return;
     const ctrl = new AbortController();
     setOgLoading(true);
-    const base = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+    const base = import.meta.env.VITE_BACKEND_URL ?? "http://localhost:4000";
     fetch(`${base}/og?url=${encodeURIComponent(previewUrl)}`, { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => { if (d.title || d.image) setOgData(d); })
