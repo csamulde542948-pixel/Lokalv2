@@ -1,0 +1,21 @@
+# Build output — Railway builds this on their servers
+dist/
+
+# Dependencies
+node_modules/
+
+# Environment secrets — NEVER commit these
+.env
+.env.local
+.env.*.local
+
+# Prisma generated client (regenerated during build)
+node_modules/.prisma/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
