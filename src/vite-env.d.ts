@@ -6,6 +6,7 @@ interface ImportMetaEnv {
   readonly VITE_GRAPHQL_URL: string;
   readonly VITE_BACKEND_URL: string;
   readonly VITE_GETSTREAM_API_KEY: string;
+  readonly VITE_APP_ENV?: string; // "staging" | "production" | undefined (dev)
 }
 
 interface ImportMeta {

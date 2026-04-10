@@ -4,6 +4,7 @@ import { router } from './routes';
 import { AuthProvider } from '../contexts/AuthContext';
 import { ChatProvider } from '../contexts/ChatContext';
 import { apolloClient } from '../lib/apollo';
+import { StagingBanner } from './components/staging-banner';
 
 export default function App() {
   return (
@@ -11,6 +12,7 @@ export default function App() {
       <AuthProvider>
         <ChatProvider>
           <RouterProvider router={router} />
+          <StagingBanner />
         </ChatProvider>
       </AuthProvider>
     </ApolloProvider>

@@ -31,7 +31,12 @@ import {
 
 const PORT = process.env.PORT ?? 4000;
 const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:5173";
-const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const NODE_ENV = process.env.NODE_ENV ?? "development";
+const IS_PRODUCTION = NODE_ENV === "production";
+const IS_STAGING = NODE_ENV === "staging";
+// Staging behaves like production for security (helmet, CORS, error masking)
+// but allows introspection and verbose logging for debugging.
+const IS_DEPLOYED = IS_PRODUCTION || IS_STAGING;
 
 // ─── DataLoader factories ────────────────────────────────────────────────────
 
@@ -215,13 +220,13 @@ async function startServer() {
   const server = new ApolloServer<GraphQLContext>({
     typeDefs,
     resolvers,
-    introspection: !IS_PRODUCTION, // Disable schema introspection in production
+    introspection: !IS_PRODUCTION, // Enabled in dev + staging, disabled only in production
     validationRules: [depthLimit(7)], // Prevent deeply nested query DoS attacks
     plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
     formatError: (formattedError: any, error: unknown) => {
       console.error("[GraphQL Error]", error);
-      // In production, mask internal errors to avoid leaking stack traces / DB details
-      if (IS_PRODUCTION) {
+      // In production & staging, mask internal errors to avoid leaking stack traces / DB details
+      if (IS_DEPLOYED) {
         const safeMessages = [
           "Unauthorized", "Forbidden", "Not found",
           "Forbidden: admin role required",
@@ -238,10 +243,12 @@ async function startServer() {
 
   await server.start();
 
-  // CORS: Only allow Apollo Studio in development
+  // CORS: Lock down origins in deployed environments
   const allowedOrigins = IS_PRODUCTION
     ? [FRONTEND_URL]
-    : [FRONTEND_URL, "https://studio.apollographql.com"];
+    : IS_STAGING
+      ? [FRONTEND_URL, "https://studio.apollographql.com"] // Allow Studio in staging for debugging
+      : [FRONTEND_URL, "https://studio.apollographql.com"];
   app.use(
     cors({
       origin: allowedOrigins,
@@ -252,7 +259,7 @@ async function startServer() {
   // ── Security headers via helmet ──────────────────────────────────────────
   app.use(
     helmet({
-      contentSecurityPolicy: IS_PRODUCTION
+      contentSecurityPolicy: IS_DEPLOYED
         ? {
             directives: {
               defaultSrc: ["'none'"],
@@ -266,9 +273,9 @@ async function startServer() {
             },
           }
         : false, // Disabled in dev for Apollo Studio / playground
-      crossOriginEmbedderPolicy: IS_PRODUCTION, // Only enforce in production
+      crossOriginEmbedderPolicy: IS_DEPLOYED, // Enforce in staging + production
       crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow cross-origin font/image loading
-      hsts: IS_PRODUCTION
+      hsts: IS_DEPLOYED
         ? { maxAge: 31536000, includeSubDomains: true, preload: true }
         : false,
     })
@@ -302,8 +309,8 @@ async function startServer() {
       return res.status(415).json({ error: "Content-Type must be application/json" });
     }
 
-    // In production require Origin to match the known frontend URL
-    if (IS_PRODUCTION) {
+    // In deployed environments require Origin to match the known frontend URL
+    if (IS_DEPLOYED) {
       const source = origin ?? (referer ? new URL(referer).origin : null);
       if (!source || source !== FRONTEND_URL) {
         return res.status(403).json({ error: "Forbidden: cross-origin request" });
@@ -616,7 +623,7 @@ async function startServer() {
   httpServer.keepAliveTimeout = 126_000;
   httpServer.headersTimeout = 127_000;
 
-  console.log(`🚀 Lokal GraphQL API ready at http://localhost:${PORT}/graphql`);
+  console.log(`🚀 Lokal GraphQL API ready at http://localhost:${PORT}/graphql (${NODE_ENV})`);
   console.log(`📊 Apollo Studio: https://studio.apollographql.com/sandbox/explorer`);
 }
 
