@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useLocation } from "react-router";
 import { toast } from "sonner";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -7,12 +7,26 @@ import { Label } from "../components/ui/label";
 import { Separator } from "../components/ui/separator";
 import { Checkbox } from "../components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
-import { Github, Eye, EyeOff } from "lucide-react";
+import { Github, Eye, EyeOff, Wallet } from "lucide-react";
+import { BrandLogo } from "../components/brand-logo";
 import { useAuth } from "../../contexts/AuthContext";
+import { PasswordStrength } from "../components/password-strength";
+import {
+  validatePassword,
+  isValidEmail,
+  isValidUsername,
+} from "../../lib/auth-security";
 
 export function Signup() {
-  const { signUpWithEmail, signInWithGoogle, signInWithGithub } = useAuth();
+  const { signUpWithEmail, signInWithGoogle, signInWithGithub, signInWithWeb3 } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromPath = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
+
+  // Save redirect target for OAuth flows (they break the state chain via /auth/callback)
+  const saveOAuthRedirect = () => {
+    if (fromPath) sessionStorage.setItem("lokal:auth_redirect", fromPath);
+  };
   const [formData, setFormData] = useState({
     fullName: "",
     username: "",
@@ -24,9 +38,33 @@ export function Signup() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [web3Loading, setWeb3Loading] = useState(false);
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // ── Client-side validation ──
+    if (!isValidEmail(formData.email)) {
+      toast.error("Please enter a valid email address.");
+      return;
+    }
+
+    if (!isValidUsername(formData.username)) {
+      toast.error("Username must be 3–30 characters, letters, numbers, and underscores only.");
+      return;
+    }
+
+    if (formData.fullName.trim().length < 2) {
+      toast.error("Please enter your full name.");
+      return;
+    }
+
+    const pwValidation = validatePassword(formData.password);
+    if (!pwValidation.isValid) {
+      toast.error(`Password requirements: ${pwValidation.errors.join(", ")}`);
+      return;
+    }
+
     if (formData.password !== formData.confirmPassword) {
       toast.error("Passwords do not match!");
       return;
@@ -37,27 +75,42 @@ export function Signup() {
     }
     setLoading(true);
     const { error } = await signUpWithEmail(formData.email, formData.password, {
-      full_name: formData.fullName,
-      username: formData.username,
+      full_name: formData.fullName.trim(),
+      username: formData.username.trim().toLowerCase(),
     });
     setLoading(false);
     if (error) {
-      toast.error(error.message);
+      // Handle common Supabase errors with friendly messages
+      if (error.message.includes("already registered")) {
+        toast.error("An account with this email already exists. Try logging in instead.");
+      } else {
+        toast.error(error.message);
+      }
       return;
     }
     toast.success(
       "Account created! Check your email to confirm your address before logging in."
     );
-    navigate("/login");
+    navigate("/login", { state: fromPath ? { from: { pathname: fromPath } } : undefined });
   };
 
   const handleGoogleSignup = async () => {
+    saveOAuthRedirect();
     const { error } = await signInWithGoogle();
     if (error) toast.error(error.message);
   };
 
   const handleGithubSignup = async () => {
+    saveOAuthRedirect();
     const { error } = await signInWithGithub();
+    if (error) toast.error(error.message);
+  };
+
+  const handleWeb3Signup = async () => {
+    saveOAuthRedirect();
+    setWeb3Loading(true);
+    const { error } = await signInWithWeb3();
+    setWeb3Loading(false);
     if (error) toast.error(error.message);
   };
 
@@ -67,11 +120,9 @@ export function Signup() {
         {/* Left Side - Branding */}
         <div className="hidden md:block space-y-6">
           <div className="flex items-center gap-3">
-            <div className="w-16 h-16 bg-primary rounded-xl flex items-center justify-center shadow-lg">
-              <span className="text-white text-5xl font-bold">L</span>
-            </div>
+            <BrandLogo size="lg" />
             <div>
-              <h1 className="text-4xl font-bold">lokalhost.club</h1>
+              <h1 className="text-4xl font-bold">lokalhost<span style={{ color: "#ff6600" }}>.club</span></h1>
               <p className="text-muted-foreground">Connect. Build. Ship.</p>
             </div>
           </div>
@@ -105,10 +156,7 @@ export function Signup() {
         <Card className="border shadow-xl">
           <CardHeader className="space-y-1">
             <div className="md:hidden flex items-center justify-center gap-2 mb-4">
-              <div className="w-10 h-10 bg-primary rounded-md flex items-center justify-center">
-                <span className="text-white text-xl font-bold">L</span>
-              </div>
-              <span className="text-xl font-bold">lokalhost.club</span>
+              <BrandLogo />
             </div>
             <CardTitle className="text-2xl">Create an account</CardTitle>
             <CardDescription>
@@ -151,6 +199,15 @@ export function Signup() {
                 <Github className="w-5 h-5" strokeWidth={2} />
                 Continue with GitHub
               </Button>
+              <Button
+                variant="outline"
+                className="w-full gap-2 h-11"
+                onClick={handleWeb3Signup}
+                disabled={web3Loading}
+              >
+                <Wallet className="w-5 h-5" strokeWidth={2} />
+                {web3Loading ? "Connecting wallet…" : "Continue with Web3 Wallet"}
+              </Button>
             </div>
 
             <div className="relative">
@@ -185,10 +242,14 @@ export function Signup() {
                   type="text"
                   placeholder="juandc"
                   value={formData.username}
-                  onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') })}
                   required
+                  maxLength={30}
                   className="h-11"
                 />
+                {formData.username && !isValidUsername(formData.username) && (
+                  <p className="text-xs text-destructive">3–30 characters, letters, numbers, and underscores only.</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
@@ -228,6 +289,7 @@ export function Signup() {
                     )}
                   </Button>
                 </div>
+                <PasswordStrength password={formData.password} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="confirmPassword">Confirm Password</Label>

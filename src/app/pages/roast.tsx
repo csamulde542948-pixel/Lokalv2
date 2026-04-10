@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { gql } from "@apollo/client/core";
 import { useQuery } from "@apollo/client/react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams, Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -9,11 +9,11 @@ import { Label } from "../components/ui/label";
 import {
   Flame,
   Link2,
-  Sparkles,
   AlertTriangle,
   Laugh,
 } from "lucide-react";
 import { Badge } from "../components/ui/badge";
+import { Checkbox } from "../components/ui/checkbox";
 import { useAuth } from "../../contexts/AuthContext";
 
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
@@ -48,88 +48,62 @@ interface RecentRoast {
   author: { id: string; name: string; avatarUrl: string | null };
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function getScoreColor(score: number) {
-  if (score <= 3) return "text-red-500";
-  if (score <= 5) return "text-orange-500";
-  if (score <= 7) return "text-yellow-500";
-  return "text-green-500";
-}
-
-function getScoreBg(score: number) {
-  if (score <= 3) return "bg-red-500/10 border-red-500/20";
-  if (score <= 5) return "bg-orange-500/10 border-orange-500/20";
-  if (score <= 7) return "bg-yellow-500/10 border-yellow-500/20";
-  return "bg-green-500/10 border-green-500/20";
-}
-
-function getScoreLabel(score: number) {
-  if (score <= 2) return "💀 Brutal";
-  if (score <= 4) return "🔥 Roasted";
-  if (score <= 6) return "😬 Meh";
-  if (score <= 8) return "👍 Decent";
-  return "✨ Solid";
-}
-
 // ─── Marquee Card ─────────────────────────────────────────────────────────────────────────────
 
 function RoastMarqueeCard({ roast }: { roast: RecentRoast }) {
-  const score = roast.overallScore;
-
+  const displayUrl = roast.projectUrl.replace(/^https?:\/\//, '');
   return (
-    <Card className={`flex-shrink-0 w-[260px] border ${getScoreBg(score)} transition-all`}>
-      <CardContent className="p-3">
-        <div className="flex items-center justify-between mb-1.5">
-          <h3 className="font-semibold text-xs truncate flex-1">{roast.projectName}</h3>
-          <span className={`text-sm font-bold ml-2 ${getScoreColor(score)}`}>
-            {score.toFixed(1)}
-          </span>
-        </div>
+    <div className="flex-shrink-0 w-[280px] rounded-lg border border-border/60 overflow-hidden transition-all hover:scale-[1.02] hover:border-primary/30">
+      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/40 bg-muted/30">
+        <span className="text-primary font-mono font-bold text-[10px]">&gt;_</span>
+        <span className="text-[9px] font-mono text-muted-foreground truncate">{displayUrl} has been roasted</span>
+      </div>
+      <div className="bg-card p-3 font-mono">
+        <a
+          href={roast.projectUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-semibold text-xs text-primary hover:underline truncate block mb-1.5"
+        >
+          {roast.projectName}
+        </a>
         {roast.quickRoast && (
-          <p className="text-xs text-muted-foreground leading-snug line-clamp-2 mb-1.5">
-            {roast.quickRoast}
+          <p className="text-xs text-muted-foreground leading-snug line-clamp-2">
+            <span className="text-primary/70">$ </span>{roast.quickRoast}
           </p>
         )}
-        <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-          <Flame className="w-2.5 h-2.5 text-orange-500 flex-shrink-0" />
-          <span>{getScoreLabel(score)}</span>
-          <span className="ml-auto">by {roast.author.name}</span>
-        </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
 // ─── Static Fallback Cards (shown while loading or no data) ───────────────────
 
 const STATIC_ROASTS = [
-  { name: "MyAwesomeApp", score: 3.5, snippet: "Design from 2005 called, it wants its gradients back.", reviewer: "ai-roaster" },
-  { name: "Filipino Startup", score: 4.2, snippet: "Too many fonts, too little sense. Pick a lane!", reviewer: "ai-roaster" },
-  { name: "TechBro SaaS", score: 5.8, snippet: "Generic SaaS template #4729. Where's the personality?", reviewer: "ai-roaster" },
-  { name: "Super Portfolio", score: 2.8, snippet: "Autoplay music in 2026? Brave but terrible choice.", reviewer: "ai-roaster" },
-  { name: "LokalShop PH", score: 6.5, snippet: "Actually decent! Still has room for improvement though.", reviewer: "ai-roaster" },
-  { name: "BudgetBuddy", score: 5.2, snippet: "The UI is functional but the colors? Questionable.", reviewer: "ai-roaster" },
-  { name: "DevHub Manila", score: 3.1, snippet: "Loading for 10 seconds? Users don't have all day.", reviewer: "ai-roaster" },
-  { name: "CraftCafe PH", score: 4.8, snippet: "Beautiful design, terrible UX. Beauty without brains.", reviewer: "ai-roaster" },
+  { name: "MyAwesomeApp", snippet: "Design from 2005 called, it wants its gradients back." },
+  { name: "Filipino Startup", snippet: "Too many fonts, too little sense. Pick a lane!" },
+  { name: "TechBro SaaS", snippet: "Generic SaaS template #4729. Where's the personality?" },
+  { name: "Super Portfolio", snippet: "Autoplay music in 2026? Brave but terrible choice." },
+  { name: "LokalShop PH", snippet: "Actually decent! Still has room for improvement though." },
+  { name: "BudgetBuddy", snippet: "The UI is functional but the colors? Questionable." },
+  { name: "DevHub Manila", snippet: "Loading for 10 seconds? Users don't have all day." },
+  { name: "CraftCafe PH", snippet: "Beautiful design, terrible UX. Beauty without brains." },
 ];
 
-function StaticMarqueeCard({ name, score, snippet, reviewer }: typeof STATIC_ROASTS[0]) {
+function StaticMarqueeCard({ name, snippet }: typeof STATIC_ROASTS[0]) {
   return (
-    <Card className={`flex-shrink-0 w-[260px] border ${getScoreBg(score)} transition-all`}>
-      <CardContent className="p-3">
-        <div className="flex items-center justify-between mb-1.5">
-          <h3 className="font-semibold text-xs truncate flex-1">{name}</h3>
-          <span className={`text-sm font-bold ml-2 ${getScoreColor(score)}`}>{score.toFixed(1)}</span>
-        </div>
-        <p className="text-xs text-muted-foreground leading-snug line-clamp-2 mb-1.5">{snippet}</p>
-        <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-          <Flame className="w-2.5 h-2.5 text-orange-500 flex-shrink-0" />
-          <span>{getScoreLabel(score)}</span>
-          <span className="ml-auto">by {reviewer}</span>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="flex-shrink-0 w-[280px] rounded-lg border border-border/60 overflow-hidden transition-all hover:scale-[1.02] hover:border-primary/30">
+      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/40 bg-muted/30">
+        <span className="text-primary font-mono font-bold text-[10px]">&gt;_</span>
+        <span className="text-[9px] font-mono text-muted-foreground truncate">{name.toLowerCase().replace(/\s+/g, '')} has been roasted</span>
+      </div>
+      <div className="bg-card p-3 font-mono">
+        <span className="font-semibold text-xs text-primary truncate block mb-1.5">{name}</span>
+        <p className="text-xs text-muted-foreground leading-snug line-clamp-2">
+          <span className="text-primary/70">$ </span>{snippet}
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -138,7 +112,15 @@ function StaticMarqueeCard({ name, score, snippet, reviewer }: typeof STATIC_ROA
 export function Roast() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [projectUrl, setProjectUrl] = useState("");
+  const [searchParams] = useSearchParams();
+  const [projectUrl, setProjectUrl] = useState(() => searchParams.get("url") ?? "");
+  const [roastConsent, setRoastConsent] = useState(false);
+
+  // If url came in via query param, trigger immediately
+  useEffect(() => {
+    const url = searchParams.get("url");
+    if (url) navigate("/roast/result", { state: { projectUrl: url }, replace: true });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: recentData } = useQuery<{ roasts: RecentRoast[] }>(GET_RECENT_ROASTS, {
     fetchPolicy: "cache-and-network",
@@ -187,8 +169,8 @@ export function Roast() {
         {/* ── Input Form ── */}
         <Card className="border mb-6">
           <CardHeader className="pb-4 border-b">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-primary" strokeWidth={2} />
+            <CardTitle className="text-base flex items-center gap-2 font-mono">
+              <span className="text-primary font-mono font-bold">&gt;_</span>
               Submit Your Project for Roasting
             </CardTitle>
           </CardHeader>
@@ -221,18 +203,37 @@ export function Roast() {
                 Warning: Our AI doesn't hold back. Prepare for honest (and brutal) Taglish feedback.
                 {!user && (
                   <span className="ml-1">
-                    <a href="/login" className="text-primary hover:underline">
+                    <Link to="/login" className="text-primary hover:underline">
                       Sign in
-                    </a>{" "}
+                    </Link>{" "}
                     to save and share your roast.
                   </span>
                 )}
               </p>
             </div>
 
+            {/* ── Layer 2: Roast consent gate ── */}
+            <div className="flex items-start gap-2.5 p-3 rounded-md border border-orange-500/20 bg-orange-500/5">
+              <Checkbox
+                id="roastConsent"
+                checked={roastConsent}
+                onCheckedChange={(v) => setRoastConsent(v as boolean)}
+                className="mt-0.5 flex-shrink-0"
+              />
+              <label
+                htmlFor="roastConsent"
+                className="text-xs text-muted-foreground leading-relaxed cursor-pointer"
+              >
+                I own this project (or have the owner's permission to submit it) and I understand this
+                roast is <strong>AI-generated satire</strong> — not factual assessment. I submitted
+                this work voluntarily.{" "}
+                <Link to="/terms#ai-roast" className="text-primary hover:underline">Learn more</Link>.
+              </label>
+            </div>
+
             <Button
               onClick={handleRoast}
-              disabled={!projectUrl.trim()}
+              disabled={!projectUrl.trim() || !roastConsent}
               className="w-full gap-2"
             >
               <Flame className="w-4 h-4" strokeWidth={2} />

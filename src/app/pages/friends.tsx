@@ -80,6 +80,14 @@ const mockSuggestions = [
 export function Friends() {
   const [searchQuery, setSearchQuery] = useState("");
 
+  const q = searchQuery.toLowerCase();
+  const filteredFriends = mockFriends.filter(
+    (f) => f.name.toLowerCase().includes(q) || f.username.toLowerCase().includes(q)
+  );
+  const filteredSuggestions = mockSuggestions.filter(
+    (f) => f.name.toLowerCase().includes(q) || f.username.toLowerCase().includes(q)
+  );
+
   return (
     <div className="container mx-auto px-4 py-6">
       <div className="max-w-5xl mx-auto">
@@ -115,12 +123,14 @@ export function Friends() {
               <UserPlus className="w-5 h-5 text-muted-foreground" strokeWidth={2} />
               <span>Friend Suggestions</span>
               <Badge variant="secondary" className="text-xs rounded-md font-normal">
-                {mockSuggestions.length}
+                {filteredSuggestions.length}
               </Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            {mockSuggestions.map((person, index) => (
+            {filteredSuggestions.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">No suggestions match your search.</p>
+            ) : filteredSuggestions.map((person, index) => (
               <div key={person.id}>
                 <div className="p-4 hover:bg-muted transition-colors">
                   <div className="flex items-center gap-3">
@@ -140,7 +150,7 @@ export function Friends() {
                     </Button>
                   </div>
                 </div>
-                {index < mockSuggestions.length - 1 && <Separator />}
+                {index < filteredSuggestions.length - 1 && <Separator />}
               </div>
             ))}
           </CardContent>
@@ -153,13 +163,15 @@ export function Friends() {
               <UserCheck className="w-5 h-5 text-muted-foreground" strokeWidth={2} />
               <span>All Friends</span>
               <Badge variant="secondary" className="text-xs rounded-md font-normal">
-                {mockFriends.length}
+                {filteredFriends.length}
               </Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-0 divide-y md:divide-y-0 md:divide-x">
-              {mockFriends.map((friend) => (
+              {filteredFriends.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6 col-span-2">No friends match your search.</p>
+              ) : filteredFriends.map((friend) => (
                 <div
                   key={friend.id}
                   className="p-4 hover:bg-muted transition-colors cursor-pointer"

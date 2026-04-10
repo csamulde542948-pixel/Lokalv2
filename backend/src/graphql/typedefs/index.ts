@@ -102,6 +102,7 @@ export const typeDefs = gql`
     id: ID!
     username: String!
     name: String!
+    displayName: String
     bio: String
     avatarUrl: String
     coverUrl: String
@@ -129,6 +130,7 @@ export const typeDefs = gql`
     photos(limit: Int): [ProfilePhoto!]!
     earnedRoles: [UserRole!]!
     mutualFriendsCount(withUserId: ID!): Int!
+    unreadNotificationsCount: Int!
   }
 
   type ProfilePhoto {
@@ -180,6 +182,8 @@ export const typeDefs = gql`
     createdAt: DateTime!
     updatedAt: DateTime!
     comments(limit: Int, offset: Int): [PostComment!]!
+    # Lightweight preview: top N comments by likes, no nested replies (used in feed cards)
+    commentsPreview(limit: Int): [PostComment!]!
     # For shared posts — always the ROOT original (never a reshare of a reshare)
     originalPost: Post
     # Feed ranking score — only present in ranked feed responses
@@ -203,6 +207,7 @@ export const typeDefs = gql`
     parentId: ID
     mentions: [ID!]!            # profile IDs mentioned in this comment
     replies(limit: Int, offset: Int): [PostComment!]!
+    repliesCount: Int!
     editHistory: [PostCommentEdit!]!
     isEdited: Boolean!
     createdAt: DateTime!
@@ -214,13 +219,30 @@ export const typeDefs = gql`
     name: String!
   }
 
-  # Ranked feed response with pagination
-  type FeedResult {
+  # Relay-style pagination info
+  type PageInfo {
+    hasNextPage: Boolean!
+    endCursor: String          # opaque cursor encoding score+createdAt+id
+  }
+
+  # Ranked feed response with cursor-based pagination (Relay Connection pattern)
+  type FeedConnection {
     posts: [Post!]!
+    pageInfo: PageInfo!
+    # Legacy fields kept for backward compat (deprecated — use pageInfo)
     hasMore: Boolean!
     nextOffset: Int!
     feedVariant: String          # "ranked" | "chronological" — A/B test variant
     sessionId: String            # Phase 3: feed session ID for CTR tracking
+  }
+
+  # Simple offset-based feed result (used by exploreFeed, userPosts)
+  type FeedResult {
+    posts: [Post!]!
+    hasMore: Boolean!
+    nextOffset: Int!
+    feedVariant: String
+    sessionId: String
   }
 
   # Phase 3: Feed metrics for A/B comparison dashboard
@@ -250,14 +272,19 @@ export const typeDefs = gql`
     description: String!
     iconUrl: String
     bannerUrl: String
-    demoUrl: String
+    projectUrl: String
     githubUrl: String
+    twitterUrl: String
+    linkedinUrl: String
+    screenshotUrl: String
+    screenshots: [String!]!
     type: ProjectType!
     visibility: Visibility!
     category: ProjectCategory!
     status: ProjectStatus!
     isFeatured: Boolean!
     isTrending: Boolean!
+    isVerified: Boolean!
     starsCount: Int!
     forksCount: Int!
     likesCount: Int!
@@ -314,6 +341,23 @@ export const typeDefs = gql`
     improvements: [String!]!
     projectUrl: String!
     projectName: String!
+  }
+
+  # Scraped project info from URL (Jina Reader + GitHub API + AI classification)
+  type ScrapedProjectInfo {
+    name: String!
+    tagline: String!
+    description: String!
+    iconUrl: String
+    bannerUrl: String
+    techStack: [String!]!
+    category: ProjectCategory!
+    githubUrl: String
+    isGithubRepo: Boolean!
+    githubStars: Int
+    githubForks: Int
+    githubLanguage: String
+    githubTopics: [String!]!
   }
 
   # =============================================
@@ -403,16 +447,50 @@ export const typeDefs = gql`
     id: ID!
     author: Profile!
     projectName: String!
+    iconUrl: String
+    screenshotUrl: String
+    projectTagline: String
+    projectCategory: String
+    projectStatus: String
     eventType: LaunchpadEventType!
     title: String!
     description: String!
     deadline: DateTime
     link: String
+    spotsTotal: Int
     interestedCount: Int!
+    isOpen: Boolean!
     tags: [Tag!]!
     interestedByMe: Boolean!
     createdAt: DateTime!
     updatedAt: DateTime!
+  }
+
+  type LaunchpadParticipant {
+    id: ID!
+    profile: Profile!
+    commitmentEmail: String
+    commitmentNote: String
+    joinedAt: DateTime!
+  }
+
+  type LaunchpadAnnouncement {
+    id: ID!
+    message: String!
+    creator: Profile!
+    createdAt: DateTime!
+  }
+
+  type LaunchpadEventStats {
+    totalJoined: Int!
+    spotsTotal: Int
+    fillRate: Float!
+    joinsByDay: [JoinsByDayEntry!]!
+  }
+
+  type JoinsByDayEntry {
+    date: String!
+    count: Int!
   }
 
   # =============================================
@@ -469,13 +547,50 @@ export const typeDefs = gql`
     trend: Trend!
   }
 
+  type XpHistoryEntry {
+    date: String!
+    xp: Int!
+    action: String!
+  }
+
   type Analytics {
-    profileViews: AnalyticsStat!
-    postEngagement: AnalyticsStat!
-    projectStars: AnalyticsStat!
-    followersGained: AnalyticsStat!
-    xpEarned: AnalyticsStat!
-    totalLikes: AnalyticsStat!
+    totalPosts: Int!
+    totalProjects: Int!
+    totalFollowers: Int!
+    totalFollowing: Int!
+    totalLikesReceived: Int!
+    totalStarsReceived: Int!
+    xp: Int!
+    rank: Rank
+    xpHistory: [XpHistoryEntry!]!
+  }
+
+  type PostAnalytics {
+    id: ID!
+    content: String!
+    imageUrl: String
+    createdAt: String!
+    likesCount: Int!
+    commentsCount: Int!
+    sharesCount: Int!
+    viewsCount: Int!
+    engagementRate: Float!   # (likes+comments+shares) / max(views,1) * 100
+  }
+
+  type ProjectAnalytics {
+    id: ID!
+    name: String!
+    tagline: String!
+    iconUrl: String
+    category: String!
+    status: String!
+    createdAt: String!
+    starsCount: Int!
+    likesCount: Int!
+    forksCount: Int!
+    roastsCount: Int!
+    rating: Float!
+    viewsCount: Int!         # post views that tagged this project
   }
 
   # =============================================
@@ -509,9 +624,11 @@ export const typeDefs = gql`
     profile(username: String!): Profile
     searchProfiles(query: String!, limit: Int): [Profile!]!
     suggestedUsers(limit: Int): [Profile!]!
+    myFollowers(limit: Int, offset: Int): [Profile!]!
+    myFollowing(limit: Int, offset: Int): [Profile!]!
 
-    # Feed (ranked + personalized)
-    feed(limit: Int, offset: Int, seenIds: [ID!], feedVariant: String, sessionId: String): FeedResult!
+    # Feed (ranked + personalized) — cursor-based pagination
+    feed(first: Int, after: String, limit: Int, offset: Int, seenIds: [ID!], feedVariant: String, sessionId: String): FeedConnection!
     exploreFeed(limit: Int, offset: Int): FeedResult!
 
     # Feed metrics (Phase 3: A/B comparison dashboard)
@@ -529,6 +646,7 @@ export const typeDefs = gql`
       category: ProjectCategory
       search: String
     ): [Project!]!
+    userProjects(userId: ID!): [Project!]!
     project(id: ID!): Project
     featuredProjects(limit: Int): [Project!]!
     trendingProjects(limit: Int): [Project!]!
@@ -565,6 +683,10 @@ export const typeDefs = gql`
       type: LaunchpadEventType
     ): [LaunchpadEvent!]!
     launchpadEvent(id: ID!): LaunchpadEvent
+    launchpadEventParticipants(eventId: ID!): [LaunchpadParticipant!]!
+    launchpadEventStats(eventId: ID!): LaunchpadEventStats!
+    launchpadAnnouncements(eventId: ID!): [LaunchpadAnnouncement!]!
+    myLaunchpadEvents: [LaunchpadEvent!]!
 
     # Leaderboard
     leaderboard: Leaderboard!
@@ -572,8 +694,13 @@ export const typeDefs = gql`
     # Notifications
     notifications(limit: Int, offset: Int): NotificationsResult!
 
+    # Comment replies (on-demand lazy loading)
+    commentReplies(commentId: ID!, limit: Int, offset: Int): [PostComment!]!
+
     # Analytics (own profile only)
     analytics: Analytics!
+    myPostsAnalytics(limit: Int): [PostAnalytics!]!
+    myProjectsAnalytics: [ProjectAnalytics!]!
 
     # Rank system
     ranks: [Rank!]!
@@ -585,6 +712,15 @@ export const typeDefs = gql`
     # Tags
     popularTags(limit: Int): [Tag!]!
     searchTags(query: String!): [Tag!]!
+
+    # Global search across profiles, projects, and jobs
+    globalSearch(query: String!, limit: Int): GlobalSearchResult!
+  }
+
+  type GlobalSearchResult {
+    profiles: [Profile!]!
+    projects: [Project!]!
+    jobs: [Job!]!
   }
 
   # =============================================
@@ -642,6 +778,8 @@ export const typeDefs = gql`
     unfollowUser(userId: ID!): Profile!
 
     # Projects
+    scrapeProjectInfo(url: String!): ScrapedProjectInfo!
+    captureProjectScreenshot(projectId: ID!): Project!
     createProject(input: CreateProjectInput!): Project!
     updateProject(id: ID!, input: UpdateProjectInput!): Project!
     deleteProject(id: ID!): Boolean!
@@ -674,8 +812,9 @@ export const typeDefs = gql`
     createLaunchpadEvent(input: CreateLaunchpadEventInput!): LaunchpadEvent!
     updateLaunchpadEvent(id: ID!, input: UpdateLaunchpadEventInput!): LaunchpadEvent!
     deleteLaunchpadEvent(id: ID!): Boolean!
-    markInterested(launchpadEventId: ID!): LaunchpadEvent!
+    markInterested(launchpadEventId: ID!, commitmentEmail: String, commitmentNote: String): LaunchpadEvent!
     markNotInterested(launchpadEventId: ID!): LaunchpadEvent!
+    createLaunchpadAnnouncement(eventId: ID!, message: String!): LaunchpadAnnouncement!
 
     # Notifications
     markNotificationRead(notificationId: ID!): Notification!
@@ -697,6 +836,9 @@ export const typeDefs = gql`
 
     # Admin: Cleanup old feed_score_logs (P2 #6)
     cleanupOldScoreLogs(olderThanDays: Int!): Int!
+
+    # Chat
+    startDM(otherUserId: ID!): String!
   }
 
   # Feed config entry for admin tuning (P2 #10)
@@ -771,8 +913,11 @@ export const typeDefs = gql`
     description: String!
     iconUrl: String
     bannerUrl: String
-    demoUrl: String
+    projectUrl: String
     githubUrl: String
+    twitterUrl: String
+    linkedinUrl: String
+    screenshots: [String!]
     type: ProjectType!
     visibility: Visibility!
     category: ProjectCategory!
@@ -785,8 +930,11 @@ export const typeDefs = gql`
     description: String
     iconUrl: String
     bannerUrl: String
-    demoUrl: String
+    projectUrl: String
     githubUrl: String
+    twitterUrl: String
+    linkedinUrl: String
+    screenshots: [String!]
     visibility: Visibility
     category: ProjectCategory
     status: ProjectStatus
@@ -885,12 +1033,17 @@ export const typeDefs = gql`
 
   input CreateLaunchpadEventInput {
     projectName: String!
+    iconUrl: String
+    screenshotUrl: String
+    projectTagline: String
+    projectCategory: String
+    projectStatus: String
     eventType: LaunchpadEventType!
     title: String!
     description: String!
     deadline: DateTime
     link: String
-    tags: [String!]
+    spotsTotal: Int
   }
 
   input UpdateLaunchpadEventInput {
@@ -898,6 +1051,7 @@ export const typeDefs = gql`
     description: String
     deadline: DateTime
     link: String
-    tags: [String!]
+    spotsTotal: Int
+    isOpen: Boolean
   }
 `;

@@ -1,6 +1,10 @@
 import { GraphQLContext } from "../context";
 import { awardXp } from "../../services/xp";
 import { addActivityToFeed } from "../../lib/stream";
+import { scrapeProjectInfo } from "../../services/projectScraper.service";
+import { captureAndUploadScreenshot } from "../../services/screenshot.service";
+import { assertSafeExternalUrl } from "../../lib/ssrf";
+import { scrapeRateLimiter } from "../../lib/rateLimit";
 
 export const projectResolvers = {
   Query: {
@@ -57,6 +61,24 @@ export const projectResolvers = {
       });
     },
 
+    userProjects: async (
+      _: unknown,
+      { userId }: { userId: string },
+      { user, prisma }: GraphQLContext
+    ) => {
+      // Medium #20: Only the owner can see their own private/draft projects.
+      // Everyone else only sees PUBLIC projects.
+      const isOwner = user?.id === userId;
+      return prisma.project.findMany({
+        where: {
+          authorId: userId,
+          ...(!isOwner ? { visibility: "PUBLIC" } : {}),
+        },
+        orderBy: { createdAt: "desc" },
+        include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
+      });
+    },
+
     featuredProjects: async (
       _: unknown,
       { limit = 3 }: { limit?: number },
@@ -85,6 +107,51 @@ export const projectResolvers = {
   },
 
   Mutation: {
+    scrapeProjectInfo: async (
+      _: unknown,
+      { url }: { url: string },
+      { user }: GraphQLContext
+    ) => {
+      // Require authentication — prevents unauthenticated server-side URL fetching (SSRF)
+      if (!user) throw new Error("Unauthorized");
+
+      // Medium #19: Per-user rate limit — max 10 scrapes per 10 minutes
+      scrapeRateLimiter.check(user.id);
+
+      // SSRF protection: validate URL before fetching
+      const safeUrl = await assertSafeExternalUrl(url);
+
+      const info = await scrapeProjectInfo(safeUrl);
+      return info;
+    },
+
+    captureProjectScreenshot: async (
+      _: unknown,
+      { projectId }: { projectId: string },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+      const project = await prisma.project.findUnique({ where: { id: projectId } });
+      if (!project) throw new Error("Project not found");
+      if (project.authorId !== user.id) throw new Error("Forbidden");
+      if (!project.projectUrl) throw new Error("Project has no URL to capture");
+
+      const screenshotUrl = await captureAndUploadScreenshot(
+        project.projectUrl,
+        project.id,
+        user.id
+      );
+
+      return prisma.project.update({
+        where: { id: projectId },
+        data: { screenshotUrl },
+        include: {
+          author: { include: { rank: true } },
+          tags: { include: { tag: true } },
+        },
+      });
+    },
+
     createProject: async (
       _: unknown,
       { input }: { input: any },
@@ -108,8 +175,11 @@ export const projectResolvers = {
             description: input.description,
             iconUrl: input.iconUrl,
             bannerUrl: input.bannerUrl,
-            demoUrl: input.demoUrl,
+            projectUrl: input.projectUrl,
             githubUrl: input.githubUrl,
+            twitterUrl: input.twitterUrl,
+            linkedinUrl: input.linkedinUrl,
+            screenshots: input.screenshots ?? [],
             type: input.type,
             visibility: input.visibility,
             category: input.category,
@@ -121,6 +191,18 @@ export const projectResolvers = {
           },
         });
       });
+
+      // Auto-capture screenshot in background (non-blocking)
+      if (input.projectUrl) {
+        captureAndUploadScreenshot(input.projectUrl, project.id, user.id)
+          .then(screenshotUrl => {
+            prisma.project.update({
+              where: { id: project.id },
+              data: { screenshotUrl },
+            }).catch(console.error);
+          })
+          .catch(console.error);
+      }
 
       // Publish to GetStream feed
       addActivityToFeed(user.id, {
@@ -146,9 +228,22 @@ export const projectResolvers = {
       const existing = await prisma.project.findUnique({ where: { id } });
       if (existing?.authorId !== user.id) throw new Error("Forbidden");
 
+      // Medium #14: Whitelist — never spread raw input directly into Prisma
+      const allowed = [
+        "name", "tagline", "description", "iconUrl", "bannerUrl",
+        "projectUrl", "githubUrl", "twitterUrl", "linkedinUrl",
+        "screenshots", "visibility", "category", "status", "progress", "tags",
+      ] as const;
+      type AllowedKey = typeof allowed[number];
+      const safeData = Object.fromEntries(
+        allowed
+          .filter((k): k is AllowedKey => k in input)
+          .map((k) => [k, input[k]])
+      );
+
       return prisma.project.update({
         where: { id },
-        data: { ...input, updatedAt: new Date() },
+        data: { ...safeData, updatedAt: new Date() },
         include: {
           author: { include: { rank: true } },
           tags: { include: { tag: true } },
@@ -174,14 +269,26 @@ export const projectResolvers = {
       { user, prisma }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
-      await prisma.projectLike.upsert({
+
+      // Check if already liked to prevent double-counting
+      const existing = await prisma.projectLike.findUnique({
         where: { projectId_profileId: { projectId, profileId: user.id } },
-        create: { projectId, profileId: user.id },
-        update: {},
       });
-      return prisma.project.update({
+
+      if (!existing) {
+        await prisma.projectLike.create({
+          data: { projectId, profileId: user.id },
+        });
+        return prisma.project.update({
+          where: { id: projectId },
+          data: { likesCount: { increment: 1 } },
+          include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
+        });
+      }
+
+      // Already liked — return project unchanged
+      return prisma.project.findUnique({
         where: { id: projectId },
-        data: { likesCount: { increment: 1 } },
         include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
       });
     },
@@ -192,12 +299,23 @@ export const projectResolvers = {
       { user, prisma }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
-      await prisma.projectLike.deleteMany({
+
+      // Only decrement if a like actually existed (prevents negative counts)
+      const deleted = await prisma.projectLike.deleteMany({
         where: { projectId, profileId: user.id },
       });
-      return prisma.project.update({
+
+      if (deleted.count > 0) {
+        return prisma.project.update({
+          where: { id: projectId },
+          data: { likesCount: { decrement: 1 } },
+          include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
+        });
+      }
+
+      // No like existed — return project unchanged
+      return prisma.project.findUnique({
         where: { id: projectId },
-        data: { likesCount: { decrement: 1 } },
         include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
       });
     },
@@ -208,15 +326,27 @@ export const projectResolvers = {
       { user, prisma }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
-      await prisma.projectStar.upsert({
+
+      // Check if already starred to prevent double-counting
+      const existing = await prisma.projectStar.findUnique({
         where: { projectId_profileId: { projectId, profileId: user.id } },
-        create: { projectId, profileId: user.id },
-        update: {},
       });
-      awardXp(user.id, "SHARE_PROJECT").catch(console.error);
-      return prisma.project.update({
+
+      if (!existing) {
+        await prisma.projectStar.create({
+          data: { projectId, profileId: user.id },
+        });
+        awardXp(user.id, "SHARE_PROJECT").catch(console.error);
+        return prisma.project.update({
+          where: { id: projectId },
+          data: { starsCount: { increment: 1 } },
+          include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
+        });
+      }
+
+      // Already starred — return project unchanged
+      return prisma.project.findUnique({
         where: { id: projectId },
-        data: { starsCount: { increment: 1 } },
         include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
       });
     },
@@ -227,18 +357,32 @@ export const projectResolvers = {
       { user, prisma }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
-      await prisma.projectStar.deleteMany({
+
+      // Only decrement if a star actually existed (prevents negative counts)
+      const deleted = await prisma.projectStar.deleteMany({
         where: { projectId, profileId: user.id },
       });
-      return prisma.project.update({
+
+      if (deleted.count > 0) {
+        return prisma.project.update({
+          where: { id: projectId },
+          data: { starsCount: { decrement: 1 } },
+          include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
+        });
+      }
+
+      // No star existed — return project unchanged
+      return prisma.project.findUnique({
         where: { id: projectId },
-        data: { starsCount: { decrement: 1 } },
         include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
       });
     },
   },
 
   Project: {
+    // The DB relation is `author` but the GraphQL type exposes `owner`
+    owner: (parent: any) => parent.author ?? null,
+
     tags: async (parent: { id: string }, _: unknown, { prisma }: GraphQLContext) => {
       const pt = await prisma.projectTag.findMany({
         where: { projectId: parent.id },

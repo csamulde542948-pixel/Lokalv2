@@ -8,10 +8,20 @@ const httpLink = createHttpLink({
   uri: import.meta.env.VITE_GRAPHQL_URL ?? "http://localhost:4000/graphql",
 });
 
+// ── S3 #9: Cache Supabase JWT in memory to avoid localStorage read per request ──
+let cachedToken: string | null = null;
+supabase.auth.onAuthStateChange((_event, session) => {
+  cachedToken = session?.access_token ?? null;
+});
+// Seed on module load (in case session already exists)
+supabase.auth.getSession().then(({ data }) => {
+  cachedToken = data.session?.access_token ?? null;
+});
+
 // Attach the Supabase session JWT to every GraphQL request
 const authLink = setContext(async (_, { headers }) => {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
+  // Use in-memory token first; fall back to async getSession only if null
+  const token = cachedToken ?? (await supabase.auth.getSession()).data.session?.access_token ?? null;
 
   return {
     headers: {
@@ -23,10 +33,45 @@ const authLink = setContext(async (_, { headers }) => {
 
 export const apolloClient = new ApolloClient({
   link: from([authLink, httpLink]),
-  cache: new InMemoryCache(),
+  cache: new InMemoryCache({
+    typePolicies: {
+      Query: {
+        fields: {
+          feed: {
+            // Key by feedVariant so "for_you" and "chronological" are cached separately
+            keyArgs: ["feedVariant"],
+
+            merge(existing, incoming, { args }) {
+              // First page (no cursor) → replace entirely
+              if (!args?.after) {
+                return incoming;
+              }
+
+              // Subsequent pages → append posts, keep latest pageInfo
+              const merged = { ...incoming };
+              merged.posts = [
+                ...(existing?.posts ?? []),
+                ...(incoming?.posts ?? []),
+              ];
+              return merged;
+            },
+          },
+          // Leaderboard / sidebar data — replace on new fetch, don't merge arrays
+          leaderboard: { merge: false },
+        },
+      },
+      // Normalise entities by id so Apollo can deduplicate across queries
+      Post: { keyFields: ["id"] },
+      Profile: { keyFields: ["id"] },
+      Project: { keyFields: ["id"] },
+      Job: { keyFields: ["id"] },
+      Event: { keyFields: ["id"] },
+    },
+  }),
   defaultOptions: {
     watchQuery: {
-      fetchPolicy: "cache-and-network",
+      // S3 #8: Default to cache-first — only feed & notifications override to cache-and-network
+      fetchPolicy: "cache-first",
     },
   },
 });

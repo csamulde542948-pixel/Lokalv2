@@ -14,6 +14,7 @@ export const eventResolvers = {
       }: { limit?: number; offset?: number; filter?: string; search?: string },
       { prisma }: GraphQLContext
     ) => {
+      const safeLimit = Math.min(limit, 50);
       const where: any = {};
 
       if (filter === "UPCOMING") where.startDate = { gte: new Date() };
@@ -37,7 +38,7 @@ export const eventResolvers = {
         prisma.event.findMany({
           where,
           orderBy: [{ isFeatured: "desc" }, { startDate: "asc" }],
-          take: limit + 1,
+          take: safeLimit + 1,
           skip: offset,
           include: {
             organizer: { include: { rank: true } },
@@ -47,9 +48,9 @@ export const eventResolvers = {
       ]);
 
       return {
-        events: events.slice(0, limit),
-        hasMore: events.length > limit,
-        nextOffset: offset + limit,
+        events: events.slice(0, safeLimit),
+        hasMore: events.length > safeLimit,
+        nextOffset: offset + safeLimit,
         total,
       };
     },
@@ -124,9 +125,23 @@ export const eventResolvers = {
       if (!user) throw new Error("Unauthorized");
       const event = await prisma.event.findUnique({ where: { id } });
       if (event?.organizerId !== user.id) throw new Error("Forbidden");
+
+      // Medium #14: Whitelist — never spread raw input directly into Prisma
+      const allowed = [
+        "title", "description", "bannerUrl", "date", "endDate",
+        "timeLabel", "location", "isOnline", "type", "price",
+        "maxAttendees", "tags",
+      ] as const;
+      type AllowedKey = typeof allowed[number];
+      const safeData = Object.fromEntries(
+        allowed
+          .filter((k): k is AllowedKey => k in input)
+          .map((k) => [k, input[k]])
+      );
+
       return prisma.event.update({
         where: { id },
-        data: { ...input, updatedAt: new Date() },
+        data: { ...safeData, updatedAt: new Date() },
         include: {
           organizer: { include: { rank: true } },
           tags: { include: { tag: true } },

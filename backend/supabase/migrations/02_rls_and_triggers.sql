@@ -347,24 +347,52 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  _username TEXT;
-  _name     TEXT;
-  _email    TEXT;
+  _username        TEXT;
+  _name            TEXT;
+  _email           TEXT;
+  _avatar_url      TEXT;
+  _github_username TEXT;
+  _provider        TEXT;
 BEGIN
   _email    := NEW.email;
-  -- Derive a username: use raw_user_meta_data.username, or fall back to email prefix
+  _provider := NEW.raw_app_meta_data->>'provider';
+
+  -- ── Derive avatar URL ──────────────────────────────────────────────────────
+  -- GitHub provider: avatar is in raw_user_meta_data.avatar_url
+  -- Google provider: avatar is in raw_user_meta_data.avatar_url or picture
+  _avatar_url := COALESCE(
+    NEW.raw_user_meta_data->>'avatar_url',
+    NEW.raw_user_meta_data->>'picture'
+  );
+
+  -- ── Derive GitHub username ─────────────────────────────────────────────────
+  -- Supabase stores the GitHub login in raw_user_meta_data.user_name
+  IF _provider = 'github' THEN
+    _github_username := COALESCE(
+      NEW.raw_user_meta_data->>'user_name',
+      NEW.raw_user_meta_data->>'preferred_username'
+    );
+  END IF;
+
+  -- ── Derive username ────────────────────────────────────────────────────────
+  -- Priority: explicit username meta → GitHub login → Google email name → email prefix
   _username := COALESCE(
     NEW.raw_user_meta_data->>'username',
+    _github_username,
     split_part(NEW.email, '@', 1)
   );
-  -- Ensure username is unique by appending part of the UUID if needed
+  -- Sanitise: lowercase, replace non-alphanumeric (except _) with _
+  _username := lower(regexp_replace(_username, '[^a-zA-Z0-9_]', '_', 'g'));
+  -- Ensure unique
   IF EXISTS (SELECT 1 FROM public."profiles" WHERE "username" = _username) THEN
     _username := _username || '_' || substr(NEW.id::text, 1, 6);
   END IF;
 
+  -- ── Derive display name ───────────────────────────────────────────────────
   _name := COALESCE(
     NEW.raw_user_meta_data->>'full_name',
     NEW.raw_user_meta_data->>'name',
+    _github_username,
     _username
   );
 
@@ -374,6 +402,8 @@ BEGIN
     "name",
     "displayName",
     "email",
+    "avatarUrl",
+    "githubUsername",
     "rankId",
     "xp",
     "isOnboarded",
@@ -385,13 +415,19 @@ BEGIN
     _name,
     _name,
     _email,
+    _avatar_url,
+    _github_username,
     1,
     0,
     false,
     now(),
     now()
   )
-  ON CONFLICT ("id") DO NOTHING;
+  ON CONFLICT ("id") DO UPDATE SET
+    -- On re-auth: refresh avatar + github username if they were null before
+    "avatarUrl"       = COALESCE(EXCLUDED."avatarUrl", profiles."avatarUrl"),
+    "githubUsername"  = COALESCE(EXCLUDED."githubUsername", profiles."githubUsername"),
+    "updatedAt"       = now();
 
   RETURN NEW;
 END;

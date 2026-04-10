@@ -7,15 +7,18 @@ import {
   type ChangeEvent,
 } from "react";
 import { type Channel } from "stream-chat";
+import { gql } from "@apollo/client/core";
+import { useQuery } from "@apollo/client/react";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
+import { avatarSrc } from "../../lib/defaults";
 import {
   Search, Send, MoreHorizontal, Video, Phone, Info,
   Archive, VolumeX, Trash2, Flag, Smile, Paperclip,
   ChevronDown, Check, CheckCheck, Edit2, X as XIcon,
-  Plus, Users,
+  Plus, Users, Loader2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -31,6 +34,18 @@ import {
 } from "../components/ui/popover";
 import { useChat, useChannelMessages, type ChannelPreview } from "../../contexts/ChatContext";
 import { cn } from "../components/ui/utils";
+
+const SEARCH_PROFILES = gql`
+  query MessagesSearchProfiles($query: String!, $limit: Int) {
+    searchProfiles(query: $query, limit: $limit) {
+      id
+      name
+      displayName
+      username
+      avatarUrl
+    }
+  }
+`;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -81,6 +96,12 @@ function NewConversationModal({
   onStart: (userId: string, name: string, image?: string) => void;
 }) {
   const [query, setQuery] = useState("");
+  const { data, loading } = useQuery(SEARCH_PROFILES, {
+    variables: { query, limit: 10 },
+    skip: query.trim().length < 2,
+    fetchPolicy: "network-only",
+  });
+  const results: any[] = data?.searchProfiles ?? [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -101,9 +122,35 @@ function NewConversationModal({
             className="pl-9 rounded-full h-9"
           />
         </div>
-        <p className="text-xs text-muted-foreground text-center py-6">
-          Search for a user to start a conversation
-        </p>
+        <div className="space-y-1 max-h-64 overflow-y-auto">
+          {loading && (
+            <div className="flex justify-center py-4">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+          {!loading && query.trim().length >= 2 && results.length === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-4">No users found.</p>
+          )}
+          {!loading && query.trim().length < 2 && (
+            <p className="text-xs text-muted-foreground text-center py-4">Type at least 2 characters to search.</p>
+          )}
+          {results.map((profile) => (
+            <button
+              key={profile.id}
+              className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-muted transition-colors text-left"
+              onClick={() => onStart(profile.id, profile.displayName ?? profile.name, profile.avatarUrl ?? undefined)}
+            >
+              <Avatar className="w-10 h-10 border border-border flex-shrink-0">
+                <AvatarImage src={avatarSrc(profile.avatarUrl)} />
+                <AvatarFallback>{getAvatarFallback(profile.displayName ?? profile.name)}</AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <p className="font-semibold text-sm truncate">{profile.displayName ?? profile.name}</p>
+                <p className="text-xs text-muted-foreground truncate">@{profile.username}</p>
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -137,7 +184,7 @@ function ChannelListItem({
     >
       <div className="relative flex-shrink-0">
         <Avatar className="w-12 h-12 border-2 border-border">
-          <AvatarImage src={image} />
+          <AvatarImage src={avatarSrc(image)} />
           <AvatarFallback className="text-sm">{getAvatarFallback(name)}</AvatarFallback>
         </Avatar>
         {online && (
@@ -216,7 +263,7 @@ function MessageBubble({
         <div className="w-8 flex-shrink-0 flex items-end">
           {showAvatar ? (
             <Avatar className="w-8 h-8">
-              <AvatarImage src={avatarUrl} />
+              <AvatarImage src={avatarSrc(avatarUrl)} />
               <AvatarFallback className="text-[10px]">{getAvatarFallback(authorName)}</AvatarFallback>
             </Avatar>
           ) : (
@@ -416,7 +463,7 @@ function ChatWindow({
         <div className="flex items-center gap-3">
           <div className="relative">
             <Avatar className="w-10 h-10 border-2 border-border">
-              <AvatarImage src={image} />
+              <AvatarImage src={avatarSrc(image)} />
               <AvatarFallback>{getAvatarFallback(name)}</AvatarFallback>
             </Avatar>
             {online && <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-card" />}
@@ -470,7 +517,7 @@ function ChatWindow({
         {messages.length === 0 && !loading && (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <Avatar className="w-20 h-20 border-4 border-border">
-              <AvatarImage src={image} />
+              <AvatarImage src={avatarSrc(image)} />
               <AvatarFallback className="text-2xl">{getAvatarFallback(name)}</AvatarFallback>
             </Avatar>
             <div className="text-center">
@@ -583,11 +630,27 @@ function ChatWindow({
 // ─── Messages Page ────────────────────────────────────────────────────────────
 
 export function Messages() {
-  const { channels, connected, loadChannels, startDM, markChannelRead, currentUserId } = useChat();
+  const { channels, connected, connectChat, loadChannels, startDM, markChannelRead, currentUserId } = useChat();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
   const [activePreview, setActivePreview] = useState<ChannelPreview | null>(null);
   const [showNewConvo, setShowNewConvo] = useState(false);
+
+  // Remove duplicate connectChat call — ChatProvider auto-connects when token arrives
+  // useEffect(() => { connectChat(); }, [connectChat]);
+
+  // Debug: log connection state changes
+  useEffect(() => {
+    console.log("[Messages] connected:", connected, "| channels:", channels.length, "| userId:", currentUserId);
+  }, [connected, channels.length, currentUserId]);
+
+  // Keep activePreview in sync when channels list updates (e.g. after startDM)
+  useEffect(() => {
+    if (activeChannel) {
+      const updated = channels.find((p) => p.channel.id === activeChannel.id);
+      if (updated) setActivePreview(updated);
+    }
+  }, [channels, activeChannel]);
 
   const filteredChannels = channels.filter((p) => {
     const name = p.otherUser?.name ?? (p.channel.data as any)?.name ?? "";
@@ -603,9 +666,10 @@ export function Messages() {
   const handleStartDM = async (userId: string, name: string, image?: string) => {
     const ch = await startDM(userId, name, image);
     if (ch) {
-      const preview = channels.find((p) => p.channel.id === ch.id);
       setActiveChannel(ch);
-      setActivePreview(preview ?? null);
+      // Find preview after channels reload; fallback to a minimal preview
+      const preview = channels.find((p) => p.channel.id === ch.id) ?? null;
+      setActivePreview(preview);
     }
     setShowNewConvo(false);
   };

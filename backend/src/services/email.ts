@@ -9,6 +9,20 @@ function getResend() {
   return new Resend(key);
 }
 
+/**
+ * Escape HTML entities to prevent HTML injection in email templates.
+ * This is critical because user-provided names, titles, etc. are interpolated
+ * directly into HTML email bodies.
+ */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 const FROM_EMAIL = "Lokal <noreply@lokalhost.club>";
 
 /**
@@ -17,12 +31,13 @@ const FROM_EMAIL = "Lokal <noreply@lokalhost.club>";
 export async function sendWelcomeEmail(to: string, name: string) {
   const resend = getResend();
   if (!resend) return;
+  const safeName = escapeHtml(name);
   await resend.emails.send({
     from: FROM_EMAIL,
     to,
     subject: "Welcome to Lokal! 🚀",
     html: `
-      <h1>Welcome to Lokal, ${name}!</h1>
+      <h1>Welcome to Lokal, ${safeName}!</h1>
       <p>You're now part of the Filipino developer community.</p>
       <p>Start by completing your profile and sharing your first project!</p>
       <a href="${process.env.FRONTEND_URL}/profile">Complete your profile →</a>
@@ -41,13 +56,16 @@ export async function sendJobApplicationEmail(
 ) {
   const resend = getResend();
   if (!resend) return;
+  const safeName = escapeHtml(applicantName);
+  const safeTitle = escapeHtml(jobTitle);
+  const safeCompany = escapeHtml(company);
   await resend.emails.send({
     from: FROM_EMAIL,
     to,
-    subject: `Application received — ${jobTitle} at ${company}`,
+    subject: `Application received — ${safeTitle} at ${safeCompany}`,
     html: `
-      <h2>Hi ${applicantName},</h2>
-      <p>Your application for <strong>${jobTitle}</strong> at <strong>${company}</strong> has been received.</p>
+      <h2>Hi ${safeName},</h2>
+      <p>Your application for <strong>${safeTitle}</strong> at <strong>${safeCompany}</strong> has been received.</p>
       <p>The hiring team will review it and get back to you soon.</p>
     `,
   });
@@ -65,15 +83,19 @@ export async function sendEventRegistrationEmail(
 ) {
   const resend = getResend();
   if (!resend) return;
+  const safeName = escapeHtml(name);
+  const safeTitle = escapeHtml(eventTitle);
+  const safeDate = escapeHtml(eventDate);
+  const safeLocation = escapeHtml(eventLocation);
   await resend.emails.send({
     from: FROM_EMAIL,
     to,
-    subject: `You're registered for ${eventTitle}!`,
+    subject: `You're registered for ${safeTitle}!`,
     html: `
-      <h2>Hi ${name},</h2>
-      <p>You've successfully registered for <strong>${eventTitle}</strong>.</p>
-      <p><strong>Date:</strong> ${eventDate}</p>
-      <p><strong>Location:</strong> ${eventLocation}</p>
+      <h2>Hi ${safeName},</h2>
+      <p>You've successfully registered for <strong>${safeTitle}</strong>.</p>
+      <p><strong>Date:</strong> ${safeDate}</p>
+      <p><strong>Location:</strong> ${safeLocation}</p>
       <p>See you there!</p>
     `,
   });
@@ -89,13 +111,15 @@ export async function sendLevelUpEmail(
 ) {
   const resend = getResend();
   if (!resend) return;
+  const safeName = escapeHtml(name);
+  const safeRank = escapeHtml(newRankName);
   await resend.emails.send({
     from: FROM_EMAIL,
     to,
-    subject: `🎉 You've reached ${newRankName} on Lokal!`,
+    subject: `🎉 You've reached ${safeRank} on Lokal!`,
     html: `
-      <h2>Congrats ${name}!</h2>
-      <p>You've leveled up to <strong>${newRankName}</strong>!</p>
+      <h2>Congrats ${safeName}!</h2>
+      <p>You've leveled up to <strong>${safeRank}</strong>!</p>
       <p>Keep building and contributing to the community.</p>
     `,
   });

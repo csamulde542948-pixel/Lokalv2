@@ -1,6 +1,15 @@
 import { GraphQLContext } from "../context";
 import { awardXp } from "../../services/xp";
 import { generateAiRoast } from "../../services/roast.service";
+import { createNotification } from "../../lib/notifications";
+import { assertSafeExternalUrl } from "../../lib/ssrf";
+import {
+  roastRateLimiter,
+  ipRoastLimiter,
+  normalizeRoastUrl,
+  roastUrlCache,
+  perUserUrlLimiter,
+} from "../../lib/rateLimit";
 
 const ROAST_INCLUDE = {
   reviewer: { include: { rank: true } },
@@ -33,20 +42,66 @@ export const roastResolvers = {
   Mutation: {
     /**
      * generateRoast — scrape URL with Jina Reader, send to DeepSeek v3 via
-     * OpenRouter, return structured preview. No auth required.
-     * The client can then call submitRoast to persist the result.
+     * OpenRouter, return structured preview.
+     *
+     * Auth is NOT required to generate a roast — users can try the feature
+     * before signing up. Auth IS required to publish/share via submitRoast.
+     *
+     * Rate limits:
+     *   - Anonymous: 3 roasts per IP per hour (weaker key, lower quota)
+     *   - Authenticated: 10 roasts per user per hour (stronger key, higher quota)
      */
     generateRoast: async (
       _: unknown,
-      { input }: { input: { projectUrl: string; projectName: string } }
+      { input }: { input: { projectUrl: string; projectName: string } },
+      { user, clientIp }: GraphQLContext
     ) => {
-      const { projectUrl, projectName } = input;
-
-      if (!projectUrl || !projectUrl.startsWith("http")) {
-        throw new Error("projectUrl must be a valid URL starting with http(s)://");
+      // Apply the appropriate rate limit based on auth state
+      if (user) {
+        // Authenticated: higher quota keyed on stable user ID
+        roastRateLimiter.check(user.id);
+      } else {
+        // Anonymous: lower quota keyed on IP — still protects paid APIs
+        ipRoastLimiter.check(clientIp);
       }
 
+      const { projectName } = input;
+
+      // SSRF protection: validate URL before sending to Jina Reader
+      const projectUrl = await assertSafeExternalUrl(input.projectUrl);
+
+      // ── Deduplication ────────────────────────────────────────────────────
+      // Normalise the URL so utm params, www, trailing slashes don't produce
+      // duplicate entries (e.g. myapp.com/ and myapp.com?ref=twitter are same)
+      const canonicalUrl = normalizeRoastUrl(projectUrl);
+
+      // 1) Per-user-per-URL: authenticated users can only re-generate a roast
+      //    for the exact same URL once every 24 h. Return cached copy if seen.
+      if (user && perUserUrlLimiter.isDuplicate(user.id, canonicalUrl)) {
+        const cached = roastUrlCache.get(canonicalUrl);
+        if (cached) {
+          return { ...cached, projectUrl, projectName };
+        }
+        // Cache expired but dedup window hasn't — still block and ask to wait
+        throw new Error(
+          "You already roasted this URL recently. Come back in 24 hours for a fresh roast!"
+        );
+      }
+
+      // 2) Per-URL global cooldown: any URL roasted in the last 24 h returns
+      //    the cached roast (saves AI credits, keeps feed varied).
+      const urlCached = roastUrlCache.get(canonicalUrl);
+      if (urlCached) {
+        // Register the user's "seen" entry so they also get dedup protection
+        if (user) perUserUrlLimiter.isDuplicate(user.id, canonicalUrl);
+        return { ...urlCached, projectUrl, projectName };
+      }
+      // ────────────────────────────────────────────────────────────────────
+
       const result = await generateAiRoast(projectUrl, projectName);
+
+      // Cache the result for both dedup layers
+      roastUrlCache.set(canonicalUrl, result as unknown as Record<string, unknown>);
 
       return {
         ...result,
@@ -98,18 +153,12 @@ export const roastResolvers = {
 
         // Notify project owner
         if (project.authorId !== user.id) {
-          await prisma.notification.create({
-            data: {
-              recipientId: project.authorId,
-              actorId: user.id,
-              type: "PROJECT_ROAST",
-              projectId: input.projectId,
-              entityId: roast.id,
-            },
-          });
-          await prisma.profile.update({
-            where: { id: project.authorId },
-            data: { unreadNotificationsCount: { increment: 1 } },
+          await createNotification(prisma, {
+            recipientId: project.authorId,
+            actorId: user.id,
+            type: "PROJECT_ROAST",
+            projectId: input.projectId,
+            entityId: roast.id,
           });
         }
 
@@ -129,10 +178,23 @@ export const roastResolvers = {
       if (!user) throw new Error("Unauthorized");
       const roast = await prisma.roast.findUnique({ where: { id: roastId } });
       if (!roast) throw new Error("Roast not found");
-      await prisma.roast.update({
-        where: { id: roastId },
-        data: { likesCount: { increment: 1 } },
+
+      // Check if already liked — prevent double-counting
+      const existing = await prisma.roastLike.findUnique({
+        where: { roastId_profileId: { roastId, profileId: user.id } },
       });
+
+      if (!existing) {
+        // Create the like record and increment counter atomically
+        await prisma.roastLike.create({
+          data: { roastId, profileId: user.id },
+        });
+        await prisma.roast.update({
+          where: { id: roastId },
+          data: { likesCount: { increment: 1 } },
+        });
+      }
+
       return prisma.roast.findUnique({ where: { id: roastId }, include: ROAST_INCLUDE });
     },
   },
@@ -141,11 +203,13 @@ export const roastResolvers = {
     likedByMe: async (
       parent: { id: string },
       _: unknown,
-      { user }: GraphQLContext
+      { user, prisma }: GraphQLContext
     ) => {
       if (!user) return false;
-      // Phase 2: query RoastLike join table
-      return false;
+      const like = await prisma.roastLike.findUnique({
+        where: { roastId_profileId: { roastId: parent.id, profileId: user.id } },
+      });
+      return !!like;
     },
   },
 };

@@ -11,10 +11,26 @@ export interface GraphQLContext {
   user: AuthUser | null;
   /** Prisma client */
   prisma: PrismaClient;
+  /** Client IP address (for anonymous rate limiting) */
+  clientIp: string;
   /** DataLoaders for batching DB queries (prevents N+1) */
   loaders: {
     profileLoader: DataLoader<string, any>;
     postLoader: DataLoader<string, any>;
     projectLoader: DataLoader<string, any>;
+    // Batch count loaders — prevent N+1 on Profile field resolvers
+    followersCountLoader: DataLoader<string, number>;
+    followingCountLoader: DataLoader<string, number>;
+    isFollowedByMeLoader: DataLoader<string, boolean>;
+    postsCountLoader: DataLoader<string, number>;
+    projectsCountLoader: DataLoader<string, number>;
+    // Batch loaders for Post field resolvers
+    postTagsLoader: DataLoader<string, any[]>;
+    postLikedByMeLoader: DataLoader<string, boolean>;
+    postMyReactionLoader: DataLoader<string, string | null>;
+    originalPostLoader: DataLoader<string, any | null>;
+    // Batch loaders for PostComment field resolvers
+    commentLikedByMeLoader: DataLoader<string, boolean>;
+    commentMyReactionLoader: DataLoader<string, string | null>;
   };
 }

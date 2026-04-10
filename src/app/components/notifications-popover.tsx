@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { gql } from "@apollo/client/core";
 import { useQuery, useMutation } from "@apollo/client/react";
 import { useNavigate } from "react-router";
@@ -6,9 +6,12 @@ import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 import {
-  Heart, MessageCircle, UserPlus, Share2,
-  Trophy, Rocket, AtSign, Bell, Settings as SettingsIcon, Loader2,
+  Heart, MessageCircle, UserPlus, Share2, AtSign,
+  Flame, Trophy, Rocket, Bell, Settings as SettingsIcon,
+  Loader2, Briefcase, CalendarClock,
 } from "lucide-react";
+import { avatarSrc } from "../../lib/defaults";
+import { PostModal } from "./post-modal";
 
 /* ─── GQL ─────────────────────────────────────────────────────────────────── */
 const GET_NOTIFICATIONS = gql`
@@ -48,15 +51,19 @@ type NotifType = "LIKE" | "COMMENT" | "FOLLOW" | "PROJECT_ROAST" | "JOB_APPLICAT
   | "EVENT_REMINDER" | "LAUNCHPAD_INTEREST" | "XP_LEVELUP" | "MENTION" | string;
 
 function getIcon(type: NotifType) {
+  const s = "w-3.5 h-3.5";
   switch (type) {
-    case "LIKE":               return <Heart         className="w-3 h-3 text-red-500"    strokeWidth={2} fill="currentColor" />;
-    case "COMMENT":            return <MessageCircle className="w-3 h-3 text-blue-500"   strokeWidth={2} />;
-    case "FOLLOW":             return <UserPlus      className="w-3 h-3 text-green-500"  strokeWidth={2} />;
-    case "MENTION":            return <AtSign        className="w-3 h-3 text-sky-500"    strokeWidth={2} />;
-    case "PROJECT_ROAST":      return <Rocket        className="w-3 h-3 text-primary"    strokeWidth={2} />;
-    case "XP_LEVELUP":         return <Trophy        className="w-3 h-3 text-yellow-500" strokeWidth={2} fill="currentColor" />;
-    case "LAUNCHPAD_INTEREST": return <Rocket        className="w-3 h-3 text-primary"    strokeWidth={2} />;
-    default:                   return <Share2        className="w-3 h-3 text-purple-500" strokeWidth={2} />;
+    case "LIKE":               return <Heart          className={`${s} text-rose-500`}        strokeWidth={2} fill="currentColor" />;
+    case "COMMENT":            return <MessageCircle  className={`${s} text-sky-500`}         strokeWidth={2} />;
+    case "FOLLOW":             return <UserPlus       className={`${s} text-emerald-500`}     strokeWidth={2} />;
+    case "SHARE":              return <Share2         className={`${s} text-violet-500`}      strokeWidth={2} />;
+    case "MENTION":            return <AtSign         className={`${s} text-cyan-500`}        strokeWidth={2} />;
+    case "PROJECT_ROAST":      return <Flame          className={`${s} text-orange-500`}      strokeWidth={2} fill="currentColor" />;
+    case "XP_LEVELUP":         return <Trophy         className={`${s} text-yellow-400`}      strokeWidth={2} fill="currentColor" />;
+    case "LAUNCHPAD_INTEREST": return <Rocket         className={`${s} text-indigo-500`}      strokeWidth={2} />;
+    case "JOB_APPLICATION":    return <Briefcase      className={`${s} text-teal-500`}        strokeWidth={2} />;
+    case "EVENT_REMINDER":     return <CalendarClock  className={`${s} text-pink-500`}        strokeWidth={2} />;
+    default:                   return <Bell           className={`${s} text-muted-foreground`} strokeWidth={2} />;
   }
 }
 
@@ -68,16 +75,46 @@ function timeAgo(iso: string) {
   return `${Math.floor(s / 86400)}d`;
 }
 
-function navTarget(type: NotifType, entityId?: string | null): string | null {
-  if (!entityId) return null;
+function navTarget(type: NotifType, entityId?: string | null, actorUsername?: string | null): string | null {
   switch (type) {
+    // Post-related: navigate to feed with the post highlighted via query param
     case "LIKE":
     case "COMMENT":
-    case "MENTION":            return `/posts/${entityId}`;
-    case "FOLLOW":             return `/profile/${entityId}`;
-    case "PROJECT_ROAST":      return `/projects/${entityId}`;
+    case "MENTION":
+    case "SHARE":              return entityId ? `/?post=${entityId}` : "/";
+    // FOLLOW: navigate to actor's profile by username
+    case "FOLLOW":             return actorUsername ? `/profile/${actorUsername}` : null;
+    // Project: route is /project/:id (no "s")
+    case "PROJECT_ROAST":      return entityId ? `/project/${entityId}` : null;
+    // Job application notification → job detail page
+    case "JOB_APPLICATION":    return entityId ? `/jobs/${entityId}` : "/jobs";
+    // Event reminder → event detail page
+    case "EVENT_REMINDER":     return entityId ? `/events/${entityId}` : "/events";
     case "LAUNCHPAD_INTEREST": return `/launchpad`;
-    default: return null;
+    // XP/system notifications have no specific destination
+    case "XP_LEVELUP":         return null;
+    default:                   return null;
+  }
+}
+
+/** Notification types that should open the PostModal instead of navigating */
+const POST_MODAL_TYPES: NotifType[] = ["LIKE", "COMMENT", "MENTION", "SHARE"];
+
+/** Returns the display message — uses stored message if set, else a type default */
+function displayMessage(type: NotifType, message?: string | null): string {
+  if (message) return message;
+  switch (type) {
+    case "LIKE":               return "liked your post";
+    case "COMMENT":            return "commented on your post";
+    case "FOLLOW":             return "started following you";
+    case "SHARE":              return "shared your post";
+    case "MENTION":            return "mentioned you in a post";
+    case "PROJECT_ROAST":      return "roasted your project";
+    case "XP_LEVELUP":         return "You leveled up!";
+    case "LAUNCHPAD_INTEREST": return "is interested in your launch";
+    case "JOB_APPLICATION":    return "applied to your job posting";
+    case "EVENT_REMINDER":     return "Upcoming event reminder";
+    default:                   return "sent you a notification";
   }
 }
 
@@ -92,6 +129,7 @@ interface NotificationsPopoverProps {
 export function NotificationsPopover({ isOpen, onClose, onUnreadCount }: NotificationsPopoverProps) {
   const navigate = useNavigate();
   const panelRef = useRef<HTMLDivElement>(null);
+  const [modalPostId, setModalPostId] = useState<string | null>(null);
 
   const { data, loading, refetch } = useQuery(GET_NOTIFICATIONS, {
     variables: { limit: 30, offset: 0 },
@@ -118,7 +156,12 @@ export function NotificationsPopover({ isOpen, onClose, onUnreadCount }: Notific
     if (!notif.isRead) {
       await markRead({ variables: { notificationId: notif.id } });
     }
-    const target = navTarget(notif.type, notif.entityId);
+    // Post-related: open inline modal so user sees the card without leaving the page
+    if (POST_MODAL_TYPES.includes(notif.type) && notif.entityId) {
+      setModalPostId(notif.entityId);
+      return;
+    }
+    const target = navTarget(notif.type, notif.entityId, notif.actor?.username);
     if (target) { navigate(target); onClose(); }
   }
 
@@ -126,6 +169,13 @@ export function NotificationsPopover({ isOpen, onClose, onUnreadCount }: Notific
 
   return (
     <>
+      {/* Post modal — shown over the popover */}
+      {modalPostId && (
+        <PostModal
+          postId={modalPostId}
+          onClose={() => setModalPostId(null)}
+        />
+      )}
       {/* Backdrop */}
       <div className="fixed inset-0 z-40" onClick={onClose} />
 
@@ -180,15 +230,15 @@ export function NotificationsPopover({ isOpen, onClose, onUnreadCount }: Notific
                       {n.actor ? (
                         <div className="relative">
                           <Avatar className="w-10 h-10 border-2 border-border">
-                            <AvatarImage src={n.actor.avatarUrl} />
+                            <AvatarImage src={avatarSrc(n.actor.avatarUrl)} />
                             <AvatarFallback>{n.actor.name?.[0]?.toUpperCase()}</AvatarFallback>
                           </Avatar>
-                          <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-card rounded-full flex items-center justify-center border border-border">
+                          <span className="absolute -bottom-0.5 -right-0.5">
                             {getIcon(n.type)}
-                          </div>
+                          </span>
                         </div>
                       ) : (
-                        <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
+                        <div className="w-10 h-10 bg-card rounded-full flex items-center justify-center border border-border">
                           {getIcon(n.type)}
                         </div>
                       )}
@@ -200,7 +250,7 @@ export function NotificationsPopover({ isOpen, onClose, onUnreadCount }: Notific
                           <span className="font-semibold">{n.actor.name} </span>
                         )}
                         <span className={!n.isRead ? "font-medium" : "text-muted-foreground"}>
-                          {n.message}
+                          {displayMessage(n.type, n.message)}
                         </span>
                       </p>
                       <div className="flex items-center gap-2 mt-1">

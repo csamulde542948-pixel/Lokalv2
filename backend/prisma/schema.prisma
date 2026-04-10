@@ -133,6 +133,12 @@ model Profile {
   // Notifications (denormalised count)
   unreadNotificationsCount Int @default(0)
 
+  // Security: login lockout
+  isLocked             Boolean   @default(false)
+  lockedUntil          DateTime?
+  failedLoginAttempts  Int       @default(0)
+  lastFailedLoginAt    DateTime?
+
   // Feed ranking — engagement counter for interest embedding recomputation trigger
   feedEngagementCount Int @default(0)
 
@@ -148,7 +154,8 @@ model Profile {
   roastsGiven         Roast[]              @relation("RoastReviewer")
   jobs                Job[]
   events              Event[]
-  launchpadEvents     LaunchpadEvent[]
+  launchpadEvents          LaunchpadEvent[]
+  launchpadAnnouncements   LaunchpadAnnouncement[]
   followedBy          Follow[]             @relation("Following")  // people who follow this user
   following           Follow[]             @relation("Follower")   // people this user follows
   notifications       Notification[]       @relation("NotificationRecipient")
@@ -173,6 +180,7 @@ model Profile {
   notInterestedPosts  UserNotInterested[]  @relation("NotInterestedBy")
   feedScoreLogs       FeedScoreLog[]
   feedSessions        FeedSession[]
+  accountLinks        AccountLink[]
 
   // Interest vector for recommendation engine (pgvector)
   interestEmbedding Unsupported("vector(1536)")?
@@ -417,8 +425,12 @@ model Project {
   description String          @db.Text
   iconUrl     String?         @db.Text
   bannerUrl   String?         @db.Text
-  demoUrl     String?         @db.Text
+  projectUrl  String?         @db.Text
   githubUrl   String?         @db.Text
+  twitterUrl  String?         @db.Text
+  linkedinUrl String?         @db.Text
+  screenshotUrl String?       @db.Text          // auto-captured screenshot of project URL
+  screenshots   String[]      @default([])      // user-uploaded gallery screenshots
   type        ProjectType     @default(PERSONAL)
   visibility  Visibility      @default(PUBLIC)
   category    ProjectCategory @default(WEB_APP)
@@ -437,6 +449,12 @@ model Project {
 
   // Leaderboard
   rankTrend   Trend    @default(SAME)
+
+  // Ownership verification
+  isVerified         Boolean   @default(false)
+  verificationMethod String?   @db.VarChar(30)  // 'dns_txt', 'meta_tag', 'file', 'github_repo'
+  verificationToken  String?   @db.VarChar(100)
+  verifiedAt         DateTime?
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -533,10 +551,25 @@ model Roast {
 
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   reviewer    Profile  @relation("RoastReviewer", fields: [reviewerId], references: [id], onDelete: Cascade)
+  likes       RoastLike[]
 
   @@index([projectId])
   @@index([reviewerId])
   @@map("roasts")
+}
+
+// Tracks individual roast likes (prevents infinite like farming)
+model RoastLike {
+  id        String   @id @default(cuid())
+  roastId   String
+  profileId String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  roast     Roast    @relation(fields: [roastId], references: [id], onDelete: Cascade)
+
+  @@unique([roastId, profileId])
+  @@index([roastId])
+  @@map("roast_likes")
 }
 
 // ============================================================
@@ -697,15 +730,26 @@ model LaunchpadEvent {
   launchDate  DateTime?
   isFeatured  Boolean            @default(false)
 
+  // Project branding (stored so they survive server restarts)
+  projectName   String?          @db.Text             @map("project_name")
+  iconUrl       String?          @db.Text             @map("icon_url")
+  screenshotUrl String?          @db.Text             @map("screenshot_url")
+  spotsTotal    Int?                                  @map("spots_total")
+  projectTagline  String?        @db.Text             @map("project_tagline")
+  projectCategory String?        @db.Text             @map("project_category")
+  projectStatus   String?        @db.Text             @map("project_status")
+
   // Engagement
   interestedCount Int     @default(0)
+  isOpen          Boolean @default(true) @map("is_open")
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  creator     Profile             @relation(fields: [creatorId], references: [id], onDelete: Cascade)
-  tags        LaunchpadTag[]
-  interests   LaunchpadInterest[]
+  creator       Profile                  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  tags          LaunchpadTag[]
+  interests     LaunchpadInterest[]
+  announcements LaunchpadAnnouncement[]
 
   @@index([creatorId])
   @@map("launchpad_events")
@@ -726,6 +770,8 @@ model LaunchpadInterest {
   id               String   @id @default(cuid())
   launchpadEventId String
   profileId        String   @db.Uuid
+  commitmentEmail  String?  @db.VarChar(255) @map("commitment_email")
+  commitmentNote   String?  @db.Text         @map("commitment_note")
   createdAt        DateTime @default(now())
 
   launchpadEvent   LaunchpadEvent @relation(fields: [launchpadEventId], references: [id], onDelete: Cascade)
@@ -733,6 +779,20 @@ model LaunchpadInterest {
 
   @@unique([launchpadEventId, profileId])
   @@map("launchpad_interests")
+}
+
+model LaunchpadAnnouncement {
+  id               String   @id @default(cuid())
+  launchpadEventId String   @map("launchpad_event_id")
+  creatorId        String   @db.Uuid @map("creator_id")
+  message          String   @db.Text
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  launchpadEvent   LaunchpadEvent @relation(fields: [launchpadEventId], references: [id], onDelete: Cascade)
+  creator          Profile        @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([launchpadEventId])
+  @@map("launchpad_announcements")
 }
 
 // ============================================================
@@ -954,4 +1014,60 @@ model FeedSession {
   @@index([userId, createdAt(sort: Desc)])
   @@index([feedVariant, createdAt(sort: Desc)])
   @@map("feed_sessions")
+}
+
+// ============================================================
+// SECURITY: Account Linking / Deduplication
+// ============================================================
+
+model AccountLink {
+  id                String   @id @default(cuid())
+  profileId         String   @db.Uuid
+  provider          String   @db.VarChar(50)   // 'email', 'google', 'github', 'web3'
+  providerAccountId String                     // auth.users.id for this provider identity
+  email             String?  @db.VarChar(255)
+  createdAt         DateTime @default(now())
+
+  profile           Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, provider])
+  @@index([email])
+  @@map("account_links")
+}
+
+// ============================================================
+// SECURITY: Login Attempt Tracking
+// ============================================================
+
+model LoginAttempt {
+  id         String   @id @default(cuid())
+  email      String?  @db.VarChar(255)
+  ipAddress  String?  @db.VarChar(45)
+  userAgent  String?  @db.Text
+  success    Boolean  @default(false)
+  failReason String?  @db.VarChar(100)
+  provider   String   @default("email") @db.VarChar(50)
+  createdAt  DateTime @default(now())
+
+  @@index([email, createdAt(sort: Desc)])
+  @@map("login_attempts")
+}
+
+// ============================================================
+// SECURITY: Audit Log
+// ============================================================
+
+model SecurityEvent {
+  id         String   @id @default(cuid())
+  profileId  String?  @db.Uuid
+  eventType  String   @db.VarChar(100)
+  provider   String?  @db.VarChar(50)
+  ipAddress  String?  @db.VarChar(45)
+  userAgent  String?  @db.Text
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  @@index([profileId, createdAt(sort: Desc)])
+  @@index([eventType, createdAt(sort: Desc)])
+  @@map("security_events")
 }

@@ -1,0 +1,26 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <defs>
+    <clipPath id="circle-clip">
+      <circle cx="50" cy="50" r="50"/>
+    </clipPath>
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#252526"/>
+      <stop offset="100%" stop-color="#1E1E1E"/>
+    </linearGradient>
+    <linearGradient id="figure-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF8833"/>
+      <stop offset="100%" stop-color="#FF6600"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <circle cx="50" cy="50" r="50" fill="url(#bg-grad)"/>
+  <!-- Clipped figure -->
+  <g clip-path="url(#circle-clip)">
+    <!-- Head -->
+    <circle cx="50" cy="38" r="15" fill="url(#figure-grad)"/>
+    <!-- Shoulders / body -->
+    <path d="M15 100 C15 70 28 60 50 60 C72 60 85 70 85 100 Z" fill="url(#figure-grad)"/>
+  </g>
+  <!-- Orange ring border -->
+  <circle cx="50" cy="50" r="48.5" fill="none" stroke="#FF6600" stroke-width="1.5" opacity="0.5"/>
+</svg>

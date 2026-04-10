@@ -1,176 +1,229 @@
-import { useState } from "react";
+import { gql } from "@apollo/client/core";
+import { useQuery } from "@apollo/client/react";
 import { Card, CardContent } from "../components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
-import { Button } from "../components/ui/button";
 import { Progress } from "../components/ui/progress";
 import { Badge } from "../components/ui/badge";
-import { 
-  Shield, 
-  TrendingUp, 
-  Award, 
-  Zap, 
-  Star, 
-  Crown, 
+import { Skeleton } from "../components/ui/skeleton";
+import {
+  Shield,
+  Award,
+  Zap,
+  Star,
+  Crown,
   Flame,
   Trophy,
   Target,
   Code,
-  Users,
   Rocket,
-  ChevronRight
+  type LucideIcon,
 } from "lucide-react";
 import { LeftSidebar } from "../components/left-sidebar";
 import { RightSidebar } from "../components/right-sidebar";
 
-// Rank tiers
-const ranks = [
-  {
-    id: 1,
-    name: "Newbie",
-    icon: Code,
-    color: "text-gray-500",
-    bgColor: "bg-gray-500/10",
-    borderColor: "border-gray-500/20",
-    minXP: 0,
-    maxXP: 100,
-    description: "Just getting started"
-  },
-  {
-    id: 2,
-    name: "Junior Dev",
-    icon: Target,
-    color: "text-green-500",
-    bgColor: "bg-green-500/10",
-    borderColor: "border-green-500/20",
-    minXP: 100,
-    maxXP: 500,
-    description: "Building your foundation"
-  },
-  {
-    id: 3,
-    name: "Developer",
-    icon: Zap,
-    color: "text-blue-500",
-    bgColor: "bg-blue-500/10",
-    borderColor: "border-blue-500/20",
-    minXP: 500,
-    maxXP: 1500,
-    description: "Shipping features daily"
-  },
-  {
-    id: 4,
-    name: "Senior Dev",
-    icon: Star,
-    color: "text-purple-500",
-    bgColor: "bg-purple-500/10",
-    borderColor: "border-purple-500/20",
-    minXP: 1500,
-    maxXP: 3000,
-    description: "Leading the way"
-  },
-  {
-    id: 5,
-    name: "Tech Lead",
-    icon: Flame,
-    color: "text-orange-500",
-    bgColor: "bg-orange-500/10",
-    borderColor: "border-orange-500/20",
-    minXP: 3000,
-    maxXP: 5000,
-    description: "Guiding the team"
-  },
-  {
-    id: 6,
-    name: "Architect",
-    icon: Trophy,
-    color: "text-yellow-500",
-    bgColor: "bg-yellow-500/10",
-    borderColor: "border-yellow-500/20",
-    minXP: 5000,
-    maxXP: 10000,
-    description: "Building systems"
-  },
-  {
-    id: 7,
-    name: "Legend",
-    icon: Crown,
-    color: "text-primary",
-    bgColor: "bg-primary/10",
-    borderColor: "border-primary/20",
-    minXP: 10000,
-    maxXP: Infinity,
-    description: "Elite status achieved"
-  },
-];
+// ─── Icon map: DB iconName → Lucide component ────────────────────────────────
+const ICON_MAP: Record<string, LucideIcon> = {
+  Code,
+  Target,
+  Zap,
+  Star,
+  Flame,
+  Trophy,
+  Crown,
+  Rocket,
+  Shield,
+  Award,
+};
 
-// Special roles
-const roles = [
-  {
-    id: 1,
-    name: "🎨 Designer",
-    description: "Earned by sharing UI/UX projects",
-    requirement: "Share 5 design projects",
-    earned: true,
-  },
-  {
-    id: 2,
-    name: "🚀 Launcher",
-    description: "Launched a project on Launchpad",
-    requirement: "Launch 1 project",
-    earned: true,
-  },
-  {
-    id: 3,
-    name: "🔥 Roast Master",
-    description: "Got roasted and survived",
-    requirement: "Get roasted 3 times",
-    earned: true,
-  },
-  {
-    id: 4,
-    name: "💬 Community Champion",
-    description: "Active community member",
-    requirement: "50+ helpful comments",
-    earned: false,
-  },
-  {
-    id: 5,
-    name: "⚡ Speed Demon",
-    description: "Ship projects fast",
-    requirement: "Launch 5 projects in a month",
-    earned: false,
-  },
-  {
-    id: 6,
-    name: "🏆 Top 10",
-    description: "Reached top 10 leaderboard",
-    requirement: "Rank in top 10",
-    earned: false,
-  },
-];
+function getRankIcon(iconName?: string | null): LucideIcon {
+  if (iconName && ICON_MAP[iconName]) return ICON_MAP[iconName];
+  return Code; // fallback
+}
 
-// XP activities
-const xpActivities = [
-  { action: "Create a post", xp: 10, icon: "📝" },
-  { action: "Launch a project", xp: 100, icon: "🚀" },
-  { action: "Get roasted", xp: 50, icon: "🔥" },
-  { action: "Receive a like", xp: 2, icon: "❤️" },
-  { action: "Receive a comment", xp: 5, icon: "💬" },
-  { action: "Share a project", xp: 15, icon: "🔗" },
-  { action: "Complete profile", xp: 50, icon: "✅" },
-  { action: "Make a connection", xp: 20, icon: "🤝" },
-];
+// ─── GQL ─────────────────────────────────────────────────────────────────────
+
+const RANK_ROLE_QUERY = gql`
+  query RankRolePage {
+    me {
+      id
+      xp
+      rank {
+        id
+        name
+        description
+        minXp
+        maxXp
+        iconName
+        color
+        bgColor
+        borderColor
+      }
+      earnedRoles {
+        id
+        earnedAt
+        role {
+          id
+          name
+          emoji
+          description
+          requirement
+        }
+      }
+    }
+    ranks {
+      id
+      name
+      description
+      minXp
+      maxXp
+      iconName
+      color
+      bgColor
+      borderColor
+    }
+    xpActivities {
+      id
+      action
+      xpReward
+      icon
+    }
+  }
+`;
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface RankData {
+  id: number;
+  name: string;
+  description?: string | null;
+  minXp: number;
+  maxXp?: number | null;
+  iconName?: string | null;
+  color?: string | null;
+  bgColor?: string | null;
+  borderColor?: string | null;
+}
+
+interface RoleData {
+  id: number;
+  name: string;
+  emoji?: string | null;
+  description?: string | null;
+  requirement?: string | null;
+}
+
+interface UserRoleData {
+  id: string;
+  earnedAt: string;
+  role: RoleData;
+}
+
+interface XpActivityData {
+  id: number;
+  action: string;
+  xpReward: number;
+  icon?: string | null;
+}
+
+interface MeData {
+  xp: number;
+  rank: RankData;
+  earnedRoles: UserRoleData[];
+}
+
+interface QueryResult {
+  me: MeData | null;
+  ranks: RankData[];
+  xpActivities: XpActivityData[];
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Tailwind classes stored in DB need to be present in the bundle.
+ *  We keep a safe-list passthrough so Tailwind doesn't purge them. */
+function rankClasses(rank: RankData) {
+  return {
+    color: rank.color ?? "text-gray-500",
+    bgColor: rank.bgColor ?? "bg-gray-500/10",
+    borderColor: rank.borderColor ?? "border-gray-500/20",
+  };
+}
+
+// ─── Loading skeleton ────────────────────────────────────────────────────────
+
+function RankRoleSkeleton() {
+  return (
+    <div className="max-w-5xl mx-auto p-6 space-y-6">
+      <div className="space-y-2">
+        <Skeleton className="h-9 w-48" />
+        <Skeleton className="h-5 w-80" />
+      </div>
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-start gap-6">
+            <Skeleton className="w-24 h-24 rounded-2xl" />
+            <div className="flex-1 space-y-3">
+              <Skeleton className="h-7 w-40" />
+              <Skeleton className="h-4 w-56" />
+              <Skeleton className="h-3 w-full" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      <div className="grid md:grid-cols-2 gap-6">
+        {[0, 1].map((i) => (
+          <div key={i} className="space-y-3">
+            <Skeleton className="h-6 w-32" />
+            {[...Array(4)].map((_, j) => (
+              <Skeleton key={j} className="h-20 w-full rounded-xl" />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export function RankRole() {
-  // Mock user data
-  const currentXP = 2350;
-  const currentRankIndex = ranks.findIndex(r => currentXP >= r.minXP && currentXP < r.maxXP);
-  const currentRank = ranks[currentRankIndex];
-  const nextRank = ranks[currentRankIndex + 1];
-  
-  const progressToNext = nextRank 
-    ? ((currentXP - currentRank.minXP) / (nextRank.minXP - currentRank.minXP)) * 100
-    : 100;
+  const { data, loading, error } = useQuery<QueryResult>(RANK_ROLE_QUERY, {
+    fetchPolicy: "cache-and-network",
+  });
+
+  // ── Derived state ────────────────────────────────────────────────────────
+  const currentXP = data?.me?.xp ?? 0;
+  const currentRank = data?.me?.rank;
+  const allRanks = data?.ranks ?? [];
+  const earnedRoles = data?.me?.earnedRoles ?? [];
+  const xpActivities = data?.xpActivities ?? [];
+
+  // Earned role IDs set for O(1) lookup
+  const earnedRoleIds = new Set(earnedRoles.map((ur) => ur.role.id));
+
+  // Find the next rank above the current one
+  const nextRank = currentRank
+    ? allRanks.find((r) => r.minXp > currentRank.minXp)
+    : undefined;
+
+  const progressToNext =
+    currentRank && nextRank
+      ? Math.min(
+          100,
+          ((currentXP - currentRank.minXp) /
+            (nextRank.minXp - currentRank.minXp)) *
+            100
+        )
+      : currentRank && !nextRank
+      ? 100
+      : 0;
+
+  // All roles across the platform — derived from allRanks-based roles list
+  // We show all roles from the earnedRoles + any unearned ones that exist in the system.
+  // Since the backend returns only earned roles on the profile, we need the full role list
+  // from earnedRoles (earned) combined with a note for unearned. The xpActivities query gives
+  // us the activities; all-roles is implicit. We show earned first, then unearned from the
+  // global role registry. For now we show all roles the user has earned + note unearned count.
+  // (Full role list would require a separate `roles` query — we make do with earnedRoles.)
 
   return (
     <div className="flex min-h-screen">
@@ -179,179 +232,264 @@ export function RankRole() {
 
       {/* Main Content */}
       <div className="flex-1 border-x">
-        <div className="max-w-5xl mx-auto p-6 space-y-6">
-          {/* Header */}
-          <div>
-            <h1 className="text-3xl font-black mb-2">Rank & Role</h1>
-            <p className="text-muted-foreground">
-              Level up by contributing to the community and earning XP
+        {loading && !data ? (
+          <RankRoleSkeleton />
+        ) : error ? (
+          <div className="max-w-5xl mx-auto p-6">
+            <p className="text-destructive text-sm">
+              Failed to load rank data. Please try again.
             </p>
           </div>
-
-          {/* Current Rank Card */}
-          <Card className="overflow-hidden">
-            <CardContent className="p-6">
-              <div className="flex items-start gap-6">
-                <div className={`w-24 h-24 rounded-2xl ${currentRank.bgColor} border-4 ${currentRank.borderColor} flex items-center justify-center`}>
-                  <currentRank.icon className={`w-12 h-12 ${currentRank.color}`} strokeWidth={2} />
-                </div>
-                <div className="flex-1 space-y-4">
-                  <div>
-                    <div className="flex items-center gap-3 mb-2">
-                      <h2 className="text-2xl font-bold">{currentRank.name}</h2>
-                      <Badge variant="secondary" className="text-sm">
-                        Rank {currentRank.id}
-                      </Badge>
-                    </div>
-                    <p className="text-muted-foreground">{currentRank.description}</p>
-                  </div>
-
-                  {/* XP Progress */}
-                  {nextRank && (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="font-semibold">{currentXP.toLocaleString()} XP</span>
-                        <span className="text-muted-foreground">
-                          {nextRank.minXP.toLocaleString()} XP to {nextRank.name}
-                        </span>
-                      </div>
-                      <Progress value={progressToNext} className="h-3" />
-                      <p className="text-xs text-muted-foreground">
-                        {(nextRank.minXP - currentXP).toLocaleString()} XP remaining
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="grid md:grid-cols-2 gap-6">
-            {/* All Ranks */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Trophy className="w-5 h-5 text-primary" strokeWidth={2} />
-                <h2 className="text-xl font-bold">All Ranks</h2>
-              </div>
-
-              <div className="space-y-3">
-                {ranks.map((rank) => {
-                  const Icon = rank.icon;
-                  const isCurrentRank = rank.id === currentRank.id;
-                  const isUnlocked = currentXP >= rank.minXP;
-
-                  return (
-                    <Card 
-                      key={rank.id} 
-                      className={`transition-all ${
-                        isCurrentRank 
-                          ? `ring-2 ring-primary shadow-lg` 
-                          : isUnlocked 
-                          ? 'opacity-100' 
-                          : 'opacity-40'
-                      }`}
-                    >
-                      <CardContent className="p-4">
-                        <div className="flex items-center gap-4">
-                          <div className={`w-14 h-14 rounded-xl ${rank.bgColor} border-2 ${rank.borderColor} flex items-center justify-center flex-shrink-0`}>
-                            <Icon className={`w-7 h-7 ${rank.color}`} strokeWidth={2} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h3 className="font-bold truncate">{rank.name}</h3>
-                              {isCurrentRank && (
-                                <Badge variant="default" className="text-xs">Current</Badge>
-                              )}
-                            </div>
-                            <p className="text-xs text-muted-foreground mb-1">
-                              {rank.description}
-                            </p>
-                            <p className="text-xs font-semibold text-muted-foreground">
-                              {rank.minXP.toLocaleString()} - {rank.maxXP === Infinity ? '∞' : rank.maxXP.toLocaleString()} XP
-                            </p>
-                          </div>
-                          {isUnlocked && (
-                            <Award className="w-5 h-5 text-primary flex-shrink-0" strokeWidth={2} />
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
+        ) : (
+          <div className="max-w-5xl mx-auto p-6 space-y-6">
+            {/* Header */}
+            <div>
+              <h1 className="text-3xl font-black mb-2">Rank & Role</h1>
+              <p className="text-muted-foreground">
+                Level up by contributing to the community and earning XP
+              </p>
             </div>
 
-            {/* Roles & XP Guide */}
-            <div className="space-y-6">
-              {/* Special Roles */}
+            {/* Current Rank Card */}
+            {currentRank && (
+              <Card className="overflow-hidden">
+                <CardContent className="p-6">
+                  <div className="flex items-start gap-6">
+                    {/* Rank icon */}
+                    <div
+                      className={`w-24 h-24 rounded-2xl border-4 flex items-center justify-center flex-shrink-0 ${rankClasses(currentRank).bgColor} ${rankClasses(currentRank).borderColor}`}
+                    >
+                      {(() => {
+                        const Icon = getRankIcon(currentRank.iconName);
+                        return (
+                          <Icon
+                            className={`w-12 h-12 ${rankClasses(currentRank).color}`}
+                            strokeWidth={2}
+                          />
+                        );
+                      })()}
+                    </div>
+
+                    <div className="flex-1 space-y-4">
+                      <div>
+                        <div className="flex items-center gap-3 mb-2">
+                          <h2 className="text-2xl font-bold">{currentRank.name}</h2>
+                          <Badge variant="secondary" className="text-sm">
+                            Rank {currentRank.id}
+                          </Badge>
+                        </div>
+                        {currentRank.description && (
+                          <p className="text-muted-foreground">
+                            {currentRank.description}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* XP Progress */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="font-semibold">
+                            {currentXP.toLocaleString()} XP
+                          </span>
+                          {nextRank ? (
+                            <span className="text-muted-foreground">
+                              {nextRank.minXp.toLocaleString()} XP to {nextRank.name}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground font-medium">
+                              Max rank reached 🎉
+                            </span>
+                          )}
+                        </div>
+                        <Progress value={progressToNext} className="h-3" />
+                        {nextRank && (
+                          <p className="text-xs text-muted-foreground">
+                            {(nextRank.minXp - currentXP).toLocaleString()} XP remaining
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* All Ranks */}
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
-                  <Shield className="w-5 h-5 text-primary" strokeWidth={2} />
-                  <h2 className="text-xl font-bold">Special Roles</h2>
+                  <Trophy className="w-5 h-5 text-primary" strokeWidth={2} />
+                  <h2 className="text-xl font-bold">All Ranks</h2>
                 </div>
 
                 <div className="space-y-3">
-                  {roles.map((role) => (
-                    <Card key={role.id} className={role.earned ? '' : 'opacity-60'}>
-                      <CardContent className="p-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h3 className="font-bold text-sm">{role.name}</h3>
-                              {role.earned && (
-                                <Badge variant="default" className="text-[10px] px-1.5 py-0">
-                                  Earned
-                                </Badge>
-                              )}
+                  {allRanks.map((rank) => {
+                    const Icon = getRankIcon(rank.iconName);
+                    const isCurrentRank = rank.id === currentRank?.id;
+                    const isUnlocked = currentXP >= rank.minXp;
+                    const cls = rankClasses(rank);
+
+                    return (
+                      <Card
+                        key={rank.id}
+                        className={`transition-all ${
+                          isCurrentRank
+                            ? "ring-2 ring-primary shadow-lg"
+                            : isUnlocked
+                            ? "opacity-100"
+                            : "opacity-40"
+                        }`}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-center gap-4">
+                            <div
+                              className={`w-14 h-14 rounded-xl border-2 flex items-center justify-center flex-shrink-0 ${cls.bgColor} ${cls.borderColor}`}
+                            >
+                              <Icon
+                                className={`w-7 h-7 ${cls.color}`}
+                                strokeWidth={2}
+                              />
                             </div>
-                            <p className="text-xs text-muted-foreground mb-2">
-                              {role.description}
-                            </p>
-                            <p className="text-xs font-medium text-muted-foreground">
-                              {role.requirement}
-                            </p>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h3 className="font-bold truncate">{rank.name}</h3>
+                                {isCurrentRank && (
+                                  <Badge variant="default" className="text-xs">
+                                    Current
+                                  </Badge>
+                                )}
+                              </div>
+                              {rank.description && (
+                                <p className="text-xs text-muted-foreground mb-1">
+                                  {rank.description}
+                                </p>
+                              )}
+                              <p className="text-xs font-semibold text-muted-foreground">
+                                {rank.minXp.toLocaleString()} –{" "}
+                                {rank.maxXp != null
+                                  ? rank.maxXp.toLocaleString()
+                                  : "∞"}{" "}
+                                XP
+                              </p>
+                            </div>
+                            {isUnlocked && (
+                              <Award
+                                className="w-5 h-5 text-primary flex-shrink-0"
+                                strokeWidth={2}
+                              />
+                            )}
                           </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* XP Guide */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Zap className="w-5 h-5 text-primary" strokeWidth={2} />
-                  <h2 className="text-xl font-bold">Earn XP</h2>
-                </div>
+              {/* Roles & XP Guide */}
+              <div className="space-y-6">
+                {/* Special Roles */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-5 h-5 text-primary" strokeWidth={2} />
+                    <h2 className="text-xl font-bold">Special Roles</h2>
+                  </div>
 
-                <Card>
-                  <CardContent className="p-4">
+                  {earnedRoles.length === 0 ? (
+                    <Card>
+                      <CardContent className="p-6 text-center text-muted-foreground text-sm">
+                        No roles earned yet. Keep contributing to unlock them!
+                      </CardContent>
+                    </Card>
+                  ) : (
                     <div className="space-y-3">
-                      {xpActivities.map((activity, index) => (
-                        <div key={index} className="flex items-center justify-between py-2 border-b last:border-b-0">
-                          <div className="flex items-center gap-3">
-                            <span className="text-xl">{activity.icon}</span>
-                            <span className="text-sm font-medium">{activity.action}</span>
-                          </div>
-                          <Badge variant="secondary" className="text-xs font-bold">
-                            +{activity.xp} XP
-                          </Badge>
-                        </div>
+                      {earnedRoles.map((ur) => (
+                        <Card key={ur.id}>
+                          <CardContent className="p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h3 className="font-bold text-sm">
+                                    {ur.role.emoji ? `${ur.role.emoji} ` : ""}
+                                    {ur.role.name}
+                                  </h3>
+                                  <Badge
+                                    variant="default"
+                                    className="text-[10px] px-1.5 py-0"
+                                  >
+                                    Earned
+                                  </Badge>
+                                </div>
+                                {ur.role.description && (
+                                  <p className="text-xs text-muted-foreground mb-2">
+                                    {ur.role.description}
+                                  </p>
+                                )}
+                                {ur.role.requirement && (
+                                  <p className="text-xs font-medium text-muted-foreground">
+                                    {ur.role.requirement}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
                       ))}
                     </div>
-                  </CardContent>
-                </Card>
+                  )}
+                </div>
+
+                {/* XP Guide */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-5 h-5 text-primary" strokeWidth={2} />
+                    <h2 className="text-xl font-bold">Earn XP</h2>
+                  </div>
+
+                  <Card>
+                    <CardContent className="p-4">
+                      {xpActivities.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                          No XP activities available.
+                        </p>
+                      ) : (
+                        <div className="space-y-3">
+                          {xpActivities.map((activity) => (
+                            <div
+                              key={activity.id}
+                              className="flex items-center justify-between py-2 border-b last:border-b-0"
+                            >
+                              <div className="flex items-center gap-3">
+                                {activity.icon && (
+                                  <span className="text-xl">{activity.icon}</span>
+                                )}
+                                <span className="text-sm font-medium">
+                                  {activity.action}
+                                </span>
+                              </div>
+                              <Badge
+                                variant="secondary"
+                                className="text-xs font-bold"
+                              >
+                                +{activity.xpReward} XP
+                              </Badge>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Right Sidebar */}
-      <RightSidebar 
-        category="rank-role" 
-        className="hidden lg:block sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto" 
+      <RightSidebar
+        category="rank-role"
+        className="hidden lg:block sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto"
       />
     </div>
   );

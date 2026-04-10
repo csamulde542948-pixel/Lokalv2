@@ -2,7 +2,7 @@
 
 :root {
   --font-size: 16px;
-  --font-family: 'JetBrains Mono', monospace;
+  --font-family: 'Emoji Override', 'JetBrains Mono', monospace;
   --background: #f6f8fa;
   --foreground: #24292f;
   --card: #FFFFFF;
