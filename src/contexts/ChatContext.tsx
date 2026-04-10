@@ -9,10 +9,10 @@ import {
 } from "react";
 import { StreamChat, type Channel, type Event } from "stream-chat";
 import { gql } from "@apollo/client/core";
-import { useQuery } from "@apollo/client/react";
+import { useQuery, useMutation } from "@apollo/client/react";
 import { useAuth } from "./AuthContext";
 
-// ─── GQL ─────────────────────────────────────────────────────────────────────
+// ─── GQL ───────────────────────────────────────────────────────────────────
 
 const GET_STREAM_TOKEN = gql`
   query GetStreamToken {
@@ -20,6 +20,12 @@ const GET_STREAM_TOKEN = gql`
       token
       apiKey
     }
+  }
+`;
+
+const START_DM = gql`
+  mutation StartDM($otherUserId: ID!) {
+    startDM(otherUserId: $otherUserId)
   }
 `;
 
@@ -51,6 +57,8 @@ interface ChatContextValue {
   connected: boolean;
   channels: ChannelPreview[];
   totalUnread: number;
+  /** S3 #7: Lazy connect — call this to initialise Stream Chat on-demand */
+  connectChat: () => Promise<void>;
   loadChannels: () => Promise<void>;
   startDM: (otherUserId: string, otherUserName: string, otherUserImage?: string) => Promise<Channel | null>;
   markChannelRead: (channelId: string) => Promise<void>;
@@ -66,14 +74,24 @@ const ChatContext = createContext<ChatContextValue | undefined>(undefined);
 export function ChatProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const clientRef = useRef<StreamChat | null>(null);
+  const connectPromiseRef = useRef<Promise<void> | null>(null);
+  const tokenDataRef = useRef<StreamTokenData | undefined>(undefined);
+  const connectedUserIdRef = useRef<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [channels, setChannels] = useState<ChannelPreview[]>([]);
   const [totalUnread, setTotalUnread] = useState(0);
 
-  const { data: tokenData } = useQuery<StreamTokenData>(GET_STREAM_TOKEN, {
-    skip: !user,
+  const { data: tokenData, error: tokenError } = useQuery<StreamTokenData>(GET_STREAM_TOKEN, {
+    skip: !user?.id,
     fetchPolicy: "network-only",
   });
+
+  // Keep ref in sync with latest tokenData
+  useEffect(() => {
+    tokenDataRef.current = tokenData;
+  }, [tokenData]);
+
+  const [startDMMutation] = useMutation<{ startDM: string }>(START_DM);
 
   // ── Build ChannelPreview from a Channel object ────────────────────────────
   const buildPreview = useCallback(
@@ -131,25 +149,46 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [user, buildPreview]);
 
   // ── Connect to Stream Chat ────────────────────────────────────────────────
-  useEffect(() => {
-    if (!user || !tokenData?.streamToken) return;
+  const connectChat = useCallback(async () => {
+    if (!user) return;
+    const tokenInfo = tokenDataRef.current?.streamToken;
+    if (!tokenInfo) {
+      console.log("[Chat] connectChat: no token yet");
+      return;
+    }
 
-    const { token, apiKey } = tokenData.streamToken;
+    // Already connected as this user — nothing to do
+    if (connectedUserIdRef.current === user.id && clientRef.current?.userID === user.id) {
+      if (!connected) setConnected(true);
+      return;
+    }
 
-    const connect = async () => {
+    // Reuse the in-flight promise if one exists
+    if (connectPromiseRef.current) {
+      return connectPromiseRef.current;
+    }
+
+    const doConnect = async () => {
       try {
-        // Reuse existing client or create new one
-        if (!clientRef.current) {
-          clientRef.current = StreamChat.getInstance(apiKey);
+        // Always tear down any existing client first to avoid "No Listener" on the singleton
+        if (clientRef.current) {
+          try { await clientRef.current.disconnectUser(); } catch (_) {}
+          clientRef.current = null;
+          connectedUserIdRef.current = null;
         }
-        const client = clientRef.current;
 
-        // Already connected as this user
-        if (client.userID === user.id) {
-          setConnected(true);
-          await loadChannels();
+        // Prefer the API key returned by the backend (it's a public Stream key, safe to
+        // transmit to authenticated clients). Fall back to the optional env var for
+        // local-dev overrides.
+        const streamApiKey =
+          tokenInfo.apiKey ||
+          import.meta.env.VITE_GETSTREAM_API_KEY;
+        if (!streamApiKey) {
+          console.error("[Chat] Stream Chat API key not available — set GETSTREAM_API_KEY on the backend or VITE_GETSTREAM_API_KEY in the frontend env");
           return;
         }
+        const client = new StreamChat(streamApiKey, undefined, { enableWSFallback: true });
+        clientRef.current = client;
 
         const displayName =
           user.user_metadata?.full_name ??
@@ -157,28 +196,45 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           user.email?.split("@")[0] ??
           "User";
 
-        await client.connectUser(
+        console.log("[Chat] calling connectUser for", user.id);
+        const res = await client.connectUser(
           {
             id: user.id,
             name: displayName,
             image: user.user_metadata?.avatar_url ?? undefined,
           },
-          token
+          tokenInfo.token
         );
-
+        console.log("[Chat] connected as:", res?.me?.id);
+        connectedUserIdRef.current = user.id;
         setConnected(true);
         await loadChannels();
-      } catch (err) {
-        console.error("[Chat] connect error:", err);
+      } catch (err: any) {
+        console.error("[Chat] connectUser failed:", err?.message, err?.code, err?.status);
+        clientRef.current = null;
+        connectedUserIdRef.current = null;
+      } finally {
+        connectPromiseRef.current = null;
       }
     };
 
-    connect();
+    connectPromiseRef.current = doConnect();
+    return connectPromiseRef.current;
+  // deliberately exclude `connected` — we check refs directly
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, loadChannels]);
 
-    return () => {
-      // Don't disconnect on every re-render — only when user changes
-    };
-  }, [user?.id, tokenData]);
+  // ── Auto-connect as soon as token is available ──────────────────────────────
+  useEffect(() => {
+    if (tokenError) {
+      console.error("[Chat] streamToken query error:", tokenError.message);
+      return;
+    }
+    console.log("[Chat] tokenData changed:", tokenData?.streamToken?.apiKey, "user:", user?.id);
+    if (tokenData?.streamToken && user?.id) {
+      connectChat();
+    }
+  }, [tokenData?.streamToken?.token, connectChat, user?.id, tokenError]);
 
   // ── Disconnect when user logs out ─────────────────────────────────────────
   useEffect(() => {
@@ -192,45 +248,119 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   }, [user]);
 
-  // ── Real-time channel list updates ───────────────────────────────────────
+  // ── S4 #10: Smart real-time channel list updates (no full re-fetch) ────────
   useEffect(() => {
     const client = clientRef.current;
     if (!client || !connected) return;
 
-    const refresh = () => loadChannels();
+    // Helper: update a single channel preview in local state
+    const updateChannel = (channelOrCid: Channel | string) => {
+      const cid = typeof channelOrCid === "string" ? channelOrCid : channelOrCid.cid;
+      setChannels((prev) => {
+        const idx = prev.findIndex((p) => p.channel.cid === cid);
+        if (idx === -1) return prev; // unknown channel — do a full reload
+        const updated = [...prev];
+        updated[idx] = buildPreview(prev[idx].channel);
+        // Re-sort by latest message time
+        updated.sort((a, b) => {
+          const ta = a.lastMessageAt?.getTime() ?? 0;
+          const tb = b.lastMessageAt?.getTime() ?? 0;
+          return tb - ta;
+        });
+        return updated;
+      });
+    };
 
-    client.on("message.new", refresh);
-    client.on("channel.updated", refresh);
-    client.on("notification.message_new", refresh);
-    client.on("notification.added_to_channel", refresh);
-    client.on("message.read", refresh);
+    const onMessageNew = (event: Event) => {
+      if (event.cid) {
+        updateChannel(event.cid);
+        // Update total unread
+        setTotalUnread((prev) => prev + 1);
+      }
+    };
+
+    const onMessageRead = (event: Event) => {
+      if (event.cid) {
+        updateChannel(event.cid);
+        // Recalculate total unread from all channels
+        setChannels((prev) => {
+          const total = prev.reduce((sum, p) => sum + p.channel.countUnread(), 0);
+          setTotalUnread(total);
+          return prev;
+        });
+      }
+    };
+
+    const onChannelUpdated = (event: Event) => {
+      if (event.cid) updateChannel(event.cid);
+    };
+
+    // Only do a full reload for truly new channels (added to)
+    const onAddedToChannel = () => loadChannels();
+
+    client.on("message.new", onMessageNew);
+    client.on("message.read", onMessageRead);
+    client.on("channel.updated", onChannelUpdated);
+    client.on("notification.message_new", onMessageNew);
+    client.on("notification.added_to_channel", onAddedToChannel);
 
     return () => {
-      client.off("message.new", refresh);
-      client.off("channel.updated", refresh);
-      client.off("notification.message_new", refresh);
-      client.off("notification.added_to_channel", refresh);
-      client.off("message.read", refresh);
+      client.off("message.new", onMessageNew);
+      client.off("message.read", onMessageRead);
+      client.off("channel.updated", onChannelUpdated);
+      client.off("notification.message_new", onMessageNew);
+      client.off("notification.added_to_channel", onAddedToChannel);
     };
-  }, [connected, loadChannels]);
+  }, [connected, loadChannels, buildPreview]);
 
   // ── Start or resume a DM channel ─────────────────────────────────────────
   const startDM = useCallback(
     async (otherUserId: string, otherUserName: string, otherUserImage?: string): Promise<Channel | null> => {
+      if (!user) return null;
+
+      // Wait up to 8s for the token to arrive
+      if (!tokenDataRef.current?.streamToken) {
+        console.log("[Chat] startDM: waiting for token...");
+        await new Promise<void>((resolve) => {
+          const start = Date.now();
+          const check = () => {
+            if (tokenDataRef.current?.streamToken || Date.now() - start > 8000) resolve();
+            else setTimeout(check, 150);
+          };
+          check();
+        });
+      }
+
+      // Trigger connect (or reuse in-flight promise)
+      const p = connectPromiseRef.current ?? connectChat();
+      if (p) await p;
+
+      // Wait up to 8s for clientRef.current?.userID to be set
+      if (!clientRef.current?.userID) {
+        await new Promise<void>((resolve) => {
+          const start = Date.now();
+          const check = () => {
+            if (clientRef.current?.userID || Date.now() - start > 8000) resolve();
+            else setTimeout(check, 150);
+          };
+          check();
+        });
+      }
+
       const client = clientRef.current;
-      if (!client || !user) return null;
+      if (!client?.userID) {
+        console.error("[Chat] startDM: still not connected after await. Token:", !!tokenDataRef.current?.streamToken);
+        return null;
+      }
 
       try {
-        // Upsert the other user in Stream so they can be added as a member
-        await client.upsertUser({
-          id: otherUserId,
-          name: otherUserName,
-          ...(otherUserImage ? { image: otherUserImage } : {}),
-        });
+        // Create the channel server-side first (upserts both users in Stream Chat)
+        const { data } = await startDMMutation({ variables: { otherUserId } });
+        if (!data?.startDM) throw new Error("startDM mutation returned no cid");
 
-        const channel = client.channel("messaging", {
-          members: [user.id, otherUserId],
-        });
+        // cid is "messaging:dm-xxx" — extract just the channel ID after the colon
+        const channelId = data.startDM.includes(":") ? data.startDM.split(":")[1] : data.startDM;
+        const channel = client.channel("messaging", channelId);
         await channel.watch({ presence: true });
         await loadChannels();
         return channel;
@@ -239,7 +369,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         return null;
       }
     },
-    [user, loadChannels]
+    [user, connectChat, startDMMutation, loadChannels]
   );
 
   // ── Mark a channel as read ────────────────────────────────────────────────
@@ -266,6 +396,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         connected,
         channels,
         totalUnread,
+        connectChat,
         loadChannels,
         startDM,
         markChannelRead,

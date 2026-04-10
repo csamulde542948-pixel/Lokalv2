@@ -1,5 +1,7 @@
 import { GraphQLContext } from "../context";
 import { awardXp } from "../../services/xp";
+import { createNotification } from "../../lib/notifications";
+import { isValidEmail } from "../../middleware/security";
 
 export const launchpadResolvers = {
   Query: {
@@ -13,6 +15,7 @@ export const launchpadResolvers = {
       }: { limit?: number; offset?: number; type?: string; search?: string },
       { prisma }: GraphQLContext
     ) => {
+      const safeLimit = Math.min(limit, 50);
       const where: any = {};
       if (type) where.type = type;
       if (search) {
@@ -22,26 +25,18 @@ export const launchpadResolvers = {
         ];
       }
 
-      const [total, launchpadEvents] = await Promise.all([
-        prisma.launchpadEvent.count({ where }),
-        prisma.launchpadEvent.findMany({
-          where,
-          orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
-          take: limit + 1,
-          skip: offset,
-          include: {
-            creator: { include: { rank: true } },
-            tags: { include: { tag: true } },
-          },
-        }),
-      ]);
+      const events = await prisma.launchpadEvent.findMany({
+        where,
+        orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
+        take: safeLimit,
+        skip: offset,
+        include: {
+          creator: { include: { rank: true } },
+          tags: { include: { tag: true } },
+        },
+      });
 
-      return {
-        launchpadEvents: launchpadEvents.slice(0, limit),
-        hasMore: launchpadEvents.length > limit,
-        nextOffset: offset + limit,
-        total,
-      };
+      return events;
     },
 
     launchpadEvent: async (
@@ -55,6 +50,87 @@ export const launchpadResolvers = {
           creator: { include: { rank: true } },
           tags: { include: { tag: true } },
         },
+      });
+    },
+
+    myLaunchpadEvents: async (
+      _: unknown,
+      __: unknown,
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+      return prisma.launchpadEvent.findMany({
+        where: { creatorId: user.id },
+        orderBy: { createdAt: "desc" },
+        include: {
+          creator: { include: { rank: true } },
+          tags: { include: { tag: true } },
+        },
+      });
+    },
+
+    launchpadEventParticipants: async (
+      _: unknown,
+      { eventId }: { eventId: string },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+      const event = await prisma.launchpadEvent.findUnique({ where: { id: eventId } });
+      if (!event) throw new Error("Event not found");
+      if (event.creatorId !== user.id) throw new Error("Forbidden");
+
+      return prisma.launchpadInterest.findMany({
+        where: { launchpadEventId: eventId },
+        orderBy: { createdAt: "desc" },
+        include: { profile: { include: { rank: true } } },
+      });
+    },
+
+    launchpadEventStats: async (
+      _: unknown,
+      { eventId }: { eventId: string },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+      const event = await prisma.launchpadEvent.findUnique({ where: { id: eventId } });
+      if (!event) throw new Error("Event not found");
+      if (event.creatorId !== user.id) throw new Error("Forbidden");
+
+      const interests = await prisma.launchpadInterest.findMany({
+        where: { launchpadEventId: eventId },
+        select: { createdAt: true },
+        orderBy: { createdAt: "asc" },
+      });
+
+      const totalJoined = interests.length;
+      const spotsTotal = event.spotsTotal ?? null;
+      const fillRate = spotsTotal && spotsTotal > 0 ? (totalJoined / spotsTotal) * 100 : 0;
+
+      // Group by day (last 14 days)
+      const dayCounts: Record<string, number> = {};
+      for (const i of interests) {
+        const day = i.createdAt.toISOString().slice(0, 10);
+        dayCounts[day] = (dayCounts[day] ?? 0) + 1;
+      }
+      const joinsByDay = Object.entries(dayCounts).map(([date, count]) => ({ date, count }));
+
+      return { totalJoined, spotsTotal, fillRate, joinsByDay };
+    },
+
+    launchpadAnnouncements: async (
+      _: unknown,
+      { eventId }: { eventId: string },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+      const event = await prisma.launchpadEvent.findUnique({ where: { id: eventId } });
+      if (!event) throw new Error("Event not found");
+      if (event.creatorId !== user.id) throw new Error("Forbidden");
+
+      return prisma.launchpadAnnouncement.findMany({
+        where: { launchpadEventId: eventId },
+        orderBy: { createdAt: "desc" },
+        include: { creator: { include: { rank: true } } },
       });
     },
   },
@@ -74,17 +150,29 @@ export const launchpadResolvers = {
         )
       );
 
+      const eventType = (input.eventType ?? input.type ?? "LAUNCH") as string;
+      const shortDesc = (input.description ?? input.shortDesc ?? "").trim();
+      const deadlineRaw = input.deadline ?? input.launchDate;
+
       const launchpadEvent = await prisma.launchpadEvent.create({
         data: {
           creatorId: user.id,
-          title: input.title,
-          type: input.type,
-          coverImageUrl: input.coverImageUrl,
-          shortDesc: input.shortDesc,
-          fullDesc: input.fullDesc,
-          targetUrl: input.targetUrl,
-          launchDate: input.launchDate ? new Date(input.launchDate) : null,
+          title: String(input.title ?? ""),
+          type: eventType as any,
+          shortDesc: shortDesc || "No description provided.",
+          ...(input.fullDesc != null ? { fullDesc: input.fullDesc } : {}),
+          ...(input.coverImageUrl != null ? { coverImageUrl: input.coverImageUrl } : {}),
+          ...(input.link ?? input.targetUrl ? { targetUrl: input.link ?? input.targetUrl } : {}),
+          ...(deadlineRaw ? { launchDate: new Date(deadlineRaw) } : {}),
           isFeatured: input.isFeatured ?? false,
+          // Project branding — stored to DB so they survive restarts
+          projectName: input.projectName ?? null,
+          iconUrl: input.iconUrl ?? null,
+          screenshotUrl: input.screenshotUrl ?? null,
+          spotsTotal: input.spotsTotal ?? null,
+          projectTagline: input.projectTagline ?? null,
+          projectCategory: input.projectCategory ?? null,
+          projectStatus: input.projectStatus ?? null,
           tags: { create: tagRecords.map((t: any) => ({ tagId: t.id })) },
         },
         include: {
@@ -106,9 +194,18 @@ export const launchpadResolvers = {
       if (!user) throw new Error("Unauthorized");
       const event = await prisma.launchpadEvent.findUnique({ where: { id } });
       if (event?.creatorId !== user.id) throw new Error("Forbidden");
+
+      const data: any = { updatedAt: new Date() };
+      if (input.title != null) data.title = input.title;
+      if (input.description != null) data.shortDesc = input.description;
+      if (input.deadline !== undefined) data.launchDate = input.deadline ? new Date(input.deadline) : null;
+      if (input.link !== undefined) data.targetUrl = input.link ?? null;
+      if (input.spotsTotal !== undefined) data.spotsTotal = input.spotsTotal ?? null;
+      if (input.isOpen !== undefined) data.isOpen = input.isOpen;
+
       return prisma.launchpadEvent.update({
         where: { id },
-        data: { ...input, updatedAt: new Date() },
+        data,
         include: {
           creator: { include: { rank: true } },
           tags: { include: { tag: true } },
@@ -128,12 +225,57 @@ export const launchpadResolvers = {
       return true;
     },
 
-    markInterested: async (
+    createLaunchpadAnnouncement: async (
       _: unknown,
-      { launchpadEventId }: { launchpadEventId: string },
+      { eventId, message }: { eventId: string; message: string },
       { user, prisma }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
+      const event = await prisma.launchpadEvent.findUnique({
+        where: { id: eventId },
+        include: { interests: { include: { profile: true } } },
+      });
+      if (!event) throw new Error("Event not found");
+      if (event.creatorId !== user.id) throw new Error("Forbidden");
+
+      const announcement = await prisma.launchpadAnnouncement.create({
+        data: { launchpadEventId: eventId, creatorId: user.id, message: message.trim() },
+        include: { creator: { include: { rank: true } } },
+      });
+
+      // Medium #18: Use createNotification() for each participant so that
+      // unreadNotificationsCount is incremented atomically for every recipient.
+      // We batch them in a single Promise.allSettled so one failure doesn't
+      // block the others, and we fire-and-forget the whole batch.
+      const participantIds = event.interests.map((i: any) => i.profileId).filter((id: string) => id !== user.id);
+      if (participantIds.length > 0) {
+        Promise.allSettled(
+          participantIds.map((recipientId: string) =>
+            createNotification(prisma, {
+              recipientId,
+              actorId: user.id,
+              type: "LAUNCHPAD_INTEREST" as any,
+              entityId: eventId,
+              message: `📢 New announcement in "${event.title}": ${message.slice(0, 100)}${message.length > 100 ? "…" : ""}`,
+            })
+          )
+        ).catch(console.error);
+      }
+
+      return announcement;
+    },
+
+    markInterested: async (
+      _: unknown,
+      { launchpadEventId, commitmentEmail, commitmentNote }: { launchpadEventId: string; commitmentEmail?: string; commitmentNote?: string },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+
+      // HIGH-05: Validate optional email before storing
+      if (commitmentEmail && !isValidEmail(commitmentEmail)) {
+        throw new Error("Invalid email address");
+      }
 
       await prisma.launchpadInterest.upsert({
         where: {
@@ -142,8 +284,16 @@ export const launchpadResolvers = {
             profileId: user.id,
           },
         },
-        create: { launchpadEventId, profileId: user.id },
-        update: {},
+        create: {
+          launchpadEventId,
+          profileId: user.id,
+          commitmentEmail: commitmentEmail ?? null,
+          commitmentNote: commitmentNote ?? null,
+        },
+        update: {
+          ...(commitmentEmail ? { commitmentEmail } : {}),
+          ...(commitmentNote ? { commitmentNote } : {}),
+        },
       });
 
       const updated = await prisma.launchpadEvent.update({
@@ -181,6 +331,35 @@ export const launchpadResolvers = {
   },
 
   LaunchpadEvent: {
+    // Map DB "creator" → GQL "author"
+    author: (parent: any) => parent.creator,
+
+    // Map DB "type" → GQL "eventType"
+    eventType: (parent: any) => parent.type,
+
+    // Map DB "shortDesc" → GQL "description"
+    description: (parent: any) => parent.shortDesc ?? "",
+
+    // Map DB "launchDate" → GQL "deadline"
+    deadline: (parent: any) => parent.launchDate ?? null,
+
+    // Map DB "targetUrl" → GQL "link"
+    link: (parent: any) => parent.targetUrl ?? null,
+
+    // isOpen: direct DB column
+    isOpen: (parent: any) => parent.isOpen ?? true,
+
+    // projectName: stored in DB; fall back to title if old record
+    projectName: (parent: any) => parent.projectName ?? parent.title ?? "",
+
+    // iconUrl, screenshotUrl, spotsTotal: now real DB columns
+    iconUrl: (parent: any) => parent.iconUrl ?? null,
+    screenshotUrl: (parent: any) => parent.screenshotUrl ?? null,
+    spotsTotal: (parent: any) => parent.spotsTotal ?? null,
+    projectTagline: (parent: any) => parent.projectTagline ?? null,
+    projectCategory: (parent: any) => parent.projectCategory ?? null,
+    projectStatus: (parent: any) => parent.projectStatus ?? null,
+
     tags: async (parent: { id: string }, _: unknown, { prisma }: GraphQLContext) => {
       const lt = await prisma.launchpadTag.findMany({
         where: { launchpadEventId: parent.id },
@@ -205,5 +384,19 @@ export const launchpadResolvers = {
       });
       return !!interest;
     },
+  },
+
+  // Field resolvers for LaunchpadParticipant
+  LaunchpadParticipant: {
+    // DB column is createdAt; GQL field is joinedAt
+    joinedAt: (parent: any) => parent.createdAt,
+    profile: (parent: any) => parent.profile,
+    commitmentEmail: (parent: any) => parent.commitmentEmail ?? null,
+    commitmentNote: (parent: any) => parent.commitmentNote ?? null,
+  },
+
+  // Field resolvers for LaunchpadAnnouncement
+  LaunchpadAnnouncement: {
+    creator: (parent: any) => parent.creator,
   },
 };

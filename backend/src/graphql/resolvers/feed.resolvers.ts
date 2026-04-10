@@ -1,5 +1,7 @@
 import { GraphQLContext } from "../context";
 import { addActivityToFeed, getRawFeed } from "../../lib/stream";
+import { createNotification } from "../../lib/notifications";
+import { sanitizeInput } from "../../middleware/security";
 import {
   rankPosts,
   applyDiversityPass,
@@ -13,6 +15,33 @@ import {
   DEFAULT_WEIGHTS,
 } from "../../services/feedRanking";
 import { awardXp } from "../../services/xp";
+
+// ─────────────────────────────────────────────────────────────
+// Cursor Helpers — Relay-style opaque cursor encoding
+// ─────────────────────────────────────────────────────────────
+
+interface CursorPayload {
+  score: number;
+  createdAt: string; // ISO 8601
+  id: string;
+}
+
+function encodeCursor(payload: CursorPayload): string {
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
+
+function decodeCursor(cursor: string): CursorPayload | null {
+  try {
+    const json = Buffer.from(cursor, "base64url").toString("utf8");
+    const parsed = JSON.parse(json);
+    if (typeof parsed.score === "number" && parsed.createdAt && parsed.id) {
+      return parsed as CursorPayload;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 export const feedResolvers = {
   Query: {
@@ -29,12 +58,26 @@ export const feedResolvers = {
      */
     feed: async (
       _: unknown,
-      { limit = 20, offset = 0, seenIds = [], feedVariant, sessionId: incomingSessionId }: { limit?: number; offset?: number; seenIds?: string[]; feedVariant?: string; sessionId?: string },
+      {
+        first, after, limit = 20, offset = 0, seenIds = [], feedVariant, sessionId: incomingSessionId,
+      }: {
+        first?: number; after?: string;
+        limit?: number; offset?: number; seenIds?: string[];
+        feedVariant?: string; sessionId?: string;
+      },
       { user, prisma }: GraphQLContext
     ) => {
+      // Normalize: prefer Relay-style `first`/`after`, fall back to legacy `limit`/`offset`
+      const requestedLimit = first ?? limit;
+      // Server-side limit cap — prevent abuse
+      const safeLimit = Math.min(requestedLimit, 50);
+
+      // Decode cursor if provided
+      const cursorPayload = after ? decodeCursor(after) : null;
+
       // Unauthenticated users get the explore feed
       if (!user) {
-        return exploreFeed(limit, offset, prisma);
+        return exploreFeedAsConnection(safeLimit, offset, prisma);
       }
 
       // Load configurable weights from DB (cached 60s)
@@ -65,7 +108,7 @@ export const feedResolvers = {
             sessionCtr = existingSession.ctr;
             await prisma.feedSession.update({
               where: { id: existingSession.id },
-              data: { postsShown: { increment: limit } },
+              data: { postsShown: { increment: safeLimit } },
             }).catch(console.error);
           } else {
             sessionId = null; // invalid session, fall through to create/find
@@ -87,14 +130,14 @@ export const feedResolvers = {
             sessionCtr = activeSession.ctr;
             await prisma.feedSession.update({
               where: { id: activeSession.id },
-              data: { postsShown: { increment: limit } },
+              data: { postsShown: { increment: safeLimit } },
             }).catch(console.error);
           } else {
             const newSession = await prisma.feedSession.create({
               data: {
                 userId: user.id,
                 feedVariant: resolvedVariant,
-                postsShown: limit,
+                postsShown: safeLimit,
               },
             });
             sessionId = newSession.id;
@@ -106,7 +149,18 @@ export const feedResolvers = {
       }
 
       // 1. Get raw activities from GetStream
-      const rawActivities = await getRawFeed(user.id, limit + 10, offset);
+      //    Wrapped in try/catch — if GetStream isn't fully configured (missing token,
+      //    client-side mode) we fall through gracefully to the explore feed.
+      let rawActivities: any[] = [];
+      try {
+        rawActivities = await getRawFeed(user.id, safeLimit + 10, offset);
+      } catch (streamErr: any) {
+        // Timeline feed group may not exist — silently fall back to explore feed
+        if (!streamErr?.message?.includes("does not exist")) {
+          console.warn("[feed] GetStream unavailable, falling back to explore feed:", streamErr?.message);
+        }
+        return exploreFeedAsConnection(safeLimit, offset, prisma);
+      }
 
       // Extract post IDs from activities (format: "post:abc123")
       const postIds = rawActivities
@@ -140,7 +194,7 @@ export const feedResolvers = {
       }
 
       if (freshPostIds.length === 0) {
-        return exploreFeed(limit, offset, prisma);
+        return exploreFeed(safeLimit, offset, prisma);
       }
 
       // 2. Fetch full post data + signals in parallel
@@ -191,7 +245,7 @@ export const feedResolvers = {
               SELECT p.id AS post_id,
                      1 - (p."contentEmbedding" <=> prof."interestEmbedding") AS similarity
               FROM posts p, profiles prof
-              WHERE prof.id = $1
+              WHERE prof.id = $1::uuid
                 AND prof."interestEmbedding" IS NOT NULL
                 AND p."contentEmbedding" IS NOT NULL
                 AND p.id = ANY($2::text[])
@@ -415,9 +469,37 @@ export const feedResolvers = {
         allPostsMap.set(sig.postId, (sig as any).post);
       }
 
-      const finalPosts = diversified.slice(0, limit);
+      // ── Cursor-based filtering ──
+      // If a cursor was provided, skip all items up to and including the cursor position.
+      // Posts are sorted by finalScore desc, then createdAt desc, then id desc.
+      let sliceStart = diversified;
+      if (cursorPayload) {
+        const idx = diversified.findIndex((s) => s.postId === cursorPayload.id);
+        if (idx !== -1) {
+          sliceStart = diversified.slice(idx + 1);
+        } else {
+          // Cursor post not in current set — fall back to score comparison
+          sliceStart = diversified.filter((s) => {
+            const score = s._breakdown.finalScore;
+            if (score < cursorPayload.score) return true;
+            if (score === cursorPayload.score) {
+              const postObj = allPostsMap.get(s.postId);
+              const createdAt = postObj ? new Date(postObj.createdAt).toISOString() : '';
+              if (createdAt < cursorPayload.createdAt) return true;
+              if (createdAt === cursorPayload.createdAt && s.postId < cursorPayload.id) return true;
+            }
+            return false;
+          });
+        }
+      }
+
+      const hasNextPage = sliceStart.length > safeLimit;
+      const finalPosts = sliceStart.slice(0, safeLimit);
 
       // 7. Log FeedScoreLog — full breakdown for every post shown (fire-and-forget)
+      // NOTE: allPostsMap entries have author.displayName / author.username / author.name.
+      //       The GraphQL Post.author resolver (below) should prefer displayName ?? username ?? name
+      //       so emails stored in `name` are never surfaced to the client.
       logFeedScoreLogs(
         prisma,
         user.id,
@@ -453,8 +535,20 @@ export const feedResolvers = {
 
       return {
         posts: rankedPosts,
-        hasMore: diversified.length > limit,
-        nextOffset: offset + limit,
+        pageInfo: {
+          hasNextPage,
+          endCursor: rankedPosts.length > 0
+            ? encodeCursor({
+                score: finalPosts[finalPosts.length - 1]._breakdown.finalScore,
+                createdAt: (rankedPosts[rankedPosts.length - 1] as any).createdAt
+                  ? new Date((rankedPosts[rankedPosts.length - 1] as any).createdAt).toISOString()
+                  : new Date().toISOString(),
+                id: (rankedPosts[rankedPosts.length - 1] as any).id,
+              })
+            : null,
+        },
+        hasMore: hasNextPage,
+        nextOffset: offset + safeLimit,
         feedVariant: resolvedVariant,
         sessionId,
       };
@@ -468,7 +562,7 @@ export const feedResolvers = {
       { limit = 20, offset = 0 }: { limit?: number; offset?: number },
       { prisma }: GraphQLContext
     ) => {
-      return exploreFeed(limit, offset, prisma);
+      return exploreFeed(Math.min(limit, 50), offset, prisma);
     },
 
     /**
@@ -481,8 +575,12 @@ export const feedResolvers = {
       { user, prisma }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
+      // CRIT-03: Admin-only — internal A/B test metrics must not be public
+      await assertAdminRole(prisma, user.id);
 
-      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      // Cap to prevent full table scan on feed_sessions / feed_score_logs
+      const safeDays = Math.min(days, 90);
+      const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000);
 
       try {
         // Session-level aggregations grouped by feed variant
@@ -546,7 +644,7 @@ export const feedResolvers = {
           totalEngagements: (rankedStats?.totalEngagements ?? 0) + (chronStats?.totalEngagements ?? 0),
           totalSessions: (rankedStats?.totalSessions ?? 0) + (chronStats?.totalSessions ?? 0),
           diversityScore,
-          days,
+          days: safeDays,
         };
       } catch (err) {
         console.error("[feedMetrics] error:", err);
@@ -555,7 +653,7 @@ export const feedResolvers = {
           rankedAvgDwell: 0, chronologicalAvgDwell: 0,
           rankedEngagementRate: 0, chronologicalEngagementRate: 0,
           totalImpressions: 0, totalEngagements: 0, totalSessions: 0,
-          diversityScore: 0, days,
+          diversityScore: 0, days: safeDays,
         };
       }
     },
@@ -574,6 +672,37 @@ export const feedResolvers = {
       });
     },
 
+    /**
+     * On-demand lazy loading of comment replies.
+     * Called when the user clicks "View X replies" on a comment.
+     */
+    commentReplies: async (
+      _: unknown,
+      { commentId, limit = 20, offset = 0 }: { commentId: string; limit?: number; offset?: number },
+      { prisma }: GraphQLContext
+    ) => {
+      const safeLimit = Math.min(limit, 30);
+      return prisma.postComment.findMany({
+        where: { parentId: commentId },
+        orderBy: { createdAt: "asc" },
+        take: safeLimit,
+        skip: offset,
+        include: {
+          author: { include: { rank: true } },
+          editHistory: { orderBy: { editedAt: "desc" } },
+          _count: { select: { replies: true } },
+          replies: {
+            orderBy: { createdAt: "asc" },
+            include: {
+              author: { include: { rank: true } },
+              editHistory: { orderBy: { editedAt: "desc" } },
+              _count: { select: { replies: true } },
+            },
+          },
+        },
+      });
+    },
+
     userPosts: async (
       _: unknown,
       {
@@ -583,22 +712,25 @@ export const feedResolvers = {
       }: { userId: string; limit?: number; offset?: number },
       { prisma }: GraphQLContext
     ) => {
+      const safeLimit = Math.min(limit, 50);
+      // HIGH-04: Cap offset to prevent full-table Postgres scan
+      const safeOffset = Math.min(offset, 10_000);
       const posts = await prisma.post.findMany({
         where: { authorId: userId },
         orderBy: { createdAt: "desc" },
-        take: limit + 1,
-        skip: offset,
+        take: safeLimit + 1,
+        skip: safeOffset,
         include: {
           author: { include: { rank: true } },
           tags: { include: { tag: true } },
         },
       });
 
-      const hasMore = posts.length > limit;
+      const hasMore = posts.length > safeLimit;
       return {
-        posts: posts.slice(0, limit),
+        posts: posts.slice(0, safeLimit),
         hasMore,
-        nextOffset: offset + limit,
+        nextOffset: offset + safeLimit,
       };
     },
   },
@@ -610,6 +742,16 @@ export const feedResolvers = {
       { user, prisma }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
+
+      // Medium #13: Input length limits
+      if (!input.content?.trim()) throw new Error("Post content cannot be empty");
+      if (input.content.length > 5000) throw new Error("Post content must be 5 000 characters or fewer");
+      if (input.projectName && input.projectName.length > 120) throw new Error("Project name must be 120 characters or fewer");
+      if (Array.isArray(input.tags) && input.tags.length > 10) throw new Error("A post can have at most 10 tags");
+
+      // Medium #21: Strip HTML tags from user-provided text fields
+      const safeContent = sanitizeInput(input.content);
+      const safeProjectName = input.projectName ? sanitizeInput(input.projectName) : input.projectName;
 
       // Create post + connect tags in a transaction
       const post = await prisma.$transaction(async (tx: any) => {
@@ -629,10 +771,10 @@ export const feedResolvers = {
         return tx.post.create({
           data: {
             authorId: user.id,
-            content: input.content,
+            content: safeContent,
             imageUrl: input.imageUrl ?? input.imageUrls?.[0],
             imageUrls: input.imageUrls ?? (input.imageUrl ? [input.imageUrl] : []),
-            projectName: input.projectName,
+            projectName: safeProjectName,
             projectId: input.projectId,
             tags: {
               create: tagRecords.map((tag) => ({ tagId: tag.id })),
@@ -672,7 +814,9 @@ export const feedResolvers = {
     ) => {
       if (!user) throw new Error("Unauthorized");
       const post = await prisma.post.findUnique({ where: { id } });
-      if (post?.authorId !== user.id) throw new Error("Forbidden");
+      // HIGH-06: Return correct error — null post must be Not found, not Forbidden
+      if (!post) throw new Error("Not found");
+      if (post.authorId !== user.id) throw new Error("Forbidden");
       await prisma.post.delete({ where: { id } });
       return true;
     },
@@ -727,13 +871,11 @@ export const feedResolvers = {
 
       // Notify post author
       if (post.authorId !== user.id) {
-        prisma.notification.create({
-          data: {
-            recipientId: post.authorId,
-            actorId: user.id,
-            type: "LIKE",
-            postId: postId,
-          },
+        createNotification(prisma, {
+          recipientId: post.authorId,
+          actorId: user.id,
+          type: "LIKE",
+          postId: postId,
         }).catch(console.error);
       }
 
@@ -824,13 +966,11 @@ export const feedResolvers = {
 
       // Notify root original author (not for self-shares)
       if (rootOriginal.authorId !== user.id) {
-        prisma.notification.create({
-          data: {
-            recipientId: rootOriginal.authorId,
-            actorId: user.id,
-            type: "SHARE",   // P2 #12: proper POST_SHARE notification type
-            postId: rootOriginalId,
-          },
+        createNotification(prisma, {
+          recipientId: rootOriginal.authorId,
+          actorId: user.id,
+          type: "SHARE",
+          postId: rootOriginalId,
         }).catch(console.error);
       }
 
@@ -856,11 +996,19 @@ export const feedResolvers = {
     ) => {
       if (!user) throw new Error("Unauthorized");
 
+      // Medium #13: Input length limits
+      if (!input.content?.trim()) throw new Error("Comment cannot be empty");
+      if (input.content.length > 2000) throw new Error("Comment must be 2 000 characters or fewer");
+      if (Array.isArray(input.mentions) && input.mentions.length > 20) throw new Error("Cannot mention more than 20 users");
+
+      // Medium #21: Strip HTML tags
+      const safeContent = sanitizeInput(input.content);
+
       const comment = await prisma.postComment.create({
         data: {
           postId: input.postId,
           authorId: user.id,
-          content: input.content,
+          content: safeContent,
           parentId: null,
           mentions: input.mentions ?? [],
         },
@@ -895,26 +1043,22 @@ export const feedResolvers = {
 
       // Notify
       if (comment.post.authorId !== user.id) {
-        prisma.notification.create({
-          data: {
-            recipientId: comment.post.authorId,
-            actorId: user.id,
-            type: "COMMENT",
-            postId: input.postId,
-          },
+        createNotification(prisma, {
+          recipientId: comment.post.authorId,
+          actorId: user.id,
+          type: "COMMENT",
+          postId: input.postId,
         }).catch(console.error);
       }
 
       // Notify mentioned users
       for (const mentionedId of input.mentions ?? []) {
         if (mentionedId !== user.id) {
-          prisma.notification.create({
-            data: {
-              recipientId: mentionedId,
-              actorId: user.id,
-              type: "MENTION",
-              postId: input.postId,
-            },
+          createNotification(prisma, {
+            recipientId: mentionedId,
+            actorId: user.id,
+            type: "MENTION",
+            postId: input.postId,
           }).catch(console.error);
         }
       }
@@ -929,6 +1073,14 @@ export const feedResolvers = {
     ) => {
       if (!user) throw new Error("Unauthorized");
 
+      // Medium #13: Input length limits
+      if (!input.content?.trim()) throw new Error("Reply cannot be empty");
+      if (input.content.length > 2000) throw new Error("Reply must be 2 000 characters or fewer");
+      if (Array.isArray(input.mentions) && input.mentions.length > 20) throw new Error("Cannot mention more than 20 users");
+
+      // Medium #21: Strip HTML tags
+      const safeContent = sanitizeInput(input.content);
+
       const parent = await prisma.postComment.findUnique({
         where: { id: input.parentId },
         include: { post: true },
@@ -939,7 +1091,7 @@ export const feedResolvers = {
         data: {
           postId: input.postId,
           authorId: user.id,
-          content: input.content,
+          content: safeContent,
           parentId: input.parentId,
           mentions: input.mentions ?? [],
         },
@@ -962,26 +1114,23 @@ export const feedResolvers = {
 
       // Notify the parent comment author
       if (parent.authorId !== user.id) {
-        prisma.notification.create({
-          data: {
-            recipientId: parent.authorId,
-            actorId: user.id,
-            type: "COMMENT",
-            postId: input.postId,
-          },
+        createNotification(prisma, {
+          recipientId: parent.authorId,
+          actorId: user.id,
+          type: "COMMENT",
+          postId: input.postId,
+          message: "replied to your comment",
         }).catch(console.error);
       }
 
       // Notify mentioned users
       for (const mentionedId of input.mentions ?? []) {
         if (mentionedId !== user.id) {
-          prisma.notification.create({
-            data: {
-              recipientId: mentionedId,
-              actorId: user.id,
-              type: "MENTION",
-              postId: input.postId,
-            },
+          createNotification(prisma, {
+            recipientId: mentionedId,
+            actorId: user.id,
+            type: "MENTION",
+            postId: input.postId,
           }).catch(console.error);
         }
       }
@@ -1009,7 +1158,7 @@ export const feedResolvers = {
         update: { reaction: safeReaction },
       });
 
-      return prisma.postComment.update({
+      const updatedComment = await prisma.postComment.update({
         where: { id: commentId },
         data: existing ? {} : { likesCount: { increment: 1 } },
         include: {
@@ -1022,6 +1171,18 @@ export const feedResolvers = {
           },
         },
       });
+
+      // Notify the comment author on a new like (skip if liker is the author; skip reaction changes)
+      if (!existing && updatedComment.authorId !== user.id) {
+        createNotification(prisma, {
+          recipientId: updatedComment.authorId,
+          actorId: user.id,
+          type: "LIKE",
+          postId: updatedComment.postId,
+        }).catch(console.error);
+      }
+
+      return updatedComment;
     },
 
     unlikeComment: async (
@@ -1057,6 +1218,12 @@ export const feedResolvers = {
     ) => {
       if (!user) throw new Error("Unauthorized");
 
+      // Medium #13 / CRIT-02: Same validation as createComment
+      if (!content?.trim()) throw new Error("Comment cannot be empty");
+      if (content.length > 2000) throw new Error("Comment must be 2 000 characters or fewer");
+      // Medium #21 / CRIT-02: Strip HTML tags
+      const safeContent = sanitizeInput(content);
+
       const comment = await prisma.postComment.findUnique({
         where: { id: commentId },
       });
@@ -1073,7 +1240,7 @@ export const feedResolvers = {
 
       return prisma.postComment.update({
         where: { id: commentId },
-        data: { content },
+        data: { content: safeContent },
         include: {
           author: { include: { rank: true } },
           post: true,
@@ -1098,12 +1265,18 @@ export const feedResolvers = {
       });
       if (!comment) throw new Error("Comment not found");
       if (comment.authorId !== user.id) throw new Error("Forbidden");
-      // Count this comment + all its replies for the decrement
-      const totalToDecrement = 1 + (comment as any).replies.length;
+
+      // CRIT-01: Cascade-delete the comment (DB foreign-key CASCADE removes all
+      // descendants automatically). Then recompute commentsCount directly from
+      // the DB to avoid the "depth-1 only" under-decrement bug.
       await prisma.postComment.delete({ where: { id: commentId } });
+
+      const actualCount = await prisma.postComment.count({
+        where: { postId: comment.postId },
+      });
       await prisma.post.update({
         where: { id: comment.postId },
-        data: { commentsCount: { decrement: totalToDecrement } },
+        data: { commentsCount: actualCount },
       });
       return true;
     },
@@ -1262,6 +1435,9 @@ export const feedResolvers = {
     ) => {
       if (!user) throw new Error("Unauthorized");
       await assertAdminRole(prisma, user.id);
+      if (!Number.isFinite(olderThanDays) || olderThanDays < 7) {
+        throw new Error("Minimum retention period is 7 days");
+      }
       const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
 
       const result = await prisma.userInteraction.deleteMany({
@@ -1283,6 +1459,9 @@ export const feedResolvers = {
     ) => {
       if (!user) throw new Error("Unauthorized");
       await assertAdminRole(prisma, user.id);
+      if (!Number.isFinite(olderThanDays) || olderThanDays < 7) {
+        throw new Error("Minimum retention period is 7 days");
+      }
       const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
 
       const result = await prisma.feedScoreLog.deleteMany({
@@ -1302,59 +1481,70 @@ export const feedResolvers = {
     },
 
     // Resolve the root original post for shared posts
-    originalPost: async (parent: { originalPostId?: string | null }, _: unknown, { prisma }: GraphQLContext) => {
+    originalPost: async (parent: { originalPostId?: string | null }, _: unknown, { loaders }: GraphQLContext) => {
       if (!parent.originalPostId) return null;
-      return prisma.post.findUnique({
-        where: { id: parent.originalPostId },
-        include: {
-          author: { include: { rank: true } },
-          tags: { include: { tag: true } },
-        },
-      });
+      return loaders.originalPostLoader.load(parent.originalPostId);
     },
 
-    postType: async (parent: { id: string; tags?: any[] }, _: unknown, { prisma }: GraphQLContext) => {
-      // Use pre-loaded tags if available on parent, otherwise query
+    postType: async (parent: { id: string; tags?: any[] }, _: unknown, { loaders }: GraphQLContext) => {
+      // Use pre-loaded tags if available on parent, otherwise batch-load via DataLoader
       const tags: { name: string }[] = parent.tags?.length
         ? parent.tags.map((t: any) => t.tag ?? t) // handle PostTag join or raw Tag
-        : await prisma.postTag
-            .findMany({ where: { postId: parent.id }, include: { tag: true } })
-            .then((pts: any[]) => pts.map((pt) => pt.tag));
+        : await loaders.postTagsLoader.load(parent.id);
       return tags.some((t) => t.name === "roast") ? "roast" : "post";
     },
 
-    tags: async (parent: { id: string }, _: unknown, { prisma }: GraphQLContext) => {
-      const postTags = await prisma.postTag.findMany({
-        where: { postId: parent.id },
-        include: { tag: true },
-      });
-      return postTags.map((pt: any) => pt.tag);
+    tags: async (parent: { id: string; tags?: any[] }, _: unknown, { loaders }: GraphQLContext) => {
+      // If tags already loaded on parent (from include), use them
+      if (parent.tags?.length) {
+        return parent.tags.map((t: any) => t.tag ?? t);
+      }
+      return loaders.postTagsLoader.load(parent.id);
     },
 
     likedByMe: async (
       parent: { id: string; _likedByMe?: boolean },
       _: unknown,
-      { user, prisma }: GraphQLContext
+      { user, loaders }: GraphQLContext
     ) => {
       if (parent._likedByMe !== undefined) return parent._likedByMe;
       if (!user) return false;
-      const like = await prisma.postLike.findUnique({
-        where: { postId_profileId: { postId: parent.id, profileId: user.id } },
-      });
-      return !!like;
+      return loaders.postLikedByMeLoader.load(parent.id);
     },
 
     myReaction: async (
       parent: { id: string; _myReaction?: string | null },
       _: unknown,
-      { user, prisma }: GraphQLContext
+      { user, loaders }: GraphQLContext
     ) => {
       if (parent._myReaction !== undefined) return parent._myReaction;
       if (!user) return null;
-      const like = await prisma.postLike.findUnique({
-        where: { postId_profileId: { postId: parent.id, profileId: user.id } },
+      return loaders.postMyReactionLoader.load(parent.id);
+    },
+
+    /**
+     * Lightweight comment preview for feed cards.
+     * Returns top N root comments sorted by likes (descending), with NO nested replies.
+     * Full comment trees are loaded on-demand when the user expands comments.
+     */
+    commentsPreview: async (
+      parent: { id: string },
+      { limit = 3 }: { limit?: number },
+      { prisma }: GraphQLContext
+    ) => {
+      const safeLim = Math.min(limit, 10); // hard cap at 10 for previews
+      return prisma.postComment.findMany({
+        where: { postId: parent.id, parentId: null },
+        orderBy: { likesCount: "desc" },
+        take: safeLim,
+        include: {
+          author: { include: { rank: true } },
+          editHistory: { orderBy: { editedAt: "desc" } },
+          _count: { select: { replies: true } },
+          // NO nested replies — feed card only needs top-level comments
+          // Full thread is loaded on-demand when user clicks "View all comments"
+        },
       });
-      return like?.reaction ?? null;
     },
 
     comments: async (
@@ -1362,25 +1552,28 @@ export const feedResolvers = {
       { limit = 10, offset = 0 }: { limit?: number; offset?: number },
       { prisma }: GraphQLContext
     ) => {
+      const safeLimit = Math.min(limit, 30);
       return prisma.postComment.findMany({
         where: { postId: parent.id, parentId: null },
         orderBy: { createdAt: "asc" },
-        take: limit,
+        take: safeLimit,
         skip: offset,
         include: {
           author: { include: { rank: true } },
           editHistory: { orderBy: { editedAt: "desc" } },
+          _count: { select: { replies: true } },
           replies: {
             orderBy: { createdAt: "asc" },
             include: {
               author: { include: { rank: true } },
               editHistory: { orderBy: { editedAt: "desc" } },
+              _count: { select: { replies: true } },
               replies: {
                 orderBy: { createdAt: "asc" },
                 include: {
                   author: { include: { rank: true } },
                   editHistory: { orderBy: { editedAt: "desc" } },
-                  replies: { select: { id: true } }, // depth-3 not rendered but we need the array
+                  _count: { select: { replies: true } },
                 },
               },
             },
@@ -1394,25 +1587,19 @@ export const feedResolvers = {
     likedByMe: async (
       parent: { id: string },
       _: unknown,
-      { user, prisma }: GraphQLContext
+      { user, loaders }: GraphQLContext
     ) => {
       if (!user) return false;
-      const like = await prisma.commentLike.findUnique({
-        where: { commentId_profileId: { commentId: parent.id, profileId: user.id } },
-      });
-      return !!like;
+      return loaders.commentLikedByMeLoader.load(parent.id);
     },
 
     myReaction: async (
       parent: { id: string },
       _: unknown,
-      { user, prisma }: GraphQLContext
+      { user, loaders }: GraphQLContext
     ) => {
       if (!user) return null;
-      const like = await prisma.commentLike.findUnique({
-        where: { commentId_profileId: { commentId: parent.id, profileId: user.id } },
-      });
-      return like?.reaction ?? null;
+      return loaders.commentMyReactionLoader.load(parent.id);
     },
 
     editHistory: async (
@@ -1436,26 +1623,44 @@ export const feedResolvers = {
       return parent.mentions ?? [];
     },
 
+    repliesCount: async (
+      parent: { id: string; _count?: { replies?: number } },
+      _: unknown,
+      { prisma }: GraphQLContext
+    ) => {
+      // If Prisma eagerly loaded _count, use it
+      if (parent._count?.replies != null) return parent._count.replies;
+      // Otherwise count from DB
+      return prisma.postComment.count({ where: { parentId: parent.id } });
+    },
+
     replies: async (
-      parent: { id: string },
+      parent: { id: string; replies?: any[] },
       { limit = 20, offset = 0 }: { limit?: number; offset?: number },
       { prisma }: GraphQLContext
     ) => {
-      // replies are also eagerly included by the parent query, so this is a fallback
+      // If the parent query already eagerly loaded replies, return them directly.
+      // This avoids N+1 re-fetches and preserves the full nested structure.
+      if (Array.isArray((parent as any).replies)) {
+        const all = (parent as any).replies as any[];
+        return offset === 0 ? all.slice(0, Math.min(limit, 30)) : all.slice(offset, offset + Math.min(limit, 30));
+      }
+      const safeLimit = Math.min(limit, 30);
       return prisma.postComment.findMany({
         where: { parentId: parent.id },
         orderBy: { createdAt: "asc" },
-        take: limit,
+        take: safeLimit,
         skip: offset,
         include: {
           author: { include: { rank: true } },
           editHistory: { orderBy: { editedAt: "desc" } },
+          _count: { select: { replies: true } },
           replies: {
             orderBy: { createdAt: "asc" },
             include: {
               author: { include: { rank: true } },
               editHistory: { orderBy: { editedAt: "desc" } },
-              replies: { select: { id: true } },
+              _count: { select: { replies: true } },
             },
           },
         },
@@ -1493,7 +1698,9 @@ async function exploreFeed(
   prisma: any
 ) {
   // P1 #5: Time filter — only show posts from last 7 days to avoid full table scan
-  // P3 #16: Sort by rankScore (populated by feed pipeline) with likesCount fallback
+  // MED-07: Actually sort by rankScore DESC (populated by the feed ranking pipeline),
+  // with likesCount as secondary signal and createdAt as tiebreaker.
+  // Posts without a rankScore (null) sort after scored ones thanks to "sort: 'last'".
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const posts = await prisma.post.findMany({
     where: { createdAt: { gte: sevenDaysAgo } },
@@ -1510,6 +1717,36 @@ async function exploreFeed(
     posts: posts.slice(0, limit),
     hasMore: posts.length > limit,
     nextOffset: offset + limit,
+  };
+}
+
+/**
+ * Wraps exploreFeed result in the FeedConnection shape (with pageInfo)
+ * for unauthenticated users hitting the `feed` query.
+ */
+async function exploreFeedAsConnection(
+  limit: number,
+  offset: number,
+  prisma: any
+) {
+  const result = await exploreFeed(limit, offset, prisma);
+  const lastPost = result.posts[result.posts.length - 1];
+  return {
+    posts: result.posts,
+    pageInfo: {
+      hasNextPage: result.hasMore,
+      endCursor: lastPost
+        ? encodeCursor({
+            score: 0, // explore feed has no ranking score
+            createdAt: new Date(lastPost.createdAt).toISOString(),
+            id: lastPost.id,
+          })
+        : null,
+    },
+    hasMore: result.hasMore,
+    nextOffset: result.nextOffset,
+    feedVariant: 'explore',
+    sessionId: null,
   };
 }
 
@@ -1546,13 +1783,16 @@ async function updateTagAffinitiesOnEngagement(
       where: { postId },
       include: { tag: true },
     });
-    for (const pt of postTags) {
-      await prisma.userTagAffinity.upsert({
-        where: { profileId_tagName: { profileId, tagName: pt.tag.name } },
-        create: { profileId, tagName: pt.tag.name, score: delta },
-        update: { score: { increment: delta } },
-      });
-    }
+    // HIGH-03: Run all upserts in parallel — was sequential, caused N DB round-trips
+    await Promise.all(
+      postTags.map((pt: any) =>
+        prisma.userTagAffinity.upsert({
+          where: { profileId_tagName: { profileId, tagName: pt.tag.name } },
+          create: { profileId, tagName: pt.tag.name, score: delta },
+          update: { score: { increment: delta } },
+        })
+      )
+    );
   } catch (err) {
     console.error("[feedRanking] updateTagAffinitiesOnEngagement:", err);
   }
@@ -1596,35 +1836,59 @@ async function updateAuthorAffinity(
     viewCount: 0.2,
   };
 
-  // Map field names to DB column names (camelCase → snake_case in @@map table)
-  const colMap: Record<string, string> = {
-    likeCount: '"likeCount"',
-    commentCount: '"commentCount"',
-    shareCount: '"shareCount"',
-    viewCount: '"viewCount"',
-  };
-
-  const targetCol = colMap[field];
-
+  // Critical #4: replaced $executeRawUnsafe (string-interpolated SQL) with
+  // separate $executeRaw tagged-template calls — no interpolation, fully parameterised.
   try {
-    await prisma.$executeRawUnsafe(`
-      INSERT INTO user_author_affinities (id, "userId", "authorId", "likeCount", "commentCount", "shareCount", "viewCount", score, "updatedAt")
-      VALUES (gen_random_uuid()::text, $1, $2, 
-        ${field === 'likeCount' ? 1 : 0}, 
-        ${field === 'commentCount' ? 1 : 0}, 
-        ${field === 'shareCount' ? 1 : 0}, 
-        ${field === 'viewCount' ? 1 : 0},
-        ${weights[field]},
-        NOW()
-      )
-      ON CONFLICT ("userId", "authorId") DO UPDATE SET
-        ${targetCol} = user_author_affinities.${targetCol} + 1,
-        score = (user_author_affinities."likeCount" + ${field === 'likeCount' ? 1 : 0}) * 1.5
-             + (user_author_affinities."commentCount" + ${field === 'commentCount' ? 1 : 0}) * 3.0
-             + (user_author_affinities."shareCount" + ${field === 'shareCount' ? 1 : 0}) * 5.0
-             + (user_author_affinities."viewCount" + ${field === 'viewCount' ? 1 : 0}) * 0.2,
-        "updatedAt" = NOW()
-    `, userId, authorId);
+    if (field === "likeCount") {
+      await prisma.$executeRaw`
+        INSERT INTO user_author_affinities (id, "userId", "authorId", "likeCount", "commentCount", "shareCount", "viewCount", score, "updatedAt")
+        VALUES (gen_random_uuid()::text, ${userId}::uuid, ${authorId}::uuid, 1, 0, 0, 0, ${weights.likeCount}, NOW())
+        ON CONFLICT ("userId", "authorId") DO UPDATE SET
+          "likeCount"  = user_author_affinities."likeCount" + 1,
+          score = (user_author_affinities."likeCount" + 1) * 1.5
+               + user_author_affinities."commentCount" * 3.0
+               + user_author_affinities."shareCount"   * 5.0
+               + user_author_affinities."viewCount"    * 0.2,
+          "updatedAt" = NOW()
+      `;
+    } else if (field === "commentCount") {
+      await prisma.$executeRaw`
+        INSERT INTO user_author_affinities (id, "userId", "authorId", "likeCount", "commentCount", "shareCount", "viewCount", score, "updatedAt")
+        VALUES (gen_random_uuid()::text, ${userId}::uuid, ${authorId}::uuid, 0, 1, 0, 0, ${weights.commentCount}, NOW())
+        ON CONFLICT ("userId", "authorId") DO UPDATE SET
+          "commentCount" = user_author_affinities."commentCount" + 1,
+          score = user_author_affinities."likeCount" * 1.5
+               + (user_author_affinities."commentCount" + 1) * 3.0
+               + user_author_affinities."shareCount"   * 5.0
+               + user_author_affinities."viewCount"    * 0.2,
+          "updatedAt" = NOW()
+      `;
+    } else if (field === "shareCount") {
+      await prisma.$executeRaw`
+        INSERT INTO user_author_affinities (id, "userId", "authorId", "likeCount", "commentCount", "shareCount", "viewCount", score, "updatedAt")
+        VALUES (gen_random_uuid()::text, ${userId}::uuid, ${authorId}::uuid, 0, 0, 1, 0, ${weights.shareCount}, NOW())
+        ON CONFLICT ("userId", "authorId") DO UPDATE SET
+          "shareCount" = user_author_affinities."shareCount" + 1,
+          score = user_author_affinities."likeCount"    * 1.5
+               + user_author_affinities."commentCount"  * 3.0
+               + (user_author_affinities."shareCount" + 1) * 5.0
+               + user_author_affinities."viewCount"    * 0.2,
+          "updatedAt" = NOW()
+      `;
+    } else {
+      // viewCount
+      await prisma.$executeRaw`
+        INSERT INTO user_author_affinities (id, "userId", "authorId", "likeCount", "commentCount", "shareCount", "viewCount", score, "updatedAt")
+        VALUES (gen_random_uuid()::text, ${userId}::uuid, ${authorId}::uuid, 0, 0, 0, 1, ${weights.viewCount}, NOW())
+        ON CONFLICT ("userId", "authorId") DO UPDATE SET
+          "viewCount" = user_author_affinities."viewCount" + 1,
+          score = user_author_affinities."likeCount"   * 1.5
+               + user_author_affinities."commentCount" * 3.0
+               + user_author_affinities."shareCount"   * 5.0
+               + (user_author_affinities."viewCount" + 1) * 0.2,
+          "updatedAt" = NOW()
+      `;
+    }
   } catch (err) {
     console.error("[feedRanking] updateAuthorAffinity:", err);
   }
@@ -1666,12 +1930,14 @@ async function updatePostRankScores(
 
   // Batch update using individual parameterized queries to avoid SQL injection
   // Prisma doesn't support CASE expressions with $queryRaw, so we batch individual updates
+  // NOTE: rankScore column may not exist if migration 04_feed_ranking_signals.sql hasn't run;
+  //       Promise.allSettled + individual try-catch ensures this is fully silent on failure
   const updates = posts.map((p) =>
     prisma.post.update({
       where: { id: p.postId },
       data: { rankScore: p._breakdown.finalScore },
       select: { id: true },
-    })
+    }).catch(() => { /* rankScore column not yet migrated — skip silently */ })
   );
 
   await Promise.allSettled(updates);
@@ -1752,14 +2018,17 @@ async function markPostViewEngaged(
     }).catch(() => {}); // best-effort — column may not exist yet
 
     // Atomic session engagement + CTR update — avoids read-compute-write race condition
+    // MED-01: Use tagged $executeRaw (parameterised template literal) instead of
+    // $executeRawUnsafe — the value is safely passed as a bound parameter, never
+    // string-interpolated into the SQL.
     if (recentView.sessionId) {
-      await prisma.$executeRawUnsafe(
-        `UPDATE feed_sessions
-         SET "postsEngaged" = "postsEngaged" + 1,
-             ctr = ("postsEngaged" + 1)::float / GREATEST("postsShown", 1)
-         WHERE id = $1`,
-        recentView.sessionId
-      );
+      const sessionId = recentView.sessionId;
+      await prisma.$executeRaw`
+        UPDATE feed_sessions
+        SET "postsEngaged" = "postsEngaged" + 1,
+            ctr = ("postsEngaged" + 1)::float / GREATEST("postsShown", 1)
+        WHERE id = ${sessionId}
+      `;
     }
   } catch (err) {
     console.error("[markPostViewEngaged] error:", err);

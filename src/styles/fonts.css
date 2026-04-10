@@ -1,1 +1,38 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+/*
+  Force all emoji codepoints to use system emoji fonts instead of JetBrains Mono.
+  JetBrains Mono has .notdef glyphs for emoji ranges which blocks font fallback.
+  By declaring a dummy @font-face for 'Emoji Override' covering all major emoji
+  unicode ranges with a system emoji stack, the browser will always use a real
+  emoji font for these characters regardless of the base font-family.
+*/
+@font-face {
+  font-family: 'Emoji Override';
+  src: local('Apple Color Emoji'),
+       local('Segoe UI Emoji'),
+       local('Segoe UI Symbol'),
+       local('Noto Color Emoji'),
+       local('Android Emoji'),
+       local('EmojiSymbols');
+  /* Emoticons, Misc symbols, Dingbats, Supplemental symbols, Symbols & Pictographs */
+  unicode-range:
+    U+1F000-1F02F,
+    U+1F0A0-1F0FF,
+    U+1F100-1F1FF,
+    U+1F200-1F2FF,
+    U+1F300-1F5FF,
+    U+1F600-1F64F,
+    U+1F650-1F67F,
+    U+1F680-1F6FF,
+    U+1F700-1F77F,
+    U+1F780-1F7FF,
+    U+1F800-1F8FF,
+    U+1F900-1F9FF,
+    U+1FA00-1FA6F,
+    U+1FA70-1FAFF,
+    U+2600-26FF,
+    U+2700-27BF,
+    U+FE00-FE0F,
+    U+1F1E0-1F1FF;
+}

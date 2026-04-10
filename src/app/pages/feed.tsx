@@ -1,6 +1,8 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { useSearchParams } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useQuery, useMutation } from "@apollo/client/react";
+import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { CreatePost } from "../components/create-post";
 import { PostCard } from "../components/post-card";
 // import { RoastedPostCard } from "../components/roasted-post-card";
@@ -11,13 +13,13 @@ import { FeaturedProjects } from "../components/featured-projects";
 import { FeaturedProjectCard, FeaturedProject } from "../components/featured-project-card";
 import { Separator } from "../components/ui/separator";
 import { Skeleton } from "../components/ui/skeleton";
-import { Fragment } from "react";
+import { avatarSrc } from "../../lib/defaults";
 
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
 
 const GET_FEED = gql`
-  query GetFeed($limit: Int, $offset: Int, $seenIds: [ID!], $feedVariant: String, $sessionId: String) {
-    feed(limit: $limit, offset: $offset, seenIds: $seenIds, feedVariant: $feedVariant, sessionId: $sessionId) {
+  query GetFeed($first: Int, $after: String, $seenIds: [ID!], $feedVariant: String, $sessionId: String) {
+    feed(first: $first, after: $after, seenIds: $seenIds, feedVariant: $feedVariant, sessionId: $sessionId) {
       posts {
         id
         content
@@ -34,8 +36,10 @@ const GET_FEED = gql`
         author {
           id
           name
+          displayName
           username
           avatarUrl
+          isFollowedByMe
         }
         tags {
           id
@@ -53,11 +57,12 @@ const GET_FEED = gql`
           author {
             id
             name
+            displayName
             username
             avatarUrl
           }
         }
-        comments(limit: 10) {
+        commentsPreview(limit: 3) {
           id
           content
           likesCount
@@ -66,54 +71,22 @@ const GET_FEED = gql`
           parentId
           mentions
           isEdited
-          editHistory { id previousContent editedAt }
+          repliesCount
           createdAt
           author {
             id
             name
+            displayName
             username
             avatarUrl
           }
-          replies {
-            id
-            content
-            likesCount
-            likedByMe
-            myReaction
-            parentId
-            mentions
-            isEdited
-            editHistory { id previousContent editedAt }
-            createdAt
-            author {
-              id
-              name
-              username
-              avatarUrl
-            }
-            replies {
-              id
-              content
-              likesCount
-              likedByMe
-              myReaction
-              parentId
-              mentions
-              isEdited
-              editHistory { id previousContent editedAt }
-              createdAt
-              author {
-                id
-                name
-                username
-                avatarUrl
-              }
-            }
-          }
         }
       }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
       hasMore
-      nextOffset
       feedVariant
       sessionId
     }
@@ -137,6 +110,7 @@ const CREATE_POST_MUTATION = gql`
       author {
         id
         name
+        displayName
         username
         avatarUrl
       }
@@ -156,64 +130,12 @@ const CREATE_POST_MUTATION = gql`
         author {
           id
           name
+          displayName
           username
           avatarUrl
         }
       }
-      comments(limit: 10) {
-        id
-        content
-        likesCount
-        likedByMe
-        myReaction
-        parentId
-        mentions
-        isEdited
-        editHistory { id previousContent editedAt }
-        createdAt
-        author {
-          id
-          name
-          username
-          avatarUrl
-        }
-        replies {
-          id
-          content
-          likesCount
-          likedByMe
-          myReaction
-          parentId
-          mentions
-          isEdited
-          editHistory { id previousContent editedAt }
-          createdAt
-          author {
-            id
-            name
-            username
-            avatarUrl
-          }
-          replies {
-            id
-            content
-            likesCount
-            likedByMe
-            myReaction
-            parentId
-            mentions
-            isEdited
-            editHistory { id previousContent editedAt }
-            createdAt
-            author {
-              id
-              name
-              username
-              avatarUrl
-            }
-          }
-        }
-      }
+
     }
   }
 `;
@@ -242,6 +164,18 @@ const UNLIKE_POST_MUTATION = gql`
 const RECORD_POST_VIEW = gql`
   mutation RecordPostView($postId: ID!, $dwellMs: Int!, $source: String, $feedVariant: String, $position: Int, $sessionId: String) {
     recordPostView(postId: $postId, dwellMs: $dwellMs, source: $source, feedVariant: $feedVariant, position: $position, sessionId: $sessionId)
+  }
+`;
+
+const FOLLOW_USER_MUTATION = gql`
+  mutation FeedFollowUser($userId: ID!) {
+    followUser(userId: $userId) { id isFollowedByMe followersCount }
+  }
+`;
+
+const UNFOLLOW_USER_MUTATION = gql`
+  mutation FeedUnfollowUser($userId: ID!) {
+    unfollowUser(userId: $userId) { id isFollowedByMe followersCount }
   }
 `;
 
@@ -576,11 +510,12 @@ function adaptComment(c: any): any {
     createdAt: c.createdAt,
     author: {
       id: c.author?.id,
-      name: c.author?.name ?? "Unknown",
+      name: c.author?.displayName ?? c.author?.username ?? c.author?.name ?? "Unknown",
       username: c.author?.username ?? "",
       avatarUrl: c.author?.avatarUrl,
     },
     replies: (c.replies ?? []).map(adaptComment),
+    repliesCount: c.repliesCount ?? (c.replies?.length ?? 0),
   };
 }
 
@@ -589,8 +524,10 @@ function adaptPost(p: any) {
     id: p.id,
     author: {
       id: p.author.id,
-      name: p.author.name,
-      avatar: p.author.avatarUrl ?? `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(p.author.name)}`,
+      // Prefer displayName (human readable), fall back to username, never raw `name` which
+      // Supabase OAuth sometimes populates with the user's email address.
+      name: p.author.displayName ?? p.author.username ?? p.author.name,
+      avatar: avatarSrc(p.author.avatarUrl),
       username: `@${p.author.username}`,
     },
     content: p.content,
@@ -605,7 +542,7 @@ function adaptPost(p: any) {
     myReaction: p.myReaction ?? null,
     postType: (p.postType ?? "post") as "post" | "roast",
     tags: p.tags ?? [],
-    initialComments: (p.comments ?? []).map(adaptComment),
+    initialComments: (p.commentsPreview ?? p.comments ?? []).map(adaptComment),
     originalPost: p.originalPost
       ? {
           id: p.originalPost.id,
@@ -618,7 +555,7 @@ function adaptPost(p: any) {
           createdAt: p.originalPost.createdAt,
           author: {
             id: p.originalPost.author?.id,
-            name: p.originalPost.author?.name ?? "Unknown",
+            name: p.originalPost.author?.displayName ?? p.originalPost.author?.username ?? p.originalPost.author?.name ?? "Unknown",
             username: p.originalPost.author?.username ?? "",
             avatarUrl: p.originalPost.author?.avatarUrl,
           },
@@ -630,15 +567,21 @@ function adaptPost(p: any) {
 const DUMMY: never[] = []; // empty fallback so TS stays happy
 
 export function Feed() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const highlightPostId = searchParams.get("post");
   const [followedUsers, setFollowedUsers] = useState<Set<string>>(new Set());
   // Optimistic local posts prepended before the server list
   const [localPosts, setLocalPosts] = useState<ReturnType<typeof adaptPost>[]>([]);
 
-  const [offset, setOffset] = useState(0);
   const seenIdsRef = useRef<Set<string>>(new Set());
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  // Ref map for scrolling to a highlighted post
+  const postElRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
   const { data, loading: feedLoading, error: feedError, refetch, fetchMore } = useQuery(GET_FEED, {
-    variables: { limit: 20, offset: 0 },
+    variables: { first: 20 },
     fetchPolicy: "cache-and-network",
+    notifyOnNetworkStatusChange: true,
   });
 
   const [createPostMutation] = useMutation(CREATE_POST_MUTATION);
@@ -646,6 +589,8 @@ export function Feed() {
   const [unlikePost] = useMutation(UNLIKE_POST_MUTATION);
   const [recordPostViewMutation] = useMutation(RECORD_POST_VIEW);
   const [notInterestedMutation] = useMutation(MARK_NOT_INTERESTED);
+  const [followUserMutation] = useMutation(FOLLOW_USER_MUTATION);
+  const [unfollowUserMutation] = useMutation(UNFOLLOW_USER_MUTATION);
 
   const recordView = useCallback((postId: string, dwellMs: number, position?: number) => {
     seenIdsRef.current.add(postId);
@@ -662,12 +607,23 @@ export function Feed() {
     ...serverPosts,
   ];
 
+  // Read current user from Apollo cache (GET_ME_AVATAR is fetched by CreatePost on mount)
+  const { data: meData } = useQuery(gql`query FeedGetMe { me { id name username displayName avatarUrl } }`, {
+    fetchPolicy: "cache-only",
+  });
+  const meUser = meData?.me;
+
   const handleNewPost = useCallback(async (content: string, images?: string[], videoUrl?: string) => {
-    // Optimistic: add to local list immediately
+    // Optimistic: add to local list immediately with real user data
     const tempId = `temp-${Date.now()}`;
     const optimistic = {
       id: tempId,
-      author: { name: "You", avatar: "", username: "@you" },
+      author: {
+        id: meUser?.id ?? "",
+        name: meUser?.displayName ?? meUser?.username ?? meUser?.name ?? "You",
+        avatar: avatarSrc(meUser?.avatarUrl),
+        username: `@${meUser?.username ?? "you"}`,
+      },
       content,
       image: images?.[0],
       images: images ?? [],
@@ -709,29 +665,125 @@ export function Feed() {
   }, [likePost, unlikePost]);
 
   const handleLoadMore = useCallback(async () => {
-    const next = data?.feed?.nextOffset ?? offset + 20;
-    setOffset(next);
-    const seen = Array.from(seenIdsRef.current);
+    const endCursor = data?.feed?.pageInfo?.endCursor;
+    if (!endCursor) return;
+    // S4 #12: Cap seenIds to last 200 to prevent unbounded growth
+    const seen = Array.from(seenIdsRef.current).slice(-200);
     const currentSessionId = data?.feed?.sessionId ?? undefined;
-    await fetchMore({ variables: { limit: 20, offset: next, seenIds: seen, sessionId: currentSessionId }, updateQuery: (prev, { fetchMoreResult }) => {
-      if (!fetchMoreResult) return prev;
-      return { feed: { ...fetchMoreResult.feed, posts: [...(prev.feed?.posts ?? []), ...fetchMoreResult.feed.posts] } };
-    }});
-  }, [fetchMore, data, offset]);
+    try {
+      await fetchMore({
+        variables: { first: 20, after: endCursor, seenIds: seen, sessionId: currentSessionId },
+        // Apollo merge function in apollo.ts handles concatenation
+      });
+    } catch (err) {
+      console.error("[feed] fetchMore failed:", err);
+    }
+  }, [fetchMore, data]);
 
-  const handleFollowToggle = (username: string) => {
+  // Seed followedUsers from server data on first load
+  const serverPostsForSeed = data?.feed?.posts ?? DUMMY;
+
+  // Scroll to + briefly highlight the post linked from a notification
+  useEffect(() => {
+    if (!highlightPostId || allPosts.length === 0) return;
+    const el = postElRefs.current.get(highlightPostId);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      // Auto-clear the query param after 3 s so back-button works cleanly
+      const timer = setTimeout(() => {
+        setSearchParams((p) => { p.delete("post"); return p; }, { replace: true });
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [highlightPostId, allPosts.length, setSearchParams]);
+
+  useEffect(() => {
+    if (!serverPostsForSeed.length) return;
+    setFollowedUsers(prev => {
+      const next = new Set(prev);
+      (serverPostsForSeed as any[]).forEach((p: any) => {
+        if (p.author?.isFollowedByMe && p.author?.username) {
+          next.add(`@${p.author.username}`);
+        }
+      });
+      return next;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverPostsForSeed]);
+
+  const handleFollowToggle = useCallback(async (username: string, authorId: string) => {
+    const isCurrentlyFollowing = followedUsers.has(username);
+    // Optimistic update
     setFollowedUsers(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(username)) {
+      if (isCurrentlyFollowing) {
         newSet.delete(username);
       } else {
         newSet.add(username);
       }
       return newSet;
     });
-  };
+    try {
+      if (isCurrentlyFollowing) {
+        await unfollowUserMutation({ variables: { userId: authorId } });
+      } else {
+        await followUserMutation({ variables: { userId: authorId } });
+      }
+    } catch (err) {
+      console.error("follow/unfollow failed:", err);
+      // Revert on error
+      setFollowedUsers(prev => {
+        const newSet = new Set(prev);
+        if (isCurrentlyFollowing) {
+          newSet.add(username);
+        } else {
+          newSet.delete(username);
+        }
+        return newSet;
+      });
+    }
+  }, [followedUsers, followUserMutation, unfollowUserMutation]);
 
   const showSkeletons = feedLoading && allPosts.length === 0;
+
+  // ── Derive items: interleave FeaturedProjectCards every 3 posts ──
+  const feedItems = useMemo(() => {
+    const items: Array<{ type: "post"; post: ReturnType<typeof adaptPost>; index: number } | { type: "featured"; project: FeaturedProject }> = [];
+    allPosts.forEach((post, i) => {
+      items.push({ type: "post", post, index: i });
+      if ((i + 1) % 3 === 0) {
+        const project = featuredProjects[Math.floor(i / 3) % featuredProjects.length];
+        if (project) items.push({ type: "featured", project });
+      }
+    });
+    return items;
+  }, [allPosts]);
+
+  // ── TanStack Virtual — virtualise the post list ──
+  const virtualizer = useWindowVirtualizer({
+    count: feedItems.length,
+    estimateSize: () => 420, // avg post card height in px
+    overscan: 4,
+  });
+
+  // ── Infinite-scroll sentinel via IntersectionObserver ──
+  const hasNextPage = data?.feed?.pageInfo?.hasNextPage ?? false;
+  const loadingMore = feedLoading && allPosts.length > 0;
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasNextPage && !feedLoading) {
+          handleLoadMore();
+        }
+      },
+      { rootMargin: "600px" } // trigger 600px before it scrolls into view
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasNextPage, feedLoading, handleLoadMore]);
 
   return (
     <div className="flex min-h-screen">
@@ -749,10 +801,16 @@ export function Feed() {
 
           <Separator />
 
-          {/* Error banner */}
+          {/* Error banner with retry */}
           {feedError && !feedLoading && (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive font-mono">
-              ⚠ Could not load feed — {feedError.message}
+              <p>⚠ Could not load feed — {feedError.message}</p>
+              <button
+                onClick={() => refetch()}
+                className="mt-2 px-4 py-1.5 rounded-md border border-destructive/30 text-xs font-medium hover:bg-destructive/10 transition-colors"
+              >
+                Retry
+              </button>
             </div>
           )}
 
@@ -763,60 +821,100 @@ export function Feed() {
             </div>
           )}
 
-          {/* Posts Feed */}
-          {!showSkeletons && (
-            <div className="space-y-4">
-              {allPosts.map((post, index) => (
-                <Fragment key={post.id}>
-                  <PostViewTracker postId={post.id} position={index} recordView={recordView}>
-                    {post.postType === "roast" ? (
-                      <RoastedProjectCard
-                        post={post as unknown as FeedPost}
-                        onLike={(wantsLike, reaction) => handleLike(post.id, wantsLike, reaction)}
-                      />
-                    ) : (
-                      <PostCard
-                        post={post}
-                        onLike={(wantsLike, reaction) => handleLike(post.id, wantsLike, reaction)}
-                        onDelete={() => {
-                          setLocalPosts((prev) => prev.filter((p) => p.id !== post.id));
-                          refetch();
-                        }}
-                        isFollowing={followedUsers.has(post.author.username)}
-                        onFollowToggle={() => handleFollowToggle(post.author.username)}
-                        onNotInterested={() => {
-                          notInterestedMutation({ variables: { postId: post.id } }).catch(console.error);
-                        }}
-                      />
-                    )}
-                  </PostViewTracker>
-                  {/* Featured project after every 3rd post */}
-                  {(index + 1) % 3 === 0 && featuredProjects[(Math.floor(index / 3)) % featuredProjects.length] && (
-                    <FeaturedProjectCard project={featuredProjects[(Math.floor(index / 3)) % featuredProjects.length]} />
-                  )}
-                </Fragment>
-              ))}
-
-              {/* Empty state */}
-              {allPosts.length === 0 && !feedLoading && (
-                <div className="text-center py-16 text-muted-foreground font-mono text-sm">
-                  <p className="text-2xl mb-2">📭</p>
-                  <p>No posts yet. Be the first to share something!</p>
-                </div>
-              )}
-
-              {/* Load more */}
-              {data?.feed?.hasMore && (
-                <div className="flex justify-center py-4">
-                  <button
-                    onClick={handleLoadMore}
-                    disabled={feedLoading}
-                    className="px-6 py-2 rounded-full border text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
+          {/* Virtualised Posts Feed */}
+          {!showSkeletons && feedItems.length > 0 && (
+            <div
+              style={{
+                height: `${virtualizer.getTotalSize()}px`,
+                width: "100%",
+                position: "relative",
+              }}
+            >
+              {virtualizer.getVirtualItems().map((virtualRow) => {
+                const item = feedItems[virtualRow.index];
+                return (
+                  <div
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
                   >
-                    {feedLoading ? "Loading…" : "Load more posts"}
-                  </button>
-                </div>
-              )}
+                    <div className="pb-4">
+                      {item.type === "featured" ? (
+                        <FeaturedProjectCard project={item.project} />
+                      ) : (
+                        <div
+                          ref={(el) => {
+                            if (el) postElRefs.current.set(item.post.id, el);
+                            else postElRefs.current.delete(item.post.id);
+                          }}
+                          className={
+                            highlightPostId === item.post.id
+                              ? "rounded-xl ring-2 ring-primary ring-offset-2 transition-all"
+                              : ""
+                          }
+                        >
+                        <PostViewTracker postId={item.post.id} position={item.index} recordView={recordView}>
+                          {item.post.postType === "roast" ? (
+                            <RoastedProjectCard
+                              post={item.post as unknown as FeedPost}
+                              onLike={(wantsLike, reaction) => handleLike(item.post.id, wantsLike, reaction)}
+                              isFollowing={followedUsers.has(item.post.author.username)}
+                              onFollowToggle={() => handleFollowToggle(item.post.author.username, item.post.author.id)}
+                            />
+                          ) : (
+                            <PostCard
+                              post={item.post}
+                              onLike={(wantsLike, reaction) => handleLike(item.post.id, wantsLike, reaction)}
+                              onDelete={() => {
+                                setLocalPosts((prev) => prev.filter((p) => p.id !== item.post.id));
+                                refetch();
+                              }}
+                              isFollowing={followedUsers.has(item.post.author.username)}
+                              onFollowToggle={() => handleFollowToggle(item.post.author.username, item.post.author.id)}
+                              onNotInterested={() => {
+                                notInterestedMutation({ variables: { postId: item.post.id } }).catch(console.error);
+                              }}
+                            />
+                          )}
+                        </PostViewTracker>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Empty state */}
+          {allPosts.length === 0 && !feedLoading && !showSkeletons && (
+            <div className="text-center py-16 text-muted-foreground font-mono text-sm">
+              <p className="text-2xl mb-2">📭</p>
+              <p>No posts yet. Be the first to share something!</p>
+            </div>
+          )}
+
+          {/* Infinite-scroll sentinel */}
+          <div ref={sentinelRef} className="h-1" />
+
+          {/* Loading indicator for next page */}
+          {loadingMore && (
+            <div className="space-y-4 pb-4">
+              {[...Array(2)].map((_, i) => <PostSkeleton key={`more-${i}`} index={i} />)}
+            </div>
+          )}
+
+          {/* End of feed */}
+          {!hasNextPage && allPosts.length > 0 && !feedLoading && (
+            <div className="text-center py-6 text-muted-foreground text-xs font-mono">
+              You're all caught up! 🎉
             </div>
           )}
         </div>

@@ -8,6 +8,7 @@ import { roastResolvers } from "./roast.resolvers";
 import { launchpadResolvers } from "./launchpad.resolvers";
 import { leaderboardResolvers } from "./leaderboard.resolvers";
 import { notificationResolvers } from "./notification.resolvers";
+import { searchResolvers } from "./search.resolvers";
 
 export const resolvers = merge(
   profileResolvers,
@@ -18,5 +19,6 @@ export const resolvers = merge(
   roastResolvers,
   launchpadResolvers,
   leaderboardResolvers,
-  notificationResolvers
+  notificationResolvers,
+  searchResolvers
 );

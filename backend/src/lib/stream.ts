@@ -1,36 +1,87 @@
 import { connect, StreamClient } from "getstream";
+import { StreamChat } from "stream-chat";
 
 const apiKey = process.env.GETSTREAM_API_KEY!;
 const apiSecret = process.env.GETSTREAM_API_SECRET!;
 const appId = process.env.GETSTREAM_APP_ID ?? "1568856";
 
-let _client: StreamClient | null = null;
+// ─── Stream Chat (messaging) server client ────────────────────────────────────
+let _chatClient: StreamChat | null = null;
+
+function getChatClient(): StreamChat {
+  if (!_chatClient) {
+    // Use `new StreamChat` (not getInstance) — the singleton cache can get poisoned
+    // if connectUser/disconnectUser was ever called on the same instance, which
+    // breaks the token manager and causes "Both secret and user tokens are not set".
+    _chatClient = new StreamChat(apiKey, apiSecret);
+  }
+  return _chatClient;
+}
+
+// ─── Stream Feeds (activity / social graph) client ───────────────────────────
+let _feedClient: StreamClient | null = null;
 
 function getStreamClient(): StreamClient {
-  if (!_client) {
-    _client = connect(apiKey, apiSecret, appId, { timeout: 10000 });
+  if (!_feedClient) {
+    _feedClient = connect(apiKey, apiSecret, appId, { timeout: 10000 });
   }
-  return _client;
+  return _feedClient;
 }
 
 // ─── User Management ─────────────────────────────────────────────────────────
 
+/**
+ * Upsert user in Stream Feeds (activity feed / social graph).
+ * Uses the batch upsert endpoint which creates-or-updates, so it works
+ * even if the user has never been added to Feeds before.
+ */
 export async function upsertStreamUser(
   user: { id: string; name: string; username: string; imageUrl?: string | null }
 ) {
-  const client = getStreamClient();
-  // Set user data via getstream's user object
-  const streamUser = client.user(user.id);
-  await streamUser.update({
+  try {
+    const client = getStreamClient();
+    // `client.setUser` on the server uses the batch upsert endpoint (PUT /users)
+    // which creates the user if they don't exist, unlike streamUser.update() which
+    // returns 404 when the user is absent from the Feeds graph.
+    await (client as any).user(user.id).getOrCreate({
+      name: user.name,
+      username: user.username,
+      image: user.imageUrl ?? undefined,
+    });
+    // After ensuring the user exists, sync the latest data
+    await (client as any).user(user.id).update({
+      name: user.name,
+      username: user.username,
+      image: user.imageUrl ?? undefined,
+    });
+  } catch (err: any) {
+    // Non-fatal — GetStream sync failure should never block profile saves
+    console.warn("[stream] upsertStreamUser failed (non-fatal):", err?.message ?? err);
+  }
+}
+
+/**
+ * Upsert user in Stream Chat — must be called server-side before the client
+ * attempts connectUser. Also called automatically on first connectUser from client.
+ */
+export async function upsertChatUser(
+  user: { id: string; name: string; username?: string; imageUrl?: string | null }
+) {
+  const client = getChatClient();
+  await client.upsertUser({
+    id: user.id,
     name: user.name,
     username: user.username,
     image: user.imageUrl ?? undefined,
-  } as any);
+  });
 }
 
+/**
+ * Generate a Stream CHAT JWT using the official server SDK.
+ * Produces { user_id, iat } payload signed HS256 — exactly what the client expects.
+ */
 export function generateStreamToken(userId: string): string {
-  const client = getStreamClient();
-  return client.createUserToken(userId);
+  return getChatClient().createToken(userId);
 }
 
 // ─── Feed Operations ─────────────────────────────────────────────────────────
@@ -65,6 +116,7 @@ export async function addActivityToFeed(
 /**
  * Get raw unranked activities from a user's timeline feed.
  * Ranking is done in the Apollo resolver using our custom scoring function.
+ * Returns empty array if the feed group doesn't exist or GetStream is unreachable.
  */
 export async function getRawFeed(
   userId: string,
@@ -80,21 +132,50 @@ export async function getRawFeed(
 // ─── Social Graph ─────────────────────────────────────────────────────────────
 
 export async function streamFollowUser(followerId: string, followingId: string) {
-  const client = getStreamClient();
-  const timelineFeed = client.feed("timeline", followerId);
-  await timelineFeed.follow("user", followingId);
+  try {
+    const client = getStreamClient();
+    const timelineFeed = client.feed("timeline", followerId);
+    await timelineFeed.follow("user", followingId);
+  } catch (err: any) {
+    // Silently ignore if timeline feed group isn't configured
+    if (!err?.message?.includes("does not exist")) {
+      console.error("[stream] streamFollowUser error:", err?.message);
+    }
+  }
 }
 
 export async function streamUnfollowUser(followerId: string, followingId: string) {
-  const client = getStreamClient();
-  const timelineFeed = client.feed("timeline", followerId);
-  await timelineFeed.unfollow("user", followingId);
+  try {
+    const client = getStreamClient();
+    const timelineFeed = client.feed("timeline", followerId);
+    await timelineFeed.unfollow("user", followingId);
+  } catch (err: any) {
+    // Silently ignore if timeline feed group isn't configured
+    if (!err?.message?.includes("does not exist")) {
+      console.error("[stream] streamUnfollowUser error:", err?.message);
+    }
+  }
 }
 
-// ─── DM Channel placeholder ───────────────────────────────────────────────────
-// Phase 2: integrate stream-chat SDK separately for messaging
+// ─── DM Channel ──────────────────────────────────────────────────────────────
+
+/**
+ * Create (or get existing) a 1-on-1 messaging channel between two users.
+ * Uses a deterministic channel ID so the same pair always reuses the same channel.
+ * Returns the channel CID (e.g. "messaging:dm-abc-xyz").
+ */
 export async function createDMChannel(userAId: string, userBId: string): Promise<string> {
-  return `dm-${[userAId, userBId].sort().join("-")}`;
+  const client = getChatClient();
+  // Sort IDs for stable order-independent channel ID, then truncate each to 8 chars
+  // Full UUIDs would produce a 76-char ID which exceeds Stream's 64-char limit
+  const [a, b] = [userAId, userBId].sort();
+  const channelId = `dm-${a.replace(/-/g, "").slice(0, 12)}-${b.replace(/-/g, "").slice(0, 12)}`;
+  const channel = client.channel("messaging", channelId, {
+    members: [userAId, userBId],
+    created_by_id: userAId,
+  });
+  await channel.create();
+  return channel.cid; // e.g. "messaging:dm-abc-xyz"
 }
 
 // ─── Notifications ───────────────────────────────────────────────────────────

@@ -1,7 +1,9 @@
 ﻿import { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router";
+import { avatarSrc, DEFAULT_AVATAR } from "../../lib/defaults";
 import { gql } from "@apollo/client/core";
-import { useMutation } from "@apollo/client/react";
+import { useQuery, useMutation, useLazyQuery } from "@apollo/client/react";
 import { Card, CardContent } from "./ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Button } from "./ui/button";
@@ -22,13 +24,19 @@ import { useAuth } from "../../contexts/AuthContext";
 import { SharePostDialog } from "./share-post-dialog";
 
 /* ─── GraphQL ─────────────────────────────────────────────────────────────── */
+const GET_ME_AVATAR = gql`
+  query PostCardGetMeAvatar {
+    me { id avatarUrl }
+  }
+`;
+
 export const COMMENT_ON_POST = gql`
   mutation CommentOnPost($input: CommentInput!) {
     commentOnPost(input: $input) {
       id content likesCount likedByMe myReaction parentId createdAt isEdited
-      mentions
+      mentions repliesCount
       editHistory { id previousContent editedAt }
-      author { id name username avatarUrl }
+      author { id name displayName username avatarUrl }
     }
   }
 `;
@@ -38,7 +46,7 @@ export const REPLY_TO_COMMENT = gql`
       id content likesCount likedByMe myReaction parentId createdAt isEdited
       mentions
       editHistory { id previousContent editedAt }
-      author { id name username avatarUrl }
+      author { id name displayName username avatarUrl }
     }
   }
 `;
@@ -67,8 +75,46 @@ export const DELETE_COMMENT = gql`
 const DELETE_POST = gql`
   mutation DeletePost($id: ID!) { deletePost(id: $id) }
 `;
+
+const GET_COMMENT_REPLIES = gql`
+  query GetCommentReplies($commentId: ID!, $limit: Int, $offset: Int) {
+    commentReplies(commentId: $commentId, limit: $limit, offset: $offset) {
+      id content likesCount likedByMe myReaction parentId createdAt isEdited mentions repliesCount
+      editHistory { id previousContent editedAt }
+      author { id name displayName username avatarUrl }
+      replies {
+        id content likesCount likedByMe myReaction parentId createdAt isEdited mentions repliesCount
+        editHistory { id previousContent editedAt }
+        author { id name displayName username avatarUrl }
+      }
+    }
+  }
+`;
 const MARK_NOT_INTERESTED = gql`
   mutation MarkNotInterested($postId: ID!) { markNotInterestedInPost(postId: $postId) }
+`;
+
+const GET_POST_COMMENTS = gql`
+  query GetPostComments($postId: ID!, $limit: Int, $offset: Int) {
+    post(id: $postId) {
+      id
+      comments(limit: $limit, offset: $offset) {
+        id content likesCount likedByMe myReaction parentId createdAt isEdited mentions repliesCount
+        editHistory { id previousContent editedAt }
+        author { id name displayName username avatarUrl }
+        replies {
+          id content likesCount likedByMe myReaction parentId createdAt isEdited mentions repliesCount
+          editHistory { id previousContent editedAt }
+          author { id name displayName username avatarUrl }
+          replies {
+            id content likesCount likedByMe myReaction parentId createdAt isEdited mentions repliesCount
+            editHistory { id previousContent editedAt }
+            author { id name displayName username avatarUrl }
+          }
+        }
+      }
+    }
+  }
 `;
 
 /* ─── Types ───────────────────────────────────────────────────────────────── */
@@ -112,12 +158,12 @@ interface PostCardProps {
 }
 
 /* ─── Reactions (Facebook-style + Fire) ────────────────────────────────────── */
-const REACTIONS = [
+export const REACTIONS = [
   { emoji: "👍", label: "Like",  color: "text-blue-500"   },
   { emoji: "❤️", label: "Love",  color: "text-red-500"    },
-  { emoji: "�", label: "Haha",  color: "text-yellow-500" },
-  { emoji: "�", label: "Wow",   color: "text-yellow-500" },
-  { emoji: "�", label: "Sad",   color: "text-blue-400"   },
+  { emoji: "😂", label: "Haha",  color: "text-yellow-500" },
+  { emoji: "😮", label: "Wow",   color: "text-yellow-500" },
+  { emoji: "😢", label: "Sad",   color: "text-blue-400"   },
   { emoji: "😡", label: "Angry", color: "text-orange-600" },
   { emoji: "🔥", label: "Fire",  color: "text-orange-500" },
 ];
@@ -234,6 +280,13 @@ function Lightbox({ imgs, startIndex, onClose }: {
   const prev = useCallback(() => setIdx((i) => (i - 1 + imgs.length) % imgs.length), [imgs.length]);
   const next = useCallback(() => setIdx((i) => (i + 1) % imgs.length), [imgs.length]);
 
+  // Lock body scroll while open
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape")      onClose();
@@ -244,64 +297,83 @@ function Lightbox({ imgs, startIndex, onClose }: {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, prev, next]);
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+      className="fixed inset-0 flex items-center justify-center bg-black"
+      style={{ zIndex: 99999 }}
       onClick={onClose}
     >
-      {/* Close */}
+      {/* Close button */}
       <button
         onClick={onClose}
-        className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors z-10"
+        className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/25 text-white transition-colors"
+        style={{ zIndex: 100001 }}
       >
         <XIcon className="w-5 h-5" />
       </button>
 
       {/* Counter */}
       {imgs.length > 1 && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 text-white/70 text-sm font-medium z-10">
+        <div
+          className="absolute top-4 left-1/2 -translate-x-1/2 text-white/80 text-sm font-medium select-none"
+          style={{ zIndex: 100001 }}
+        >
           {idx + 1} / {imgs.length}
         </div>
       )}
 
-      {/* Prev */}
+      {/* Prev arrow */}
       {imgs.length > 1 && (
         <button
           onClick={(e) => { e.stopPropagation(); prev(); }}
-          className="absolute left-4 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors z-10"
+          className="absolute left-4 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/25 text-white transition-colors"
+          style={{ zIndex: 100001 }}
         >
-          <ChevronLeft className="w-6 h-6" />
+          <ChevronLeft className="w-7 h-7" />
         </button>
       )}
 
-      {/* Image */}
+      {/* Main image — fills as much of the viewport as possible */}
       <img
+        key={idx}
         src={imgs[idx]}
         alt=""
         onClick={(e) => e.stopPropagation()}
-        className="max-w-[90vw] max-h-[90vh] object-contain select-none"
         draggable={false}
+        className="select-none object-contain"
+        style={{
+          maxWidth: "calc(100vw - 120px)",
+          maxHeight: "calc(100vh - 120px)",
+          width: "auto",
+          height: "auto",
+          zIndex: 100000,
+        }}
       />
 
-      {/* Next */}
+      {/* Next arrow */}
       {imgs.length > 1 && (
         <button
           onClick={(e) => { e.stopPropagation(); next(); }}
-          className="absolute right-4 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors z-10"
+          className="absolute right-4 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/25 text-white transition-colors"
+          style={{ zIndex: 100001 }}
         >
-          <ChevronRight className="w-6 h-6" />
+          <ChevronRight className="w-7 h-7" />
         </button>
       )}
 
-      {/* Thumbnail strip (3+ images) */}
-      {imgs.length > 2 && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-10">
+      {/* Thumbnail strip (2+ images) */}
+      {imgs.length > 1 && (
+        <div
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2"
+          style={{ zIndex: 100001 }}
+          onClick={(e) => e.stopPropagation()}
+        >
           {imgs.map((src, i) => (
             <button
               key={i}
-              onClick={(e) => { e.stopPropagation(); setIdx(i); }}
-              className={`w-12 h-12 rounded overflow-hidden border-2 transition-all ${
-                i === idx ? "border-white scale-110" : "border-white/30 opacity-60 hover:opacity-90"
+              onClick={() => setIdx(i)}
+              className={`w-12 h-12 rounded overflow-hidden border-2 flex-shrink-0 transition-all duration-150 ${
+                i === idx ? "border-white scale-110" : "border-white/30 opacity-50 hover:opacity-90"
               }`}
             >
               <img src={src} alt="" className="w-full h-full object-cover" />
@@ -309,7 +381,8 @@ function Lightbox({ imgs, startIndex, onClose }: {
           ))}
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -439,7 +512,7 @@ export function SharedPostPreview({ post }: { post: OriginalPost }) {
   const isRoast = post.postType === "roast" ||
     (post.tags ?? []).some((t) => t.name === "roast");
   const projectName = post.projectName ?? "Unknown Project";
-  const avatarFallbackUrl = `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(post.author.name)}`;
+  const avatarFallbackUrl = DEFAULT_AVATAR;
 
   /* ── Roast-style card ─────────────────────────────────────────────── */
   if (isRoast) {
@@ -648,6 +721,7 @@ export interface CommentData {
   createdAt: string;
   author: { id?: string; name: string; username: string; avatarUrl?: string };
   replies: CommentData[];
+  repliesCount: number;
 }
 
 /* ─── CommentItem ─────────────────────────────────────────────────────────── */
@@ -793,10 +867,69 @@ export function CommentItem({
     : undefined;
 
   // Visible replies: cap at SUB_REPLY_LIMIT for depth < 2
-  const visibleReplies = depth < 2
-    ? (showAllSubReplies ? comment.replies : comment.replies.slice(0, SUB_REPLY_LIMIT))
-    : [];
-  const hasMoreReplies = depth < 2 && comment.replies.length > SUB_REPLY_LIMIT;
+  // At depth-0, replies are collapsed until user clicks "View replies"
+  // At depth 1+, replies are shown immediately (already inside an expanded thread)
+  const [repliesExpanded, setRepliesExpanded] = useState(false);
+
+  const [fetchReplies, { data: repliesData, loading: repliesQueryLoading }] = useLazyQuery(GET_COMMENT_REPLIES, {
+    fetchPolicy: "network-only",
+  });
+
+  // Derive fetched replies from query data
+  const fetchedReplies: CommentData[] = (repliesData?.commentReplies ?? []).map((c: any): CommentData => ({
+    id: c.id,
+    content: c.content,
+    likesCount: c.likesCount ?? 0,
+    likedByMe: c.likedByMe ?? false,
+    myReaction: c.myReaction ?? null,
+    parentId: c.parentId ?? null,
+    mentions: c.mentions ?? [],
+    isEdited: c.isEdited ?? false,
+    editHistory: (c.editHistory ?? []).map((e: any) => ({
+      id: e.id, previousContent: e.previousContent, editedAt: e.editedAt,
+    })),
+    createdAt: c.createdAt,
+    repliesCount: c.repliesCount ?? (c.replies?.length ?? 0),
+    replies: (c.replies ?? []).map((r: any): CommentData => ({
+      id: r.id, content: r.content, likesCount: r.likesCount ?? 0,
+      likedByMe: r.likedByMe ?? false, myReaction: r.myReaction ?? null,
+      parentId: r.parentId ?? null, mentions: r.mentions ?? [],
+      isEdited: r.isEdited ?? false,
+      editHistory: (r.editHistory ?? []).map((e: any) => ({
+        id: e.id, previousContent: e.previousContent, editedAt: e.editedAt,
+      })),
+      createdAt: r.createdAt, repliesCount: r.repliesCount ?? 0, replies: [],
+      author: {
+        id: r.author?.id, name: r.author?.displayName ?? r.author?.username ?? r.author?.name ?? "Unknown",
+        username: r.author?.username ?? "", avatarUrl: r.author?.avatarUrl,
+      },
+    })),
+    author: {
+      id: c.author?.id, name: c.author?.displayName ?? c.author?.username ?? c.author?.name ?? "Unknown",
+      username: c.author?.username ?? "", avatarUrl: c.author?.avatarUrl,
+    },
+  }));
+
+  // Effective replies: prefer fetched data, fall back to pre-loaded replies on the comment
+  const effectiveReplies = fetchedReplies.length > 0 ? fetchedReplies : comment.replies;
+  const lazyRepliesLoading = repliesQueryLoading;
+
+  function handleExpandReplies() {
+    setRepliesExpanded(true);
+    // Only fetch if we don't already have data loaded
+    if (fetchedReplies.length === 0 && comment.replies.length === 0 && comment.repliesCount > 0) {
+      fetchReplies({ variables: { commentId: comment.id, limit: 20, offset: 0 } });
+    }
+  }
+
+  const visibleReplies = depth <= 1
+    ? (repliesExpanded
+        ? (showAllSubReplies ? effectiveReplies : effectiveReplies.slice(0, SUB_REPLY_LIMIT))
+        : [])
+    : (showAllSubReplies ? effectiveReplies : effectiveReplies.slice(0, SUB_REPLY_LIMIT));
+
+  const hasMoreReplies = effectiveReplies.length > SUB_REPLY_LIMIT;
+  const hasReplies = effectiveReplies.length > 0 || comment.repliesCount > 0;
 
   return (
     <>
@@ -807,14 +940,11 @@ export function CommentItem({
         <div className="flex flex-col items-center flex-shrink-0">
           <Link to={profileHref} className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">
             <Avatar className="w-7 h-7">
-              <AvatarImage src={comment.author?.avatarUrl} />
+              <AvatarImage src={avatarSrc(comment.author?.avatarUrl)} />
               <AvatarFallback className="text-[10px]">{comment.author?.name?.[0]}</AvatarFallback>
             </Avatar>
           </Link>
-          {/* Vertical line: on depth-0 and depth-1 comments that have replies */}
-          {depth < 2 && comment.replies.length > 0 && (
-            <div className="w-px flex-1 bg-border/50 mt-1" />
-          )}
+
         </div>
 
         {/* Content column */}
@@ -960,12 +1090,31 @@ export function CommentItem({
         </div>
       </div>
 
-      {/* ── Replies (rendered at depth 0 and 1, capped at depth 2) ─────── */}
-      {depth < 2 && comment.replies.length > 0 && (
+      {/* ── Replies ──────────────────────────────────────────────── */}
+      {depth < 3 && hasReplies && (
         <div className="flex gap-2">
-          {/* Spacer matching avatar width + gap to align replies under content */}
           <div className="w-7 flex-shrink-0" />
-          <div className="flex-1 min-w-0 flex flex-col gap-2 pt-1">
+          <div className="flex-1 min-w-0 flex flex-col gap-2 pt-0.5">
+
+            {/* ── Depth-0 and depth-1: collapsed toggle ── */}
+            {depth <= 1 && !repliesExpanded && (
+              <button
+                onClick={handleExpandReplies}
+                className="text-[11px] font-semibold text-primary hover:underline self-start flex items-center gap-1"
+              >
+                <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm.75 10.25a.75.75 0 01-1.5 0v-4.5a.75.75 0 011.5 0v4.5zm-.75-6a.875.875 0 110-1.75.875.875 0 010 1.75z"/>
+                </svg>
+                View {comment.repliesCount || effectiveReplies.length} {(comment.repliesCount || effectiveReplies.length) === 1 ? "reply" : "replies"}
+              </button>
+            )}
+
+            {/* ── Loading indicator for lazy-loaded replies ── */}
+            {lazyRepliesLoading && (
+              <div className="text-[11px] text-muted-foreground py-1">Loading replies…</div>
+            )}
+
+            {/* ── Expanded replies list ── */}
             {visibleReplies.map((reply) => (
               <CommentItem
                 key={reply.id}
@@ -981,18 +1130,31 @@ export function CommentItem({
                 depth1ParentId={depth === 0 ? reply.id : comment.id}
               />
             ))}
-            {hasMoreReplies && (
+
+            {/* ── Show more / Show less (when expanded) ── */}
+            {repliesExpanded && hasMoreReplies && (
               <button
                 onClick={() => setShowAllSubReplies((v) => !v)}
                 className="text-[11px] font-semibold text-primary hover:underline self-start mt-0.5"
               >
                 {showAllSubReplies
                   ? "Show less"
-                  : `View ${comment.replies.length - SUB_REPLY_LIMIT} more repl${
-                      comment.replies.length - SUB_REPLY_LIMIT === 1 ? "y" : "ies"
+                  : `View ${effectiveReplies.length - SUB_REPLY_LIMIT} more repl${
+                      effectiveReplies.length - SUB_REPLY_LIMIT === 1 ? "y" : "ies"
                     }`}
               </button>
             )}
+
+            {/* ── Collapse back ── */}
+            {depth <= 1 && repliesExpanded && (
+              <button
+                onClick={() => { setRepliesExpanded(false); setShowAllSubReplies(false); }}
+                className="text-[11px] text-muted-foreground hover:underline self-start"
+              >
+                Hide replies
+              </button>
+            )}
+
           </div>
         </div>
       )}
@@ -1061,6 +1223,7 @@ export interface MentionUser {
 
 export function CommentInput({
   user,
+  avatarUrl,
   onSubmit,
   inputRef,
   autoFocus = false,
@@ -1069,6 +1232,7 @@ export function CommentInput({
   mentionUsers = [],
 }: {
   user: { id: string; email?: string } | null;
+  avatarUrl?: string;
   onSubmit: (text: string, mediaUrl?: string, mediaType?: string, mentions?: string[]) => Promise<void>;
   inputRef?: React.RefObject<HTMLTextAreaElement>;
   autoFocus?: boolean;
@@ -1167,7 +1331,7 @@ export function CommentInput({
   if (!user) {
     return (
       <p className="text-xs text-muted-foreground text-center py-2">
-        <a href="/login" className="underline font-medium">Sign in</a> to comment
+        <Link to="/login" className="underline font-medium">Sign in</Link> to comment
       </p>
     );
   }
@@ -1177,6 +1341,7 @@ export function CommentInput({
   return (
     <div className="flex gap-2 items-end">
       <Avatar className="w-7 h-7 flex-shrink-0 mb-1">
+        <AvatarImage src={avatarSrc(avatarUrl)} />
         <AvatarFallback className="text-[10px]">
           {user.email?.[0]?.toUpperCase() ?? "?"}
         </AvatarFallback>
@@ -1193,7 +1358,7 @@ export function CommentInput({
                 className="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-muted transition-colors"
               >
                 <Avatar className="w-6 h-6 flex-shrink-0">
-                  <AvatarImage src={mu.avatarUrl} />
+                  <AvatarImage src={avatarSrc(mu.avatarUrl)} />
                   <AvatarFallback className="text-[9px]">{mu.name[0]}</AvatarFallback>
                 </Avatar>
                 <div className="min-w-0">
@@ -1334,6 +1499,11 @@ export function PostCard({
   onNotInterested,
 }: PostCardProps) {
   const { user } = useAuth();
+  const { data: meData } = useQuery(GET_ME_AVATAR, {
+    skip: !user,
+    fetchPolicy: "cache-first",
+  });
+  const myAvatarUrl = meData?.me?.avatarUrl;
 
   // Like / reaction
   const [localLiked,       setLocalLiked]       = useState(post.likedByMe ?? false);
@@ -1347,6 +1517,50 @@ export function PostCard({
   const [localComments,     setLocalComments]     = useState<CommentData[]>(post.initialComments ?? []);
   const [localCommentCount, setLocalCommentCount] = useState(post.comments);
   const [showComments,      setShowComments]      = useState(false);
+  const commentsFetchedRef = useRef(false);
+
+  // Lazy query — fires to load full comment thread
+  const [fetchComments, { loading: commentsLoading }] = useLazyQuery(GET_POST_COMMENTS, {
+    fetchPolicy: "network-only",
+    onCompleted: (data) => {
+      const fetched: any[] = data?.post?.comments ?? [];
+      // Always replace with server data — even if empty, that IS the truth
+      setLocalComments(fetched.map(adaptFetchedComment));
+      // Update count to match actual top-level count from server
+      if (fetched.length > 0) setLocalCommentCount(fetched.length);
+    },
+  });
+
+  function doFetchComments() {
+    commentsFetchedRef.current = true;
+    fetchComments({ variables: { postId: post.id, limit: 50, offset: 0 } });
+  }
+
+  // Map a fetched comment (raw GQL shape) into CommentData
+  function adaptFetchedComment(c: any): CommentData {
+    return {
+      id: c.id,
+      content: c.content,
+      likesCount: c.likesCount ?? 0,
+      likedByMe: c.likedByMe ?? false,
+      myReaction: c.myReaction ?? null,
+      parentId: c.parentId ?? null,
+      mentions: c.mentions ?? [],
+      isEdited: c.isEdited ?? false,
+      editHistory: (c.editHistory ?? []).map((e: any) => ({
+        id: e.id, previousContent: e.previousContent, editedAt: e.editedAt,
+      })),
+      createdAt: c.createdAt,
+      repliesCount: c.repliesCount ?? (c.replies?.length ?? 0),
+      replies: (c.replies ?? []).map(adaptFetchedComment),
+      author: {
+        id: c.author?.id,
+        name: c.author?.displayName ?? c.author?.username ?? c.author?.name ?? "Unknown",
+        username: c.author?.username ?? "",
+        avatarUrl: c.author?.avatarUrl,
+      },
+    };
+  }
 
   // Reply state — which comment are we replying to?
   const [replyingTo, setReplyingTo] = useState<{ id: string; name: string; visualParentId?: string; topLevelId?: string } | null>(null);
@@ -1379,13 +1593,6 @@ export function PostCard({
   useEffect(() => {
     setLocalCommentCount(post.comments);
   }, [post.comments]);
-
-  // Seed comments from server whenever they change (e.g. after refetch)
-  useEffect(() => {
-    if (post.initialComments && post.initialComments.length > 0) {
-      setLocalComments(post.initialComments);
-    }
-  }, [post.initialComments]);
 
   /* Reaction hover */
   function onReactMouseEnter() {
@@ -1426,6 +1633,9 @@ export function PostCard({
 
   function openCommentBox() {
     setShowComments(true);
+    if (!commentsFetchedRef.current) {
+      doFetchComments();
+    }
     setReplyingTo(null);
     setTimeout(() => cardInputRef.current?.focus(), 50);
   }
@@ -1452,11 +1662,12 @@ export function PostCard({
       isEdited:   false,
       editHistory: [],
       createdAt:  new Date().toISOString(),
+      repliesCount: 0,
       replies:    [],
       author: {
         id:        user!.id,
-        name:      user!.email?.split("@")[0] ?? "You",
-        username:  "you",
+        name:      (user as any)?.displayName ?? (user as any)?.username ?? user!.email?.split("@")[0] ?? "You",
+        username:  (user as any)?.username ?? "you",
         avatarUrl: undefined,
       },
     };
@@ -1469,13 +1680,26 @@ export function PostCard({
         variables: { input: { postId: post.id, content: text, mentions: mentions ?? [] } },
       });
       if (data?.commentOnPost) {
+        const raw = data.commentOnPost;
         setLocalComments((prev) =>
           prev.map((c) =>
             c.id === temp.id
-              ? { ...data.commentOnPost, mediaUrl, mediaType, replies: [] }
+              ? {
+                  ...raw,
+                  mediaUrl, mediaType, replies: [],
+                  author: {
+                    id: raw.author?.id,
+                    name: raw.author?.displayName ?? raw.author?.username ?? raw.author?.name ?? "Unknown",
+                    username: raw.author?.username ?? "",
+                    avatarUrl: raw.author?.avatarUrl,
+                  },
+                }
               : c
           )
         );
+        // Re-fetch full comment thread so count + replies stay in sync for everyone
+        commentsFetchedRef.current = false;
+        doFetchComments();
       }
     } catch {
       setLocalComments((prev) => prev.filter((c) => c.id !== temp.id));
@@ -1502,11 +1726,12 @@ export function PostCard({
       isEdited:   false,
       editHistory: [],
       createdAt:  new Date().toISOString(),
+      repliesCount: 0,
       replies:    [],
       author: {
         id:        user!.id,
-        name:      user!.email?.split("@")[0] ?? "You",
-        username:  "you",
+        name:      (user as any)?.displayName ?? (user as any)?.username ?? user!.email?.split("@")[0] ?? "You",
+        username:  (user as any)?.username ?? "you",
         avatarUrl: undefined,
       },
     };
@@ -1541,6 +1766,9 @@ export function PostCard({
         variables: { input: { postId: post.id, parentId, content: text, mentions: mentions ?? [] } },
       });
       if (data?.replyToComment) {
+        // Re-fetch full comment thread so all reply levels stay in sync
+        commentsFetchedRef.current = false;
+        doFetchComments();
         setLocalComments((prev) =>
           prev.map((c) => {
             if (!visualParentId) {
@@ -1698,7 +1926,7 @@ export function PostCard({
           <div className="flex items-center gap-3 px-4 py-3">
             <Link to={post.author.username ? `/profile/${post.author.username.replace(/^@/, "")}` : "/profile"} className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary flex-shrink-0">
               <Avatar className="w-10 h-10 border-2 border-border">
-                <AvatarImage src={post.author.avatar} />
+                <AvatarImage src={avatarSrc(post.author.avatar)} />
                 <AvatarFallback>{post.author.name[0]}</AvatarFallback>
               </Avatar>
             </Link>
@@ -1839,7 +2067,13 @@ export function PostCard({
               <div className="flex items-center gap-3">
                 {localCommentCount > 0 && (
                   <button
-                    onClick={() => setShowComments((v) => !v)}
+                    onClick={() => {
+                      const next = !showComments;
+                      setShowComments(next);
+                      if (next && !commentsFetchedRef.current) {
+                        doFetchComments();
+                      }
+                    }}
                     className="text-[12px] text-muted-foreground hover:underline"
                   >
                     {localCommentCount.toLocaleString()}{" "}
@@ -1948,6 +2182,9 @@ export function PostCard({
           {showComments && (
             <div className="border-t bg-muted/10 px-4 py-3 space-y-3">
               {/* Existing comments */}
+              {commentsLoading && localComments.length === 0 && (
+                <div className="text-xs text-muted-foreground text-center py-2">Loading comments…</div>
+              )}
               {localComments.map((comment) => (
                 <CommentItem
                   key={comment.id}
@@ -1978,6 +2215,7 @@ export function PostCard({
               {replyingTo ? (
                 <CommentInput
                   user={user}
+                  avatarUrl={myAvatarUrl}
                   onSubmit={handleReply}
                   inputRef={replyInputRef}
                   autoFocus
@@ -1987,6 +2225,7 @@ export function PostCard({
               ) : (
                 <CommentInput
                   user={user}
+                  avatarUrl={myAvatarUrl}
                   onSubmit={handleComment}
                   inputRef={cardInputRef}
                 />

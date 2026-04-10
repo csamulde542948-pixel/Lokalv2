@@ -12,13 +12,17 @@ export const notificationResolvers = {
     ) => {
       if (!user) throw new Error("Unauthorized");
 
+      const safeLimit = Math.min(limit, 50);
+      // HIGH-04: Cap offset to prevent full-table Postgres scan
+      const safeOffset = Math.min(offset, 10_000);
+
       const [total, items] = await Promise.all([
         prisma.notification.count({ where: { recipientId: user.id } }),
         prisma.notification.findMany({
           where: { recipientId: user.id },
           orderBy: { createdAt: "desc" },
-          take: limit,
-          skip: offset,
+          take: safeLimit,
+          skip: safeOffset,
           include: {
             actor: { include: { rank: true } },
             post: true,
@@ -64,9 +68,9 @@ export const notificationResolvers = {
 
       // Decrement unread count on profile (floor at 0)
       await prisma.$executeRaw`
-        UPDATE "Profile"
+        UPDATE "profiles"
         SET "unreadNotificationsCount" = GREATEST("unreadNotificationsCount" - 1, 0)
-        WHERE id = ${user.id}
+        WHERE id = ${user.id}::uuid
       `;
 
       return updated;
@@ -109,9 +113,12 @@ export const notificationResolvers = {
         case "COMMENT":            return "commented on your post";
         case "FOLLOW":             return "started following you";
         case "MENTION":            return "mentioned you in a comment";
+        case "SHARE":              return "shared your post";
         case "PROJECT_ROAST":      return "roasted your project";
         case "XP_LEVELUP":         return "You leveled up!";
         case "LAUNCHPAD_INTEREST": return "is interested in your launch";
+        case "JOB_APPLICATION":    return "applied to your job posting";
+        case "EVENT_REMINDER":     return "Your event is coming up soon";
         default:                   return "sent you a notification";
       }
     },

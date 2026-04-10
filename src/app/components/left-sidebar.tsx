@@ -1,4 +1,5 @@
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
+import { avatarSrc } from "../../lib/defaults";
 import { Skeleton } from "./ui/skeleton";
 import { User, Users, FolderKanban, BarChart3, Settings, Rocket, Flame, Trophy, Sparkles, Shield, Briefcase, Calendar } from "lucide-react";
 import { Link, useLocation } from "react-router";
@@ -95,9 +96,9 @@ const menuItems = [
   },
   {
     icon: Users,
-    label: "Friends",
+    label: "Followers",
     badge: null,
-    path: "/friends",
+    path: "/followers",
   },
   {
     icon: FolderKanban,
@@ -141,7 +142,7 @@ export function LeftSidebar({ className = "" }: LeftSidebarProps) {
           ) : (
             <>
               <Avatar className="w-8 h-8 border-2 border-border flex-shrink-0">
-                <AvatarImage src={me?.avatarUrl ?? undefined} />
+                <AvatarImage src={avatarSrc(me?.avatarUrl)} />
                 <AvatarFallback>{(me?.name ?? user?.email ?? "?")[0].toUpperCase()}</AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">

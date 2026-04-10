@@ -1,27 +1,71 @@
-import { useState } from "react";
-import { useParams } from "react-router";
+import { useState, useEffect } from "react";
+import { useParams, useNavigate, useSearchParams } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useQuery, useMutation } from "@apollo/client/react";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { useAuth } from "../../contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Separator } from "../components/ui/separator";
 import { Skeleton } from "../components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs";
+import { Tooltip, TooltipTrigger, TooltipContent } from "../components/ui/tooltip";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import { Textarea } from "../components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../components/ui/alert-dialog";
 import {
   Star,
-  Eye,
   Globe,
   ExternalLink,
-  Calendar,
-  Users,
   Heart,
   Share2,
   Code2,
   Lock,
   GitFork,
-  Tag,
   AlertCircle,
+  BadgeCheck,
+  Camera,
+  ArrowLeft,
+  Calendar,
+  Users,
+  Tag,
+  Monitor,
+  Smartphone,
+  Package,
+  Layers,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  Check,
+  FolderKanban,
+  Trash2,
+  Pencil,
+  Twitter,
+  Linkedin,
 } from "lucide-react";
 
 // ─── GraphQL ──────────────────────────────────────────────────────────────────
@@ -46,12 +90,17 @@ const GET_PROJECT = gql`
       likesCount
       rating
       progress
-      demoUrl
+      projectUrl
       githubUrl
+      twitterUrl
+      linkedinUrl
+      screenshotUrl
+      screenshots
+      isVerified
       createdAt
       tags { name }
-      owner { name username avatarUrl }
-      members { profile { name username avatarUrl } role }
+      owner { id name username avatarUrl }
+      members { profile { id name username avatarUrl } role }
     }
   }
 `;
@@ -74,40 +123,149 @@ const STAR_PROJECT = gql`
   }
 `;
 
+const DELETE_PROJECT = gql`
+  mutation DeleteProject($id: ID!) {
+    deleteProject(id: $id)
+  }
+`;
+
+const UPDATE_PROJECT = gql`
+  mutation UpdateProject($id: ID!, $input: UpdateProjectInput!) {
+    updateProject(id: $id, input: $input) {
+      id
+      name
+      tagline
+      description
+      projectUrl
+      githubUrl
+      twitterUrl
+      linkedinUrl
+      visibility
+      category
+      status
+      progress
+      tags { name }
+    }
+  }
+`;
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(dateString: string) {
-  return new Date(dateString).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  return new Date(dateString).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
-// ─── Skeletons ────────────────────────────────────────────────────────────────
+function getCategoryIcon(category: string) {
+  switch (category) {
+    case "WEB_APP":    return <Monitor className="w-3.5 h-3.5" strokeWidth={2} />;
+    case "MOBILE_APP": return <Smartphone className="w-3.5 h-3.5" strokeWidth={2} />;
+    case "LIBRARY":    return <Package className="w-3.5 h-3.5" strokeWidth={2} />;
+    case "CLI_TOOL":   return <Code2 className="w-3.5 h-3.5" strokeWidth={2} />;
+    default:           return <Layers className="w-3.5 h-3.5" strokeWidth={2} />;
+  }
+}
+
+function getCategoryLabel(category: string) {
+  const labels: Record<string, string> = {
+    WEB_APP: "Web App", MOBILE_APP: "Mobile App", LIBRARY: "Library",
+    CLI_TOOL: "CLI Tool", PORTFOLIO: "Portfolio", OTHER: "Other",
+  };
+  return labels[category] ?? category;
+}
+
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
 
 function ProjectDetailSkeleton() {
   return (
-    <div className="min-h-screen">
-      <Skeleton className="w-full h-72" />
-      <div className="container mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-6">
-            <div className="flex items-center gap-4">
-              <Skeleton className="w-20 h-20 rounded-xl" />
-              <div className="space-y-2">
-                <Skeleton className="h-7 w-48" />
-                <Skeleton className="h-4 w-64" />
-                <Skeleton className="h-3 w-32" />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Skeleton className="h-3 w-full" />
-              <Skeleton className="h-3 w-4/5" />
-              <Skeleton className="h-3 w-3/5" />
+    <div className="min-h-screen bg-background">
+      <div className="border-b">
+        <div className="container mx-auto px-4 py-3">
+          <Skeleton className="h-5 w-28" />
+        </div>
+      </div>
+      <div className="relative">
+        <Skeleton className="w-full h-56 md:h-64" />
+        <div className="container mx-auto px-4">
+          <div className="relative -mt-10 flex items-end gap-4 pb-5">
+            <Skeleton className="w-20 h-20 rounded-2xl" />
+            <div className="flex-1 space-y-2 pb-1">
+              <Skeleton className="h-6 w-48" />
+              <Skeleton className="h-4 w-72" />
             </div>
           </div>
+        </div>
+      </div>
+      <div className="container mx-auto px-4 py-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 space-y-5">
+            <Skeleton className="h-10 w-64" />
+            <Skeleton className="h-40 rounded-xl" />
+            <Skeleton className="h-56 rounded-xl" />
+          </div>
           <div className="space-y-4">
-            <Skeleton className="h-48 rounded-xl" />
+            <Skeleton className="h-44 rounded-xl" />
             <Skeleton className="h-32 rounded-xl" />
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Screenshot Lightbox ──────────────────────────────────────────────────────
+
+function ScreenshotLightbox({
+  images,
+  activeIndex,
+  onClose,
+  onPrev,
+  onNext,
+}: {
+  images: string[];
+  activeIndex: number;
+  onClose: () => void;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
+      <div className="relative max-w-5xl w-full mx-4" onClick={e => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute -top-10 right-0 text-white/70 hover:text-white transition-colors">
+          <X className="w-6 h-6" />
+        </button>
+        <img
+          src={images[activeIndex]}
+          alt={`Screenshot ${activeIndex + 1}`}
+          className="w-full max-h-[80vh] object-contain rounded-lg"
+        />
+        {images.length > 1 && (
+          <>
+            <button
+              onClick={onPrev}
+              className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button
+              onClick={onNext}
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 transition-colors"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+            <div className="flex justify-center gap-1.5 mt-3">
+              {images.map((_, i) => (
+                <div
+                  key={i}
+                  className={`w-2 h-2 rounded-full transition-colors ${i === activeIndex ? "bg-white" : "bg-white/30"}`}
+                />
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -117,7 +275,36 @@ function ProjectDetailSkeleton() {
 
 export function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
-  const [activeTab, setActiveTab] = useState<"overview" | "team">("overview");
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { user } = useAuth();
+  const [copied, setCopied] = useState(false);
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editForm, setEditForm] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
+  // Open edit dialog pre-filled with current project data
+  function openEdit() {
+    if (!data?.project) return;
+    const p = data.project;
+    setEditForm({
+      name: p.name ?? "",
+      tagline: p.tagline ?? "",
+      description: p.description ?? "",
+      projectUrl: p.projectUrl ?? "",
+      githubUrl: p.githubUrl ?? "",
+      twitterUrl: p.twitterUrl ?? "",
+      linkedinUrl: p.linkedinUrl ?? "",
+      visibility: p.visibility ?? "PUBLIC",
+      category: p.category ?? "OTHER",
+      status: p.status ?? "IN_DEVELOPMENT",
+      tags: (p.tags ?? []).map((t: any) => t.name).join(", "),
+    });
+    setShowEditDialog(true);
+  }
 
   const { data, loading, error } = useQuery(GET_PROJECT, {
     variables: { id },
@@ -125,18 +312,74 @@ export function ProjectDetail() {
     fetchPolicy: "cache-and-network",
   });
 
+  // Auto-open edit dialog when coming from card's "Edit project" link (?edit=1)
+  useEffect(() => {
+    if (data?.project && searchParams.get("edit") === "1") {
+      openEdit();
+      // Remove the param from URL so refresh doesn't re-trigger
+      navigate(`/project/${id}`, { replace: true });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.project]);
+
   const [likeProject] = useMutation(LIKE_PROJECT);
   const [starProject] = useMutation(STAR_PROJECT);
+  const [deleteProjectMutation] = useMutation(DELETE_PROJECT);
+  const [updateProjectMutation] = useMutation(UPDATE_PROJECT, {
+    refetchQueries: [{ query: GET_PROJECT, variables: { id } }],
+  });
+
+  async function handleSaveEdit() {
+    setSaving(true);
+    try {
+      await updateProjectMutation({
+        variables: {
+          id,
+          input: {
+            name: editForm.name,
+            tagline: editForm.tagline,
+            description: editForm.description || undefined,
+            projectUrl: editForm.projectUrl || undefined,
+            githubUrl: editForm.githubUrl || undefined,
+            twitterUrl: editForm.twitterUrl || undefined,
+            linkedinUrl: editForm.linkedinUrl || undefined,
+            visibility: editForm.visibility,
+            category: editForm.category,
+            status: editForm.status || undefined,
+            tags: editForm.tags.split(",").map((t: string) => t.trim()).filter(Boolean),
+          },
+        },
+      });
+      setShowEditDialog(false);
+    } catch (_) { /* Apollo surfaces the error */ }
+    finally { setSaving(false); }
+  }
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      await deleteProjectMutation({ variables: { id } });
+      navigate("/projects");
+    } catch (_) {
+      setDeleting(false);
+    }
+  }
 
   if (loading) return <ProjectDetailSkeleton />;
 
   if (error || !data?.project) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center space-y-3">
-          <AlertCircle className="w-12 h-12 mx-auto text-muted-foreground" strokeWidth={1.5} />
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center space-y-4">
+          <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mx-auto">
+            <AlertCircle className="w-8 h-8 text-muted-foreground" strokeWidth={1.5} />
+          </div>
           <h2 className="text-lg font-semibold">Project not found</h2>
-          <p className="text-sm text-muted-foreground">{error?.message ?? "This project may have been removed."}</p>
+          <p className="text-sm text-muted-foreground max-w-sm">{error?.message ?? "This project may have been removed or you don't have access."}</p>
+          <Button variant="outline" onClick={() => navigate("/projects")} className="gap-2">
+            <ArrowLeft className="w-4 h-4" />
+            Back to Projects
+          </Button>
         </div>
       </div>
     );
@@ -145,170 +388,492 @@ export function ProjectDetail() {
   const project = data.project;
   const tags = project.tags ?? [];
   const members = project.members ?? [];
+  const allScreenshots = [
+    ...(project.screenshots ?? []),
+    ...(project.screenshotUrl && !(project.screenshots ?? []).includes(project.screenshotUrl) ? [project.screenshotUrl] : []),
+  ];
+  const heroImage = project.bannerUrl || allScreenshots[0];
 
-  function handleLike() {
-    likeProject({ variables: { projectId: project.id } });
-  }
-
-  function handleStar() {
-    starProject({ variables: { projectId: project.id } });
+  function handleShare() {
+    const url = window.location.href;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   }
 
   return (
-    <div className="min-h-screen">
-      {/* Banner */}
-      <div className="relative w-full h-72 bg-muted overflow-hidden">
-        {project.bannerUrl ? (
-          <img src={project.bannerUrl} alt={project.name} className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-br from-primary/20 via-muted to-primary/5" />
-        )}
-        {project.isFeatured && (
-          <Badge className="absolute top-4 right-4 bg-yellow-500/90 text-white border-0">Featured</Badge>
-        )}
-        {project.isTrending && (
-          <Badge className="absolute top-4 left-4 bg-primary/90 text-white border-0">Trending</Badge>
-        )}
+    <div className="min-h-screen bg-background">
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete "{project?.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the project and all its data. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? (
+                <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Deleting…</span>
+              ) : (
+                <span className="flex items-center gap-2"><Trash2 className="w-4 h-4" />Delete Project</span>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="w-4 h-4 text-primary" strokeWidth={2} />
+              Edit Project
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Project Name *</Label>
+              <Input value={editForm.name ?? ""} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Tagline *</Label>
+              <Input value={editForm.tagline ?? ""} onChange={e => setEditForm(f => ({ ...f, tagline: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Description</Label>
+              <Textarea rows={4} value={editForm.description ?? ""} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Category</Label>
+                <Select value={editForm.category} onValueChange={v => setEditForm(f => ({ ...f, category: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="WEB_APP">Web App</SelectItem>
+                    <SelectItem value="MOBILE_APP">Mobile App</SelectItem>
+                    <SelectItem value="LIBRARY">Library</SelectItem>
+                    <SelectItem value="CLI_TOOL">CLI Tool</SelectItem>
+                    <SelectItem value="PORTFOLIO">Portfolio</SelectItem>
+                    <SelectItem value="OTHER">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Visibility</Label>
+                <Select value={editForm.visibility} onValueChange={v => setEditForm(f => ({ ...f, visibility: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PUBLIC">Public</SelectItem>
+                    <SelectItem value="PRIVATE">Private</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Status</Label>
+                <Select value={editForm.status} onValueChange={v => setEditForm(f => ({ ...f, status: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="IN_DEVELOPMENT">In Development</SelectItem>
+                    <SelectItem value="BETA">Beta</SelectItem>
+                    <SelectItem value="LAUNCHED">Launched</SelectItem>
+                    <SelectItem value="ARCHIVED">Archived</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tech Stack <span className="text-muted-foreground text-xs font-normal">(comma separated)</span></Label>
+                <Input placeholder="React, TypeScript…" value={editForm.tags ?? ""} onChange={e => setEditForm(f => ({ ...f, tags: e.target.value }))} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Project URL</Label>
+                <Input type="url" placeholder="https://…" value={editForm.projectUrl ?? ""} onChange={e => setEditForm(f => ({ ...f, projectUrl: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>GitHub URL</Label>
+                <Input type="url" placeholder="https://github.com/…" value={editForm.githubUrl ?? ""} onChange={e => setEditForm(f => ({ ...f, githubUrl: e.target.value }))} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>X (Twitter) URL</Label>
+                <Input type="url" placeholder="https://x.com/…" value={editForm.twitterUrl ?? ""} onChange={e => setEditForm(f => ({ ...f, twitterUrl: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>LinkedIn URL</Label>
+                <Input type="url" placeholder="https://linkedin.com/company/…" value={editForm.linkedinUrl ?? ""} onChange={e => setEditForm(f => ({ ...f, linkedinUrl: e.target.value }))} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)} disabled={saving}>Cancel</Button>
+            <Button onClick={handleSaveEdit} disabled={!editForm.name || !editForm.tagline || saving} className="gap-2">
+              {saving ? (
+                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <Pencil className="w-4 h-4" strokeWidth={2} />
+              )}
+              {saving ? "Saving…" : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Lightbox */}
+      {lightboxIdx !== null && allScreenshots.length > 0 && (
+        <ScreenshotLightbox
+          images={allScreenshots}
+          activeIndex={lightboxIdx}
+          onClose={() => setLightboxIdx(null)}
+          onPrev={() => setLightboxIdx((lightboxIdx - 1 + allScreenshots.length) % allScreenshots.length)}
+          onNext={() => setLightboxIdx((lightboxIdx + 1) % allScreenshots.length)}
+        />
+      )}
+
+      {/* Top nav bar */}
+      <div className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-20">
+        <div className="container mx-auto px-4 py-2.5 flex items-center justify-between">
+          <Button variant="ghost" size="sm" onClick={() => navigate("/projects")} className="gap-1.5 -ml-2 text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="w-4 h-4" strokeWidth={2} />
+            Projects
+          </Button>
+          <div className="flex items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="sm" variant="ghost" onClick={handleShare} className="gap-1.5">
+                  {copied ? <Check className="w-4 h-4 text-green-500" /> : <Share2 className="w-4 h-4" />}
+                  {copied ? "Copied!" : "Share"}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Copy link to clipboard</TooltipContent>
+            </Tooltip>
+            {project.projectUrl && (
+              <Button size="sm" asChild className="gap-1.5">
+                <a href={project.projectUrl} target="_blank" rel="noopener noreferrer">
+                  <Globe className="w-3.5 h-3.5" strokeWidth={2} />
+                  Visit
+                  <ExternalLink className="w-3 h-3" strokeWidth={2} />
+                </a>
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Content */}
-      <div className="container mx-auto px-4 py-8">
+      {/* Hero Banner */}
+      <div className="relative w-full h-48 md:h-60 bg-muted overflow-hidden">
+        {heroImage ? (
+          <img src={heroImage} alt={project.name} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-primary/15 via-primary/5 to-muted" />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/20 to-transparent" />
+
+        {/* Featured / Trending badges */}
+        <div className="absolute top-3 right-3 flex gap-2">
+          {project.isFeatured && (
+            <Badge className="bg-yellow-500/90 text-white border-0 shadow-lg backdrop-blur-sm">⭐ Featured</Badge>
+          )}
+          {project.isTrending && (
+            <Badge className="bg-blue-500/90 text-white border-0 shadow-lg backdrop-blur-sm">🔥 Trending</Badge>
+          )}
+        </div>
+      </div>
+
+      {/* Project header — overlaps banner */}
+      <div className="container mx-auto px-4">
+        <div className="relative -mt-12 md:-mt-14 flex flex-col sm:flex-row items-start gap-4 pb-6">
+          {/* Icon */}
+          <div className="w-20 h-20 md:w-24 md:h-24 rounded-2xl bg-card border-4 border-background shadow-xl flex items-center justify-center overflow-hidden flex-shrink-0">
+            {project.iconUrl ? (
+              <img src={project.iconUrl} alt={project.name} className="w-full h-full object-cover" />
+            ) : (
+              <FolderKanban className="w-10 h-10 text-muted-foreground" strokeWidth={1.5} />
+            )}
+          </div>
+
+          {/* Title block */}
+          <div className="flex-1 min-w-0 pt-1 sm:pt-4">
+            <div className="flex flex-wrap items-center gap-2 mb-1">
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tight">{project.name}</h1>
+              {project.isVerified && (
+                <Tooltip>
+                  <TooltipTrigger>
+                    <BadgeCheck className="w-5 h-5 text-blue-500" strokeWidth={2} />
+                  </TooltipTrigger>
+                  <TooltipContent>Verified project</TooltipContent>
+                </Tooltip>
+              )}
+              {project.visibility === "PRIVATE" && (
+                <Badge variant="outline" className="text-xs gap-1">
+                  <Lock className="w-3 h-3" strokeWidth={2} />Private
+                </Badge>
+              )}
+            </div>
+            <p className="text-muted-foreground text-sm md:text-base mb-3">{project.tagline}</p>
+
+            {/* Inline meta */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span
+                className="flex items-center gap-1.5 cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => navigate(`/profile/${project.owner?.username}`)}
+              >
+                <Avatar className="w-4 h-4">
+                  <AvatarImage src={project.owner?.avatarUrl} />
+                  <AvatarFallback className="text-[8px]">{project.owner?.name?.[0]}</AvatarFallback>
+                </Avatar>
+                <span className="font-medium text-foreground">{project.owner?.name}</span>
+                <span>@{project.owner?.username}</span>
+              </span>
+              {project.category && (
+                <span className="flex items-center gap-1">
+                  {getCategoryIcon(project.category)}
+                  {getCategoryLabel(project.category)}
+                </span>
+              )}
+              {project.createdAt && (
+                <span className="flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5" strokeWidth={2} />
+                  {formatDate(project.createdAt)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Action buttons row */}
+        <div className="flex flex-wrap items-center gap-3 pb-6 border-b">
+          <Button
+            onClick={() => starProject({ variables: { projectId: project.id } })}
+            variant="outline"
+            className="gap-2 h-9"
+          >
+            <Star className="w-4 h-4" strokeWidth={2} />
+            Star
+            <Separator orientation="vertical" className="h-4" />
+            <span className="font-semibold tabular-nums">{project.starsCount}</span>
+          </Button>
+          <Button
+            onClick={() => likeProject({ variables: { projectId: project.id } })}
+            variant="outline"
+            className="gap-2 h-9"
+          >
+            <Heart className="w-4 h-4" strokeWidth={2} />
+            Like
+            <Separator orientation="vertical" className="h-4" />
+            <span className="font-semibold tabular-nums">{project.likesCount}</span>
+          </Button>
+          {project.forksCount > 0 && (
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground px-2">
+              <GitFork className="w-4 h-4" strokeWidth={2} />
+              <span className="font-semibold tabular-nums">{project.forksCount}</span>
+              <span>forks</span>
+            </div>
+          )}
+          <div className="flex-1" />
+          {/* Owner-only action buttons */}
+          {user && project.owner?.id === user.id && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={openEdit}
+              >
+                <Pencil className="w-4 h-4" strokeWidth={2} />
+                Edit
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 border-destructive/50 text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                onClick={() => setShowDeleteDialog(true)}
+              >
+                <Trash2 className="w-4 h-4" strokeWidth={2} />
+                Delete
+              </Button>
+            </>
+          )}
+          {project.githubUrl && (
+            <Button asChild variant="outline" size="sm" className="gap-1.5">
+              <a href={project.githubUrl} target="_blank" rel="noopener noreferrer">
+                <Code2 className="w-4 h-4" strokeWidth={2} />
+                Source Code
+                <ExternalLink className="w-3 h-3" strokeWidth={2} />
+              </a>
+            </Button>
+          )}
+          {project.projectUrl && (
+            <Button asChild size="sm" className="gap-1.5">
+              <a href={project.projectUrl} target="_blank" rel="noopener noreferrer">
+                <Globe className="w-4 h-4" strokeWidth={2} />
+                Visit Project
+                <ExternalLink className="w-3 h-3" strokeWidth={2} />
+              </a>
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div className="container mx-auto px-4 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left/Main */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Header */}
-            <div className="flex flex-col sm:flex-row items-start gap-4">
-              <div className="w-20 h-20 rounded-xl bg-muted flex items-center justify-center overflow-hidden flex-shrink-0 border">
-                {project.iconUrl ? (
-                  <img src={project.iconUrl} alt={project.name} className="w-full h-full object-cover" />
-                ) : (
-                  <Code2 className="w-10 h-10 text-muted-foreground" strokeWidth={1.5} />
+          {/* Left — tabs */}
+          <div className="lg:col-span-2">
+            <Tabs defaultValue="overview">
+              <TabsList className="mb-6">
+                <TabsTrigger value="overview" className="gap-1.5">
+                  <Layers className="w-3.5 h-3.5" />
+                  Overview
+                </TabsTrigger>
+                {allScreenshots.length > 0 && (
+                  <TabsTrigger value="screenshots" className="gap-1.5">
+                    <Camera className="w-3.5 h-3.5" />
+                    Screenshots
+                    <Badge variant="secondary" className="ml-1 text-[10px] h-4 px-1.5 rounded-full">{allScreenshots.length}</Badge>
+                  </TabsTrigger>
                 )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex flex-wrap items-center gap-2 mb-1">
-                  <h1 className="text-2xl font-bold">{project.name}</h1>
-                  {project.visibility === "PRIVATE" && (
-                    <Lock className="w-4 h-4 text-muted-foreground" strokeWidth={2} />
+                <TabsTrigger value="team" className="gap-1.5">
+                  <Users className="w-3.5 h-3.5" />
+                  Team
+                  {members.length > 0 && (
+                    <Badge variant="secondary" className="ml-1 text-[10px] h-4 px-1.5 rounded-full">{members.length}</Badge>
                   )}
-                  {project.category && (
-                    <Badge variant="secondary" className="text-xs">{project.category.replace(/_/g, " ")}</Badge>
-                  )}
-                </div>
-                <p className="text-muted-foreground text-sm mb-2">{project.tagline}</p>
-                <div className="flex items-center gap-2">
-                  <Avatar className="w-5 h-5">
-                    <AvatarImage src={project.owner?.avatarUrl} />
-                    <AvatarFallback>{project.owner?.name?.[0]}</AvatarFallback>
-                  </Avatar>
-                  <span className="text-xs text-muted-foreground">by <span className="text-foreground font-medium">{project.owner?.name}</span></span>
-                  <span className="text-xs text-muted-foreground">· @{project.owner?.username}</span>
-                </div>
-              </div>
-            </div>
+                </TabsTrigger>
+              </TabsList>
 
-            {/* Action buttons */}
-            <div className="flex flex-wrap gap-3">
-              <Button onClick={handleStar} className="gap-2" variant="secondary">
-                <Star className="w-4 h-4" strokeWidth={2} />
-                Star · {project.starsCount}
-              </Button>
-              <Button onClick={handleLike} className="gap-2" variant="secondary">
-                <Heart className="w-4 h-4" strokeWidth={2} />
-                Like · {project.likesCount}
-              </Button>
-              <Button className="gap-2" variant="secondary">
-                <Share2 className="w-4 h-4" strokeWidth={2} />
-                Share
-              </Button>
-              {project.demoUrl && (
-                <Button asChild className="gap-2">
-                  <a href={project.demoUrl} target="_blank" rel="noopener noreferrer">
-                    <Globe className="w-4 h-4" strokeWidth={2} />
-                    Live Demo
-                    <ExternalLink className="w-3 h-3" strokeWidth={2} />
-                  </a>
-                </Button>
-              )}
-              {project.githubUrl && (
-                <Button asChild variant="outline" className="gap-2">
-                  <a href={project.githubUrl} target="_blank" rel="noopener noreferrer">
-                    <Code2 className="w-4 h-4" strokeWidth={2} />
-                    GitHub
-                    <ExternalLink className="w-3 h-3" strokeWidth={2} />
-                  </a>
-                </Button>
-              )}
-            </div>
-
-            {/* Tabs */}
-            <div className="flex gap-2 border-b">
-              {(["overview", "team"] as const).map(tab => (
-                <Button
-                  key={tab}
-                  variant={activeTab === tab ? "default" : "ghost"}
-                  size="sm"
-                  className={`rounded-none border-b-2 rounded-t-md capitalize -mb-px ${activeTab === tab ? "border-primary" : "border-transparent"}`}
-                  onClick={() => setActiveTab(tab)}
-                >
-                  {tab}
-                </Button>
-              ))}
-            </div>
-
-            {activeTab === "overview" && (
-              <div className="space-y-6">
-                <Card className="border">
-                  <CardHeader><CardTitle className="text-base">About</CardTitle></CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line">
-                      {project.description ?? "No description provided."}
+              {/* ─── Overview Tab ─── */}
+              <TabsContent value="overview" className="space-y-6">
+                {/* About */}
+                <div>
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">About</h3>
+                  <div className="prose prose-sm dark:prose-invert max-w-none">
+                    <p className="text-sm leading-relaxed whitespace-pre-line text-foreground/90">
+                      {project.description || "No description provided yet."}
                     </p>
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
 
-                {tags.length > 0 && (
-                  <Card className="border">
-                    <CardHeader>
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <Tag className="w-4 h-4 text-muted-foreground" strokeWidth={2} />
-                        Tags
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex flex-wrap gap-2">
-                        {tags.map((t: any) => (
-                          <Badge key={t.name} variant="secondary" className="text-xs">{t.name}</Badge>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
+                {/* Screenshot preview (first 2) */}
+                {allScreenshots.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Preview</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {allScreenshots.slice(0, 2).map((url: string, i: number) => (
+                        <button
+                          key={i}
+                          onClick={() => setLightboxIdx(i)}
+                          className="block rounded-xl overflow-hidden border hover:ring-2 hover:ring-primary/40 transition-all group/ss bg-muted/50"
+                        >
+                          <img
+                            src={url}
+                            alt={`Screenshot ${i + 1}`}
+                            className="w-full object-contain group-hover/ss:scale-[1.02] transition-transform duration-300"
+                            loading="lazy"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                    {allScreenshots.length > 2 && (
+                      <p className="text-xs text-muted-foreground mt-2">
+                        +{allScreenshots.length - 2} more — see Screenshots tab
+                      </p>
+                    )}
+                  </div>
                 )}
 
-                {project.progress != null && (
-                  <Card className="border">
-                    <CardHeader><CardTitle className="text-base">Progress</CardTitle></CardHeader>
-                    <CardContent>
+                {/* Tech stack / tags */}
+                {tags.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                      <Tag className="w-3.5 h-3.5" strokeWidth={2} />
+                      Tech Stack
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {tags.map((t: any) => (
+                        <Badge key={t.name} variant="secondary" className="text-xs rounded-lg px-3 py-1 font-normal">{t.name}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Progress */}
+                {project.progress != null && project.progress > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Progress</h3>
+                    <div className="rounded-xl border bg-card p-4">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-sm text-muted-foreground">Completion</span>
-                        <span className="text-sm font-semibold">{project.progress}%</span>
+                        <span className="text-sm font-bold text-primary">{project.progress}%</span>
                       </div>
-                      <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                        <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${project.progress}%` }} />
+                      <div className="w-full h-2.5 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-primary to-primary/70 rounded-full transition-all duration-500"
+                          style={{ width: `${project.progress}%` }}
+                        />
                       </div>
-                    </CardContent>
-                  </Card>
+                    </div>
+                  </div>
                 )}
-              </div>
-            )}
+              </TabsContent>
 
-            {activeTab === "team" && (
-              <Card className="border">
-                <CardHeader><CardTitle className="text-base">Team Members</CardTitle></CardHeader>
-                <CardContent>
-                  {members.length === 0 ? (
-                    <p className="text-sm text-muted-foreground py-4 text-center">No team members listed</p>
-                  ) : (
+              {/* ─── Screenshots Tab ─── */}
+              {allScreenshots.length > 0 && (
+                <TabsContent value="screenshots" className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {allScreenshots.map((url: string, i: number) => (
+                      <button
+                        key={i}
+                        onClick={() => setLightboxIdx(i)}
+                        className="block rounded-xl overflow-hidden border hover:ring-2 hover:ring-primary/40 transition-all group/ss bg-muted/50"
+                      >
+                        <img
+                          src={url}
+                          alt={`Screenshot ${i + 1}`}
+                          className="w-full object-contain group-hover/ss:scale-[1.02] transition-transform duration-300"
+                          loading="lazy"
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </TabsContent>
+              )}
+
+              {/* ─── Team Tab ─── */}
+              <TabsContent value="team" className="space-y-4">
+                {/* Owner card */}
+                <div className="rounded-xl border bg-card p-4">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Owner</p>
+                  <div className="flex items-center gap-3">
+                    <Avatar className="w-12 h-12 border-2 border-primary/20">
+                      <AvatarImage src={project.owner?.avatarUrl} />
+                      <AvatarFallback className="text-lg">{project.owner?.name?.[0]}</AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="font-semibold">{project.owner?.name}</p>
+                      <p className="text-sm text-muted-foreground">@{project.owner?.username}</p>
+                    </div>
+                    <div className="flex-1" />
+                    <Badge variant="outline" className="text-xs">Owner</Badge>
+                  </div>
+                </div>
+
+                {/* Members */}
+                {members.length > 0 ? (
+                  <div className="rounded-xl border bg-card p-4">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Members</p>
                     <div className="space-y-3">
                       {members.map((m: any, i: number) => (
                         <div key={i} className="flex items-center gap-3">
@@ -316,128 +881,200 @@ export function ProjectDetail() {
                             <AvatarImage src={m.profile?.avatarUrl} />
                             <AvatarFallback>{m.profile?.name?.[0]}</AvatarFallback>
                           </Avatar>
-                          <div>
-                            <p className="text-sm font-medium">{m.profile?.name}</p>
-                            <p className="text-xs text-muted-foreground">@{m.profile?.username} · {m.role}</p>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{m.profile?.name}</p>
+                            <p className="text-xs text-muted-foreground">@{m.profile?.username}</p>
                           </div>
+                          <Badge variant="secondary" className="text-xs capitalize">{m.role?.toLowerCase()}</Badge>
                         </div>
                       ))}
                     </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border bg-card p-8 text-center">
+                    <Users className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" strokeWidth={1.5} />
+                    <p className="text-sm text-muted-foreground">No team members yet</p>
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
           </div>
 
-          {/* Right Sidebar */}
-          <div className="space-y-4">
-            {/* Stats */}
-            <Card className="border">
-              <CardHeader><CardTitle className="text-base">Stats</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    { icon: Star, label: "Stars", value: project.starsCount },
-                    { icon: Heart, label: "Likes", value: project.likesCount },
-                    { icon: GitFork, label: "Forks", value: project.forksCount },
-                    { icon: Eye, label: "Views", value: null },
-                  ].filter(s => s.value !== null && s.value !== undefined).map(s => (
-                    <div key={s.label} className="text-center p-3 rounded-md bg-muted/30">
-                      <s.icon className="w-4 h-4 mx-auto mb-1 text-muted-foreground" strokeWidth={2} />
-                      <div className="text-lg font-bold">{(s.value ?? 0).toLocaleString()}</div>
-                      <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{s.label}</div>
+          {/* Right sidebar */}
+          <div className="space-y-5">
+            {/* Stats card */}
+            <div className="rounded-xl border bg-card p-5">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">Stats</h4>
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { icon: Star, label: "Stars", value: project.starsCount, color: "text-yellow-500" },
+                  { icon: Heart, label: "Likes", value: project.likesCount, color: "text-red-400" },
+                  { icon: GitFork, label: "Forks", value: project.forksCount, color: "text-blue-400" },
+                ].filter(s => s.value !== null && s.value !== undefined).map(s => (
+                  <div key={s.label} className="text-center py-3 rounded-lg bg-muted/40">
+                    <s.icon className={`w-4 h-4 mx-auto mb-1.5 ${s.color}`} strokeWidth={2} />
+                    <div className="text-lg font-bold tabular-nums">{(s.value ?? 0).toLocaleString()}</div>
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{s.label}</div>
+                  </div>
+                ))}
+              </div>
+              {project.rating != null && project.rating > 0 && (
+                <>
+                  <Separator className="my-4" />
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Rating</span>
+                    <div className="flex items-center gap-1.5">
+                      {[1, 2, 3, 4, 5].map(i => (
+                        <Star
+                          key={i}
+                          className={`w-3.5 h-3.5 ${i <= Math.round(project.rating) ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/30"}`}
+                          strokeWidth={2}
+                        />
+                      ))}
+                      <span className="text-sm font-semibold ml-1">{project.rating.toFixed(1)}</span>
                     </div>
-                  ))}
-                </div>
-                {project.rating != null && (
-                  <>
-                    <Separator />
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Rating</span>
-                      <div className="flex items-center gap-1">
-                        <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" strokeWidth={2} />
-                        <span className="text-sm font-semibold">{project.rating.toFixed(1)}</span>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
+                  </div>
+                </>
+              )}
+            </div>
 
-            {/* Details */}
-            <Card className="border">
-              <CardHeader><CardTitle className="text-base">Details</CardTitle></CardHeader>
-              <CardContent className="space-y-3 text-sm">
+            {/* Details card */}
+            <div className="rounded-xl border bg-card p-5">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">Details</h4>
+              <div className="space-y-3 text-sm">
                 {project.status && (
-                  <div className="flex justify-between">
+                  <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Status</span>
-                    <Badge variant="secondary" className="text-xs capitalize">{project.status.replace(/_/g, " ")}</Badge>
+                    <Badge variant="secondary" className="text-xs capitalize rounded-lg">{project.status.replace(/_/g, " ").toLowerCase()}</Badge>
                   </div>
                 )}
                 {project.category && (
-                  <div className="flex justify-between">
+                  <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Category</span>
-                    <span className="font-medium text-xs">{project.category.replace(/_/g, " ")}</span>
+                    <span className="flex items-center gap-1.5 text-xs font-medium">
+                      {getCategoryIcon(project.category)}
+                      {getCategoryLabel(project.category)}
+                    </span>
                   </div>
                 )}
                 {project.type && (
-                  <div className="flex justify-between">
+                  <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Type</span>
-                    <span className="font-medium text-xs capitalize">{project.type}</span>
+                    <span className="text-xs font-medium capitalize">{project.type.toLowerCase()}</span>
                   </div>
                 )}
-                {project.createdAt && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Created</span>
-                    <span className="font-medium text-xs">{formatDate(project.createdAt)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between">
+                <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Visibility</span>
-                  <div className="flex items-center gap-1">
-                    {project.visibility === "PRIVATE" ? (
-                      <Lock className="w-3 h-3 text-muted-foreground" strokeWidth={2} />
-                    ) : (
-                      <Globe className="w-3 h-3 text-muted-foreground" strokeWidth={2} />
-                    )}
-                    <span className="font-medium text-xs capitalize">{project.visibility?.toLowerCase()}</span>
-                  </div>
+                  <span className="flex items-center gap-1.5 text-xs font-medium">
+                    {project.visibility === "PRIVATE"
+                      ? <><Lock className="w-3 h-3" strokeWidth={2} />Private</>
+                      : <><Globe className="w-3 h-3" strokeWidth={2} />Public</>
+                    }
+                  </span>
                 </div>
-                {project.demoUrl && (
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Demo</span>
-                    <a href={project.demoUrl} className="text-primary hover:underline text-xs flex items-center gap-1" target="_blank" rel="noopener noreferrer">
-                      Visit <ExternalLink className="w-3 h-3" strokeWidth={2} />
-                    </a>
+                {project.createdAt && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Created</span>
+                    <span className="text-xs font-medium">{formatDate(project.createdAt)}</span>
                   </div>
                 )}
-                {project.githubUrl && (
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Source</span>
-                    <a href={project.githubUrl} className="text-primary hover:underline text-xs flex items-center gap-1" target="_blank" rel="noopener noreferrer">
-                      GitHub <ExternalLink className="w-3 h-3" strokeWidth={2} />
-                    </a>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
 
-            {/* Owner */}
-            <Card className="border">
-              <CardHeader><CardTitle className="text-base">Owner</CardTitle></CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-3">
-                  <Avatar className="w-10 h-10">
-                    <AvatarImage src={project.owner?.avatarUrl} />
-                    <AvatarFallback>{project.owner?.name?.[0]}</AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="text-sm font-semibold">{project.owner?.name}</p>
-                    <p className="text-xs text-muted-foreground">@{project.owner?.username}</p>
-                  </div>
+            {/* Links card */}
+            {(project.projectUrl || project.githubUrl || project.twitterUrl || project.linkedinUrl) && (
+              <div className="rounded-xl border bg-card p-5">
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">Links</h4>
+                <div className="space-y-2">
+                  {project.projectUrl && (
+                    <a
+                      href={project.projectUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/60 transition-colors group"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <Globe className="w-4 h-4 text-primary" strokeWidth={2} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium group-hover:text-primary transition-colors">Website</p>
+                        <p className="text-xs text-muted-foreground truncate">{project.projectUrl.replace(/^https?:\/\//, "")}</p>
+                      </div>
+                      <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" strokeWidth={2} />
+                    </a>
+                  )}
+                  {project.githubUrl && (
+                    <a
+                      href={project.githubUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/60 transition-colors group"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+                        <Code2 className="w-4 h-4 text-foreground" strokeWidth={2} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium group-hover:text-primary transition-colors">Source Code</p>
+                        <p className="text-xs text-muted-foreground truncate">{project.githubUrl.replace(/^https?:\/\/github\.com\//, "")}</p>
+                      </div>
+                      <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" strokeWidth={2} />
+                    </a>
+                  )}
+                  {project.twitterUrl && (
+                    <a
+                      href={project.twitterUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/60 transition-colors group"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-sky-500/10 flex items-center justify-center flex-shrink-0">
+                        <Twitter className="w-4 h-4 text-sky-500" strokeWidth={2} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium group-hover:text-primary transition-colors">X / Twitter</p>
+                        <p className="text-xs text-muted-foreground truncate">{project.twitterUrl.replace(/^https?:\/\/(www\.)?(x|twitter)\.com\//, "@")}</p>
+                      </div>
+                      <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" strokeWidth={2} />
+                    </a>
+                  )}
+                  {project.linkedinUrl && (
+                    <a
+                      href={project.linkedinUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/60 transition-colors group"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-blue-600/10 flex items-center justify-center flex-shrink-0">
+                        <Linkedin className="w-4 h-4 text-blue-600" strokeWidth={2} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium group-hover:text-primary transition-colors">LinkedIn</p>
+                        <p className="text-xs text-muted-foreground truncate">{project.linkedinUrl.replace(/^https?:\/\/(www\.)?linkedin\.com\//, "")}</p>
+                      </div>
+                      <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" strokeWidth={2} />
+                    </a>
+                  )}
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            )}
+
+            {/* Owner mini-card */}
+            <div className="rounded-xl border bg-card p-5">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">Created by</h4>
+              <div
+                className="flex items-center gap-3 cursor-pointer hover:bg-muted/40 -mx-2 px-2 py-2 rounded-lg transition-colors"
+                onClick={() => navigate(`/profile/${project.owner?.username}`)}
+              >
+                <Avatar className="w-11 h-11 border-2 border-primary/20">
+                  <AvatarImage src={project.owner?.avatarUrl} />
+                  <AvatarFallback className="text-base">{project.owner?.name?.[0]}</AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold truncate">{project.owner?.name}</p>
+                  <p className="text-xs text-muted-foreground">@{project.owner?.username}</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

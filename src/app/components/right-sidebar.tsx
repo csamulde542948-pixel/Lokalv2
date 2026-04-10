@@ -23,7 +23,7 @@ const GET_SIDEBAR_DATA = gql`
         isFeatured
         isTrending
         tags { name }
-        owner { name username avatarUrl }
+        owner { id name username avatarUrl }
       }
     }
   }
@@ -67,7 +67,8 @@ function DevSkeleton() {
 
 export function RightSidebar({ className = "" }: RightSidebarProps) {
   const { data, loading } = useQuery(GET_SIDEBAR_DATA, {
-    fetchPolicy: "cache-and-network",
+    fetchPolicy: "cache-first",
+    pollInterval: 300_000, // refresh every 5 minutes
   });
 
   const featuredProjects: any[] = data?.leaderboard?.featuredProjects ?? [];

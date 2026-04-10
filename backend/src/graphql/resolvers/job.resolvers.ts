@@ -14,6 +14,7 @@ export const jobResolvers = {
       }: { limit?: number; offset?: number; filter?: string; search?: string },
       { prisma }: GraphQLContext
     ) => {
+      const safeLimit = Math.min(limit, 50);
       const where: any = { isActive: true };
 
       if (filter === "FULL_TIME") where.type = "FULL_TIME";
@@ -34,7 +35,7 @@ export const jobResolvers = {
         prisma.job.findMany({
           where,
           orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
-          take: limit + 1,
+          take: safeLimit + 1,
           skip: offset,
           include: {
             postedBy: { include: { rank: true } },
@@ -44,9 +45,9 @@ export const jobResolvers = {
       ]);
 
       return {
-        jobs: jobs.slice(0, limit),
-        hasMore: jobs.length > limit,
-        nextOffset: offset + limit,
+        jobs: jobs.slice(0, safeLimit),
+        hasMore: jobs.length > safeLimit,
+        nextOffset: offset + safeLimit,
         total,
       };
     },
@@ -144,9 +145,22 @@ export const jobResolvers = {
       if (!user) throw new Error("Unauthorized");
       const job = await prisma.job.findUnique({ where: { id } });
       if (job?.postedById !== user.id) throw new Error("Forbidden");
+
+      // Medium #14: Whitelist — never spread raw input directly into Prisma
+      const allowed = [
+        "title", "company", "companyLogoUrl", "location", "type",
+        "salary", "shortDesc", "fullDesc", "applyEmail", "isActive", "tags",
+      ] as const;
+      type AllowedKey = typeof allowed[number];
+      const safeData = Object.fromEntries(
+        allowed
+          .filter((k): k is AllowedKey => k in input)
+          .map((k) => [k, input[k]])
+      );
+
       return prisma.job.update({
         where: { id },
-        data: { ...input, updatedAt: new Date() },
+        data: { ...safeData, updatedAt: new Date() },
         include: { postedBy: { include: { rank: true } }, tags: { include: { tag: true } } },
       });
     },

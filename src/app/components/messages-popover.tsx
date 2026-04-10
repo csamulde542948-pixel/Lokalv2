@@ -13,6 +13,7 @@ import {
 } from "./ui/dropdown-menu";
 import { useNavigate } from "react-router";
 import { useChat, useChannelMessages, type ChannelPreview } from "../../contexts/ChatContext";
+import { avatarSrc } from "../../lib/defaults";
 import type { Channel } from "stream-chat";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -98,7 +99,7 @@ function MiniChat({ preview, currentUserId, onBack, onOpenFull }: MiniChatProps)
         </Button>
         <div className="relative flex-shrink-0">
           <Avatar className="w-8 h-8 border-2 border-border">
-            <AvatarImage src={otherUser?.image} />
+            <AvatarImage src={avatarSrc(otherUser?.image)} />
             <AvatarFallback>{(otherUser?.name ?? "?")[0]}</AvatarFallback>
           </Avatar>
           {otherUser?.online && (
@@ -196,7 +197,12 @@ export function MessagesPopover({ isOpen, onClose }: MessagesPopoverProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPreview, setSelectedPreview] = useState<ChannelPreview | null>(null);
   const navigate = useNavigate();
-  const { channels, connected, currentUserId } = useChat();
+  const { channels, connected, currentUserId, connectChat } = useChat();
+
+  // S3 #7: Lazy connect — initialise Stream Chat when popover opens
+  useEffect(() => {
+    if (isOpen) connectChat();
+  }, [isOpen, connectChat]);
 
   // Reset selected chat when popover closes
   useEffect(() => {
@@ -315,7 +321,7 @@ export function MessagesPopover({ isOpen, onClose }: MessagesPopoverProps) {
                       <div className="flex items-center gap-3">
                         <div className="relative flex-shrink-0">
                           <Avatar className="w-11 h-11 border-2 border-border">
-                            <AvatarImage src={otherUser?.image} />
+                            <AvatarImage src={avatarSrc(otherUser?.image)} />
                             <AvatarFallback>{(otherUser?.name ?? "?")[0]}</AvatarFallback>
                           </Avatar>
                           {otherUser?.online && (

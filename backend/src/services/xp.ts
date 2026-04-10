@@ -31,14 +31,23 @@ export async function awardXp(
   const xpToAdd = XP_REWARDS[action];
   if (!xpToAdd) return { newXp: 0, leveledUp: false };
 
-  // Get current profile xp and rank
-  const profile = await prisma.profile.findUnique({
-    where: { id: profileId },
-    select: { xp: true, rankId: true },
-  });
-  if (!profile) return { newXp: 0, leveledUp: false };
+  // CRIT-06: Atomic increment — avoids TOCTOU race condition on concurrent requests.
+  // prisma.profile.update with { increment } issues a single atomic UPDATE in Postgres,
+  // so two simultaneous calls cannot both read the same stale xp value.
+  const [updated] = await prisma.$transaction([
+    prisma.profile.update({
+      where: { id: profileId },
+      data: { xp: { increment: xpToAdd } },
+      select: { xp: true, rankId: true },
+    }),
+    prisma.xpLog.create({
+      data: { profileId, action, xpEarned: xpToAdd },
+    }),
+  ]);
 
-  const newXp = profile.xp + xpToAdd;
+  if (!updated) return { newXp: 0, leveledUp: false };
+
+  const newXp = updated.xp;
 
   // Get all ranks to check for level-up
   const ranks = await prisma.rank.findMany({ orderBy: { minXp: "asc" } });
@@ -46,26 +55,26 @@ export async function awardXp(
     .filter((r: any) => newXp >= r.minXp)
     .pop(); // highest rank the user qualifies for
 
-  const leveledUp =
-    newRank !== undefined && newRank.id !== profile.rankId;
+  const leveledUp = newRank !== undefined && newRank.id !== updated.rankId;
 
-  // Update profile xp and rank in a transaction
-  await prisma.$transaction([
-    prisma.profile.update({
+  // Update rankId if user leveled up
+  if (leveledUp && newRank) {
+    await prisma.profile.update({
       where: { id: profileId },
+      data: { rankId: newRank.id },
+    });
+  }
+
+  // Fire XP_LEVELUP notification when user ranks up
+  if (leveledUp && newRank) {
+    prisma.notification.create({
       data: {
-        xp: newXp,
-        rankId: newRank?.id ?? profile.rankId,
+        recipientId: profileId,
+        type: "XP_LEVELUP",
+        message: `You ranked up to ${newRank.name}! 🎉`,
       },
-    }),
-    prisma.xpLog.create({
-      data: {
-        profileId,
-        action,
-        xpEarned: xpToAdd,
-      },
-    }),
-  ]);
+    }).catch(console.error);
+  }
 
   return {
     newXp,

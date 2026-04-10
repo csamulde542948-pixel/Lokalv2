@@ -37,7 +37,7 @@ const GET_LEADERBOARD = gql`
           forksCount
           likesCount
           tags { name }
-          owner { name username avatarUrl }
+          owner { id name username avatarUrl }
         }
       }
       featuredProjects {
@@ -46,9 +46,9 @@ const GET_LEADERBOARD = gql`
         tagline
         starsCount
         forksCount
-        demoUrl
+        projectUrl
         tags { name }
-        owner { name username avatarUrl }
+        owner { id name username avatarUrl }
       }
     }
   }
@@ -174,9 +174,9 @@ export function Leaderboard() {
                         <span className="flex items-center gap-1"><Star className="w-3 h-3" strokeWidth={2} />{p.starsCount}</span>
                         <span className="flex items-center gap-1"><GitFork className="w-3 h-3" strokeWidth={2} />{p.forksCount}</span>
                       </div>
-                      {p.demoUrl && (
+                      {p.projectUrl && (
                         <Button variant="ghost" size="sm" className="h-6 px-2 text-xs hover:bg-primary/10 gap-1" asChild>
-                          <a href={p.demoUrl} target="_blank" rel="noopener noreferrer">
+                          <a href={p.projectUrl} target="_blank" rel="noopener noreferrer">
                             <ExternalLink className="w-3 h-3" strokeWidth={2} /> View
                           </a>
                         </Button>

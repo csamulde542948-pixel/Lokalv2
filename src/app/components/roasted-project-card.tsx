@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router";
-import { useMutation } from "@apollo/client/react";
+import { gql } from "@apollo/client/core";
+import { useMutation, useLazyQuery } from "@apollo/client/react";
 import { Card, CardContent } from "./ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
+import { avatarSrc } from "../../lib/defaults";
 import { Badge } from "./ui/badge";
 import { Separator } from "./ui/separator";
 import {
@@ -17,6 +19,40 @@ import {
   SharedPostPreview, OriginalPost,
 } from "./post-card";
 import { SharePostDialog } from "./share-post-dialog";
+
+const GET_POST_COMMENTS = gql`
+  query GetRoastedPostComments($postId: ID!, $limit: Int, $offset: Int) {
+    post(id: $postId) {
+      id
+      comments(limit: $limit, offset: $offset) {
+        id content likesCount likedByMe myReaction parentId createdAt isEdited mentions
+        editHistory { id previousContent editedAt }
+        author { id name displayName username avatarUrl }
+        replies {
+          id content likesCount likedByMe myReaction parentId createdAt isEdited mentions
+          editHistory { id previousContent editedAt }
+          author { id name displayName username avatarUrl }
+          replies {
+            id content likesCount likedByMe myReaction parentId createdAt isEdited mentions
+            editHistory { id previousContent editedAt }
+            author { id name displayName username avatarUrl }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const FOLLOW_USER = gql`
+  mutation RoastFollowUser($userId: ID!) {
+    followUser(userId: $userId) { id isFollowedByMe followersCount }
+  }
+`;
+const UNFOLLOW_USER = gql`
+  mutation RoastUnfollowUser($userId: ID!) {
+    unfollowUser(userId: $userId) { id isFollowedByMe followersCount }
+  }
+`;
 
 // ─── Public Post shape (what the feed gives us) ───────────────────────────────
 export interface FeedPost {
@@ -77,6 +113,8 @@ interface RoastedProjectCardProps {
   post: FeedPost | RoastedProject;
   onLike?: (wantsLike: boolean, reaction?: string) => void;
   onDelete?: () => void;
+  isFollowing?: boolean;
+  onFollowToggle?: () => void;
 }
 
 function isFeedPost(p: FeedPost | RoastedProject): p is FeedPost {
@@ -103,26 +141,52 @@ function getFaviconUrl(url: string): string {
 }
 
 const REACTIONS = [
-  { emoji: "👍", label: "Like",  color: "text-blue-500"   },
-  { emoji: "❤️", label: "Love",  color: "text-red-500"    },
-  { emoji: "�", label: "Haha",  color: "text-yellow-500" },
-  { emoji: "�", label: "Wow",   color: "text-yellow-500" },
-  { emoji: "�", label: "Sad",   color: "text-blue-400"   },
-  { emoji: "😡", label: "Angry", color: "text-orange-600" },
-  { emoji: "�", label: "Fire",  color: "text-orange-500" },
+  { emoji: "\uD83D\uDC4D", label: "Like",  color: "text-blue-500"   },
+  { emoji: "\u2764\uFE0F", label: "Love",  color: "text-red-500"    },
+  { emoji: "\uD83D\uDE04", label: "Haha",  color: "text-yellow-500" },
+  { emoji: "\uD83D\uDE2E", label: "Wow",   color: "text-yellow-500" },
+  { emoji: "\uD83D\uDE22", label: "Sad",   color: "text-blue-400"   },
+  { emoji: "\uD83D\uDE21", label: "Angry", color: "text-orange-600" },
+  { emoji: "\uD83D\uDD25", label: "Fire",  color: "text-orange-500" },
 ];
 
 const READ_MORE_THRESHOLD = 280;
 
-export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
+export function RoastedProjectCard({ post, onLike, isFollowing: isFollowingProp = false, onFollowToggle }: RoastedProjectCardProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
 
   const p: FeedPost = isFeedPost(post) ? post : legacyToFeedPost(post as RoastedProject);
 
+  const authorId       = p.author.id;
+  const isOwnPost      = !!user && !!authorId && user.id === authorId;
+
+  // ── Follow state ────────────────────────────────────────────────────────
+  const [localFollowing, setLocalFollowing] = useState(isFollowingProp);
+  useEffect(() => { setLocalFollowing(isFollowingProp); }, [isFollowingProp]);
+
+  const [followUser]   = useMutation(FOLLOW_USER);
+  const [unfollowUser] = useMutation(UNFOLLOW_USER);
+
+  async function handleFollow() {
+    if (!authorId) return;
+    const nowFollowing = !localFollowing;
+    setLocalFollowing(nowFollowing); // optimistic
+    try {
+      if (nowFollowing) {
+        await followUser({ variables: { userId: authorId } });
+      } else {
+        await unfollowUser({ variables: { userId: authorId } });
+      }
+      onFollowToggle?.();
+    } catch {
+      setLocalFollowing(!nowFollowing); // revert on error
+    }
+  }
+
   const authorName     = p.author.name;
   const authorUsername = p.author.username.startsWith("@") ? p.author.username : `@${p.author.username}`;
-  const authorAvatar   = p.author.avatar ?? (p.author as any).avatarUrl;
+  const authorAvatar   = avatarSrc(p.author.avatar ?? (p.author as any).avatarUrl);
   const projectName    = p.projectName ?? "Unknown Project";
   const roastText      = p.content.replace(/\[shared:[^\]]+\]/g, "").trim();
   const timestamp      = p.timestamp ?? "";
@@ -160,11 +224,50 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
   const [localComments,     setLocalComments]     = useState<CommentData[]>(p.initialComments ?? []);
   const [localCommentCount, setLocalCommentCount] = useState(commentsCount);
   const [showComments,      setShowComments]      = useState(false);
+  const commentsFetchedRef = useRef(false);
   const [replyingTo, setReplyingTo] = useState<{
     id: string; name: string; visualParentId?: string; topLevelId?: string;
   } | null>(null);
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
   const cardInputRef  = useRef<HTMLTextAreaElement>(null);
+
+  const [fetchComments, { loading: commentsLoading }] = useLazyQuery(GET_POST_COMMENTS, {
+    fetchPolicy: "network-only",
+    onCompleted: (data) => {
+      const fetched: any[] = data?.post?.comments ?? [];
+      setLocalComments(fetched.map(adaptFetchedComment));
+      if (fetched.length > 0) setLocalCommentCount(fetched.length);
+    },
+  });
+
+  function adaptFetchedComment(c: any): CommentData {
+    return {
+      id: c.id,
+      content: c.content,
+      likesCount: c.likesCount ?? 0,
+      likedByMe: c.likedByMe ?? false,
+      myReaction: c.myReaction ?? null,
+      parentId: c.parentId ?? null,
+      mentions: c.mentions ?? [],
+      isEdited: c.isEdited ?? false,
+      editHistory: (c.editHistory ?? []).map((e: any) => ({
+        id: e.id, previousContent: e.previousContent, editedAt: e.editedAt,
+      })),
+      createdAt: c.createdAt,
+      replies: (c.replies ?? []).map(adaptFetchedComment),
+      author: {
+        id: c.author?.id,
+        name: c.author?.displayName ?? c.author?.username ?? c.author?.name ?? "Unknown",
+        username: c.author?.username ?? "",
+        avatarUrl: c.author?.avatarUrl,
+      },
+    };
+  }
+
+  function doFetchComments() {
+    commentsFetchedRef.current = true;
+    fetchComments({ variables: { postId: p.id, limit: 50, offset: 0 } });
+  }
 
   const [commentOnPost]         = useMutation(COMMENT_ON_POST);
   const [replyToComment]        = useMutation(REPLY_TO_COMMENT);
@@ -172,13 +275,6 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
   const [unlikeCommentMutation] = useMutation(UNLIKE_COMMENT);
   const [editCommentMutation]   = useMutation(EDIT_COMMENT);
   const [deleteCommentMutation] = useMutation(DELETE_COMMENT);
-
-  // Seed comments from server whenever they change (e.g. after refetch)
-  useEffect(() => {
-    if (p.initialComments && p.initialComments.length > 0) {
-      setLocalComments(p.initialComments);
-    }
-  }, [p.initialComments]);
 
   useEffect(() => {
     setLocalCommentCount(p.commentsCount ?? p.comments ?? 0);
@@ -219,6 +315,7 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
   // ── Comment handlers ───────────────────────────────────────────────────────
   function openCommentBox() {
     setShowComments(true);
+    if (!commentsFetchedRef.current) doFetchComments();
     setReplyingTo(null);
     setTimeout(() => cardInputRef.current?.focus(), 50);
   }
@@ -247,8 +344,8 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
       replies:     [],
       author: {
         id:        user!.id,
-        name:      user!.email?.split("@")[0] ?? "You",
-        username:  "you",
+        name:      (user as any)?.displayName ?? (user as any)?.username ?? user!.email?.split("@")[0] ?? "You",
+        username:  (user as any)?.username ?? "you",
         avatarUrl: undefined,
       },
     };
@@ -259,11 +356,9 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
         variables: { input: { postId: p.id, content: text, mentions: mentions ?? [] } },
       });
       if (data?.commentOnPost) {
-        setLocalComments((prev) =>
-          prev.map((c) =>
-            c.id === temp.id ? { ...data.commentOnPost, mediaUrl, mediaType, replies: [] } : c
-          )
-        );
+        // Re-fetch full thread so everyone sees the new comment
+        commentsFetchedRef.current = false;
+        doFetchComments();
       }
     } catch {
       setLocalComments((prev) => prev.filter((c) => c.id !== temp.id));
@@ -290,8 +385,8 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
       replies:     [],
       author: {
         id:        user!.id,
-        name:      user!.email?.split("@")[0] ?? "You",
-        username:  "you",
+        name:      (user as any)?.displayName ?? (user as any)?.username ?? user!.email?.split("@")[0] ?? "You",
+        username:  (user as any)?.username ?? "you",
         avatarUrl: undefined,
       },
     };
@@ -316,24 +411,9 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
         variables: { input: { postId: p.id, parentId, content: text, mentions: mentions ?? [] } },
       });
       if (data?.replyToComment) {
-        setLocalComments((prev) =>
-          prev.map((c) => {
-            if (!visualParentId) {
-              return c.id === parentId
-                ? { ...c, replies: c.replies.map((r) => r.id === temp.id ? { ...data.replyToComment, replies: [] } : r) }
-                : c;
-            }
-            if (c.id !== topId) return c;
-            return {
-              ...c,
-              replies: c.replies.map((r) =>
-                r.id === visualParentId
-                  ? { ...r, replies: r.replies.map((sr) => sr.id === temp.id ? { ...data.replyToComment, replies: [] } : sr) }
-                  : r
-              ),
-            };
-          })
-        );
+        // Re-fetch full thread so all reply levels stay in sync
+        commentsFetchedRef.current = false;
+        doFetchComments();
       }
     } catch {
       setLocalComments((prev) =>
@@ -449,6 +529,24 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
               <span className="text-[10px]">🌐</span>
             </div>
           </div>
+
+          {/* Follow button — only for other users' posts */}
+          {!isOwnPost && (
+            <button
+              onClick={handleFollow}
+              className={`flex-shrink-0 flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors ${
+                localFollowing
+                  ? "border-border text-muted-foreground hover:border-destructive hover:text-destructive"
+                  : "border-primary text-primary hover:bg-primary/10"
+              }`}
+            >
+              {localFollowing ? (
+                <><svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 100-6 3 3 0 000 6zm-5 6s-1 0-1-1 1-4 6-4 6 3 6 4-1 1-1 1H3zm10.854-9.646a.5.5 0 010 .707l-3 3a.5.5 0 01-.708 0l-1.5-1.5a.5.5 0 11.708-.707L10.5 7.793l2.646-2.647a.5.5 0 01.708.002z"/></svg>Following</>
+              ) : (
+                <><svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 100-6 3 3 0 000 6zm-5 6s-1 0-1-1 1-4 6-4 6 3 6 4-1 1-1 1H3zM14 5a.5.5 0 01.5.5v2h2a.5.5 0 010 1h-2v2a.5.5 0 01-1 0v-2h-2a.5.5 0 010-1h2v-2A.5.5 0 0114 5z"/></svg>Follow</>
+              )}
+            </button>
+          )}
         </div>
 
         {/* ── Roast card ──────────────────────────────────────────────────── */}
@@ -663,6 +761,9 @@ export function RoastedProjectCard({ post, onLike }: RoastedProjectCardProps) {
         {/* ── Comment section ──────────────────────────────────────────────── */}
         {showComments && (
           <div className="border-t bg-muted/10 px-4 py-3 space-y-3">
+            {commentsLoading && localComments.length === 0 && (
+              <div className="text-xs text-muted-foreground text-center py-2">Loading comments…</div>
+            )}
             {localComments.map((comment) => (
               <CommentItem
                 key={comment.id}

@@ -3,10 +3,14 @@ import {
   streamFollowUser,
   streamUnfollowUser,
   upsertStreamUser,
+  upsertChatUser,
   generateStreamToken,
+  createDMChannel,
 } from "../../lib/stream";
 import { sendWelcomeEmail } from "../../services/email";
 import { awardXp } from "../../services/xp";
+import { createNotification } from "../../lib/notifications";
+import { searchRateLimiter } from "../../lib/rateLimit";
 
 export const profileResolvers = {
   Query: {
@@ -41,17 +45,20 @@ export const profileResolvers = {
     searchProfiles: async (
       _: unknown,
       { query, limit = 10 }: { query: string; limit?: number },
-      { prisma }: GraphQLContext
+      { user, clientIp, prisma }: GraphQLContext
     ) => {
+      // HIGH-01: Rate-limit to prevent enumeration attacks
+      searchRateLimiter.check(user?.id ?? clientIp);
+      const safeLimit = Math.min(limit, 20);
       return prisma.profile.findMany({
         where: {
           OR: [
             { name: { contains: query, mode: "insensitive" } },
             { username: { contains: query, mode: "insensitive" } },
-            { bio: { contains: query, mode: "insensitive" } },
+            // bio removed from search — MED-06: private data not exposed publicly
           ],
         },
-        take: limit,
+        take: safeLimit,
         include: { rank: true },
       });
     },
@@ -83,15 +90,69 @@ export const profileResolvers = {
       });
     },
 
+    /** People who follow the current user */
+    myFollowers: async (
+      _: unknown,
+      { limit = 50, offset = 0 }: { limit?: number; offset?: number },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) return [];
+      // HIGH-04: Cap offset to prevent full-table scan
+      const safeOffset = Math.min(offset, 10_000);
+      const follows = await prisma.follow.findMany({
+        where: { followingId: user.id },
+        include: { follower: { include: { rank: true } } },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        skip: safeOffset,
+      });
+      return follows.map((f: any) => f.follower);
+    },
+
+    /** People the current user is following */
+    myFollowing: async (
+      _: unknown,
+      { limit = 50, offset = 0 }: { limit?: number; offset?: number },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) return [];
+      // HIGH-04: Cap offset to prevent full-table scan
+      const safeOffset = Math.min(offset, 10_000);
+      const follows = await prisma.follow.findMany({
+        where: { followerId: user.id },
+        include: { following: { include: { rank: true } } },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        skip: safeOffset,
+      });
+      return follows.map((f: any) => f.following);
+    },
+
     // GetStream token for client-side chat connection
     streamToken: async (
       _: unknown,
       __: unknown,
-      { user }: GraphQLContext
+      { user, prisma }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
+      // Upsert user in Stream Chat so connectUser never fails with unknown user
+      const profile = await prisma.profile.findUnique({
+        where: { id: user.id },
+        select: { id: true, name: true, username: true, avatarUrl: true },
+      });
+      if (profile) {
+        await upsertChatUser({
+          id: profile.id,
+          name: profile.name,
+          username: profile.username ?? undefined,
+          imageUrl: profile.avatarUrl,
+        }).catch((err: unknown) => console.warn("[stream] upsertChatUser failed:", err));
+      }
       const token = generateStreamToken(user.id);
-      return { token, apiKey: process.env.GETSTREAM_API_KEY! };
+      // Stream Chat API key is a *public* key (not a secret) — safe to return
+      // to authenticated clients just like every Stream Chat frontend integration does.
+      // The secret (GETSTREAM_API_SECRET) stays server-side only.
+      return { token, apiKey: process.env.GETSTREAM_API_KEY ?? "" };
     },
   },
 
@@ -105,6 +166,14 @@ export const profileResolvers = {
       { user, prisma }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
+
+      // HIGH-02: Idempotency guard — handles network retries and double-submit
+      // on the signup page without throwing a unique constraint error
+      const existing = await prisma.profile.findUnique({
+        where: { id: user.id },
+        include: { rank: true },
+      });
+      if (existing) return existing;
 
       // Default rank is "Newbie" (id: 1)
       const profile = await prisma.profile.create({
@@ -120,13 +189,13 @@ export const profileResolvers = {
         include: { rank: true },
       });
 
-      // Sync to GetStream
-      await upsertStreamUser({
+      // Sync to GetStream (non-blocking)
+      upsertStreamUser({
         id: user.id,
         name: input.name,
         username: input.username,
         imageUrl: input.avatarUrl,
-      });
+      }).catch((err) => console.warn("[profile] stream sync failed:", err?.message));
 
       // Send welcome email
       if (user.email) {
@@ -149,19 +218,48 @@ export const profileResolvers = {
     ) => {
       if (!user) throw new Error("Unauthorized");
 
+      // Medium #14: Whitelist — never spread raw input directly into Prisma.
+      // Prevents callers from overwriting sensitive fields like `xp`, `rankId`, `isAdmin`.
+      const allowed = [
+        "name", "bio", "avatarUrl", "coverUrl",
+        "website", "location", "company", "jobTitle", "githubUsername",
+      ] as const;
+      type AllowedKey = typeof allowed[number];
+      const safeData = Object.fromEntries(
+        allowed
+          .filter((k): k is AllowedKey => k in input)
+          .map((k) => [k, input[k]])
+      );
+
+      // Medium #13: Input length limits
+      if (safeData.name !== undefined && (safeData.name as string).length > 80)
+        throw new Error("Name must be 80 characters or fewer");
+      if (safeData.bio !== undefined && (safeData.bio as string).length > 500)
+        throw new Error("Bio must be 500 characters or fewer");
+      if (safeData.website !== undefined && (safeData.website as string).length > 200)
+        throw new Error("Website URL must be 200 characters or fewer");
+      if (safeData.location !== undefined && (safeData.location as string).length > 100)
+        throw new Error("Location must be 100 characters or fewer");
+      if (safeData.company !== undefined && (safeData.company as string).length > 100)
+        throw new Error("Company must be 100 characters or fewer");
+      if (safeData.jobTitle !== undefined && (safeData.jobTitle as string).length > 100)
+        throw new Error("Job title must be 100 characters or fewer");
+      if (safeData.githubUsername !== undefined && (safeData.githubUsername as string).length > 39)
+        throw new Error("GitHub username must be 39 characters or fewer");
+
       const profile = await prisma.profile.update({
         where: { id: user.id },
-        data: { ...input, updatedAt: new Date() },
+        data: { ...safeData, updatedAt: new Date() },
         include: { rank: true },
       });
 
-      // Sync updated name/avatar to GetStream
-      await upsertStreamUser({
+      // Sync updated name/avatar to GetStream (non-blocking — never fail the mutation)
+      upsertStreamUser({
         id: user.id,
         name: profile.name,
         username: profile.username,
         imageUrl: profile.avatarUrl,
-      });
+      }).catch((err) => console.warn("[profile] stream sync failed:", err?.message));
 
       return profile;
     },
@@ -192,13 +290,13 @@ export const profileResolvers = {
         include: { rank: true },
       });
 
-      // 2. Sync to GetStream
-      await upsertStreamUser({
+      // 2. Sync to GetStream (non-blocking)
+      upsertStreamUser({
         id: user.id,
         name: input.name,
         username: input.username,
         imageUrl: profile.avatarUrl,
-      });
+      }).catch((err) => console.warn("[profile] stream sync failed:", err?.message));
 
       // 3. Connect tags — create PostTag-style tag connections (upsert tags first)
       if (input.tags.length > 0) {
@@ -256,12 +354,25 @@ export const profileResolvers = {
       // Award XP to follower
       await awardXp(user.id, "MAKE_CONNECTION");
 
-      // Create notification
+      // Check if the target user already follows the current user back (mutual follow)
+      const alreadyFollowsBack = await prisma.follow.findUnique({
+        where: {
+          followerId_followingId: {
+            followerId: userId,
+            followingId: user.id,
+          },
+        },
+      });
+
+      // Create notification — "followed you back" if they already follow us, else plain "followed you"
       await prisma.notification.create({
         data: {
           recipientId: userId,
           actorId: user.id,
           type: "FOLLOW",
+          message: alreadyFollowsBack
+            ? "followed you back"
+            : "started following you",
         },
       });
 
@@ -292,62 +403,85 @@ export const profileResolvers = {
         include: { rank: true },
       });
     },
+
+    // Create (or get) a DM channel between the current user and another user
+    startDM: async (
+      _: unknown,
+      { otherUserId }: { otherUserId: string },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+
+      // Ensure both users exist in Stream Chat
+      const [me, other] = await Promise.all([
+        prisma.profile.findUnique({ where: { id: user.id }, select: { id: true, name: true, username: true, avatarUrl: true } }),
+        prisma.profile.findUnique({ where: { id: otherUserId }, select: { id: true, name: true, username: true, avatarUrl: true } }),
+      ]);
+
+      await Promise.all([
+        me ? upsertChatUser({ id: me.id, name: me.name, username: me.username ?? undefined, imageUrl: me.avatarUrl }).catch(() => {}) : Promise.resolve(),
+        other ? upsertChatUser({ id: other.id, name: other.name, username: other.username ?? undefined, imageUrl: other.avatarUrl }).catch(() => {}) : Promise.resolve(),
+      ]);
+
+      const cid = await createDMChannel(user.id, otherUserId);
+      return cid; // e.g. "messaging:dm-abc-xyz"
+    },
   },
 
   /**
    * Field resolvers on Profile type.
-   * These run when client requests specific fields, enabling lazy loading.
+   * These use DataLoaders for batching — prevents N+1 queries when
+   * multiple profiles are resolved in the same request (e.g. leaderboard, followers list).
    */
   Profile: {
     followersCount: async (
       parent: { id: string },
       _: unknown,
-      { prisma }: GraphQLContext
+      { loaders }: GraphQLContext
     ) => {
-      return prisma.follow.count({ where: { followingId: parent.id } });
+      return loaders.followersCountLoader.load(parent.id);
     },
 
     followingCount: async (
       parent: { id: string },
       _: unknown,
-      { prisma }: GraphQLContext
+      { loaders }: GraphQLContext
     ) => {
-      return prisma.follow.count({ where: { followerId: parent.id } });
+      return loaders.followingCountLoader.load(parent.id);
     },
 
     isFollowedByMe: async (
       parent: { id: string },
       _: unknown,
-      { user, prisma }: GraphQLContext
+      { user, loaders }: GraphQLContext
     ) => {
       if (!user) return false;
-      const follow = await prisma.follow.findUnique({
-        where: {
-          followerId_followingId: {
-            followerId: user.id,
-            followingId: parent.id,
-          },
-        },
-      });
-      return !!follow;
+      return loaders.isFollowedByMeLoader.load(parent.id);
     },
 
     postsCount: async (
       parent: { id: string },
       _: unknown,
-      { prisma }: GraphQLContext
+      { loaders }: GraphQLContext
     ) => {
-      return prisma.post.count({ where: { authorId: parent.id } });
+      return loaders.postsCountLoader.load(parent.id);
     },
 
     projectsCount: async (
       parent: { id: string },
       _: unknown,
-      { prisma }: GraphQLContext
+      { loaders }: GraphQLContext
     ) => {
-      return prisma.project.count({
-        where: { authorId: parent.id, visibility: "PUBLIC" },
-      });
+      return loaders.projectsCountLoader.load(parent.id);
+    },
+
+    /**
+     * Unread notification badge count — read directly from the profile row.
+     * No extra DB query needed; the column is maintained by createNotification
+     * (increments) and markRead / markAllRead (decrements / resets).
+     */
+    unreadNotificationsCount: (parent: { unreadNotificationsCount?: number }) => {
+      return parent.unreadNotificationsCount ?? 0;
     },
 
     posts: async (
