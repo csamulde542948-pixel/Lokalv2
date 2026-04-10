@@ -1,6 +1,7 @@
 
   import { createRoot } from "react-dom/client";
   import { Toaster } from "sonner";
+  import { Analytics } from "@vercel/analytics/react";
   import App from "./app/App.tsx";
   import "./styles/index.css";
 
@@ -8,6 +9,7 @@
     <>
       <App />
       <Toaster richColors position="top-right" />
+      <Analytics />
     </>
   );
   
