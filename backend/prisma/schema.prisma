@@ -181,6 +181,8 @@ model Profile {
   feedScoreLogs       FeedScoreLog[]
   feedSessions        FeedSession[]
   accountLinks        AccountLink[]
+  shippingStreak      ShippingStreak?
+  weeklyXpSnapshots   WeeklyXpSnapshot[]
 
   // Interest vector for recommendation engine (pgvector)
   interestEmbedding Unsupported("vector(1536)")?
@@ -1014,6 +1016,40 @@ model FeedSession {
   @@index([userId, createdAt(sort: Desc)])
   @@index([feedVariant, createdAt(sort: Desc)])
   @@map("feed_sessions")
+}
+
+// ============================================================
+// LEADERBOARD TRACKING MODELS
+// ============================================================
+
+// Tracks shipping streak per profile (days of consecutive project/post activity)
+model ShippingStreak {
+  id              String   @id @default(cuid())
+  profileId       String   @db.Uuid @unique
+  currentStreak   Int      @default(0)   // active streak in days
+  longestStreak   Int      @default(0)   // all-time best
+  lastShippedAt   DateTime? // last date they shipped something
+  updatedAt       DateTime @updatedAt
+
+  profile         Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@map("shipping_streaks")
+}
+
+// Weekly XP snapshot for Underdog board (XP at start of each week)
+model WeeklyXpSnapshot {
+  id          String   @id @default(cuid())
+  profileId   String   @db.Uuid
+  weekStart   DateTime // Monday 00:00 UTC of the snapshot week
+  xpAtWeekStart Int
+  rankAtWeekStart Int  @default(0)
+  createdAt   DateTime @default(now())
+
+  profile     Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, weekStart])
+  @@index([weekStart])
+  @@map("weekly_xp_snapshots")
 }
 
 // ============================================================

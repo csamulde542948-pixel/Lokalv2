@@ -530,10 +530,59 @@ export const typeDefs = gql`
     trend: Trend!
   }
 
+  # Board: Shipper of the Week — most projects/posts shipped this week
+  type ShipperEntry {
+    rank: Int!
+    profile: Profile!
+    projectsShipped: Int!
+    postsCount: Int!
+    trend: Trend!
+  }
+
+  # Board: Roast Survivor — hall of fame, sorted by avg roast score absorbed
+  type RoastSurvivorEntry {
+    rank: Int!
+    profile: Profile!
+    roastsReceived: Int!
+    avgOverallScore: Float!
+    totalRoastScore: Float!
+  }
+
+  # Board: Laban Launcher — longest active shipping streak in days
+  type LabanEntry {
+    rank: Int!
+    profile: Profile!
+    currentStreak: Int!
+    longestStreak: Int!
+  }
+
+  # Board: Community Builder — monthly, rewards roasting + launchpad + feedback
+  type CommunityEntry {
+    rank: Int!
+    profile: Profile!
+    roastsGiven: Int!
+    launchpadParticipation: Int!
+    communityScore: Int!
+  }
+
+  # Board: Underdog — biggest XP gain from outside top 20, weekly reset
+  type UnderdogEntry {
+    rank: Int!
+    profile: Profile!
+    xpGain: Int!
+    previousRank: Int!
+    currentXp: Int!
+  }
+
   type Leaderboard {
     developers: [LeaderboardDeveloper!]!
     projects: [LeaderboardProject!]!
     featuredProjects: [Project!]!
+    shipper: [ShipperEntry!]!
+    roastSurvivor: [RoastSurvivorEntry!]!
+    labanLauncher: [LabanEntry!]!
+    communityBuilder: [CommunityEntry!]!
+    underdog: [UnderdogEntry!]!
   }
 
   # =============================================
