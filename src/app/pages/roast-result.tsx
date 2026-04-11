@@ -87,7 +87,7 @@ const LOADING_STEPS = [
   { label: "Connecting to Jina Reader",   detail: "fetching page content..."      },
   { label: "Scraping target URL",         detail: "extracting text & metadata..."  },
   { label: "Sending to DeepSeek Nitro",   detail: "routing via OpenRouter..."      },
-  { label: "AI generating roast",         detail: "cooking your Taglish roast..."  },
+  { label: "AI generating roast",         detail: "cooking your Pinoy Style roast..."  },
   { label: "Finalizing output",           detail: "structuring paragraphs..."      },
 ];
 
@@ -673,7 +673,7 @@ export function RoastResult() {
 
               {/* status lines */}
               <div className="mb-5 space-y-0.5 text-xs border-b border-border/50 pb-4">
-                {["Scraping via Jina Reader", "Sending to DeepSeek V3.2 Nitro", "Generating Taglish roast output"].map(line => (
+                {["Scraping via Jina Reader", "Sending to DeepSeek V3.2 Nitro", "Generating Pinoy Style roast output"].map(line => (
                   <p key={line} className="text-muted-foreground/40">
                     <span className="text-primary/50">▶</span> {line}…{" "}
                     <span className="text-green-500/60">✓</span>

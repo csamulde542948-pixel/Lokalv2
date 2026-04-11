@@ -17,7 +17,7 @@ import { avatarSrc } from "../../lib/defaults";
 import {
   Search, Send, MoreHorizontal, Video, Phone, Info,
   Archive, VolumeX, Trash2, Flag, Smile, Paperclip,
-  ChevronDown, Check, CheckCheck, Edit2, X as XIcon,
+  ChevronDown, ChevronLeft, Check, CheckCheck, Edit2, X as XIcon,
   Plus, Users, Loader2,
 } from "lucide-react";
 import {
@@ -377,10 +377,12 @@ function ChatWindow({
   channel,
   otherUser,
   currentUserId,
+  onBack,
 }: {
   channel: Channel;
   otherUser?: ChannelPreview["otherUser"];
   currentUserId: string;
+  onBack?: () => void;
 }) {
   const { messages, typingUsers, loading, hasMore, loadMore } = useChannelMessages(channel, currentUserId);
   const [text, setText] = useState("");
@@ -459,26 +461,37 @@ function ChatWindow({
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Header */}
-      <div className="px-4 py-3 border-b bg-card flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <Avatar className="w-10 h-10 border-2 border-border">
+      <div className="px-3 sm:px-4 py-3 border-b bg-card flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          {/* Back button — visible on mobile only */}
+          {onBack && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 rounded-full flex-shrink-0 lg:hidden"
+              onClick={onBack}
+            >
+              <ChevronLeft className="w-5 h-5" strokeWidth={2} />
+            </Button>
+          )}
+          <div className="relative flex-shrink-0">
+            <Avatar className="w-9 h-9 sm:w-10 sm:h-10 border-2 border-border">
               <AvatarImage src={avatarSrc(image)} />
               <AvatarFallback>{getAvatarFallback(name)}</AvatarFallback>
             </Avatar>
             {online && <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-card" />}
           </div>
-          <div>
-            <h3 className="font-bold text-base leading-tight">{name}</h3>
-            <p className="text-xs text-muted-foreground">
+          <div className="min-w-0">
+            <h3 className="font-bold text-sm sm:text-base leading-tight truncate">{name}</h3>
+            <p className="text-xs text-muted-foreground truncate">
               {online ? <span className="text-green-500 font-medium">● Active now</span>
                 : otherUser?.last_active ? `Last seen ${timeAgo(new Date(otherUser.last_active))}` : "Offline"}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-primary" title="Voice call"><Phone className="w-5 h-5" strokeWidth={2} /></Button>
-          <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-primary" title="Video call"><Video className="w-5 h-5" strokeWidth={2} /></Button>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-primary hidden sm:inline-flex" title="Voice call"><Phone className="w-5 h-5" strokeWidth={2} /></Button>
+          <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-primary hidden sm:inline-flex" title="Video call"><Video className="w-5 h-5" strokeWidth={2} /></Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full"><MoreHorizontal className="w-5 h-5" strokeWidth={2} /></Button>
@@ -683,13 +696,16 @@ export function Messages() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] border-t">
+    <div className="flex h-[calc(100vh-3.5rem)] lg:h-[calc(100vh-3.5rem)] border-t">
       {showNewConvo && (
         <NewConversationModal onClose={() => setShowNewConvo(false)} onStart={handleStartDM} />
       )}
 
-      {/* Sidebar */}
-      <div className="w-80 border-r bg-card flex flex-col flex-shrink-0">
+      {/* Sidebar — full-width on mobile, w-80 on desktop. Hidden on mobile when a chat is active */}
+      <div className={cn(
+        "w-full lg:w-80 border-r bg-card flex flex-col lg:flex-shrink-0",
+        activeChannel ? "hidden lg:flex" : "flex"
+      )}>
         <div className="p-4 border-b">
           <div className="flex items-center justify-between mb-3">
             <h1 className="text-xl font-bold">Messages</h1>
@@ -754,23 +770,33 @@ export function Messages() {
         </div>
       </div>
 
-      {/* Main area */}
-      {activeChannel ? (
-        <ChatWindow channel={activeChannel} otherUser={activePreview?.otherUser} currentUserId={currentUserId} />
-      ) : (
-        <div className="flex-1 flex items-center justify-center bg-muted/20">
-          <div className="text-center">
-            <div className="w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
-              <Send className="w-12 h-12 text-primary" strokeWidth={2} />
+      {/* Main area — hidden on mobile when no chat active, full-width on mobile when active */}
+      <div className={cn(
+        "flex-1 flex flex-col min-h-0",
+        activeChannel ? "flex" : "hidden lg:flex"
+      )}>
+        {activeChannel ? (
+          <ChatWindow
+            channel={activeChannel}
+            otherUser={activePreview?.otherUser}
+            currentUserId={currentUserId}
+            onBack={() => { setActiveChannel(null); setActivePreview(null); }}
+          />
+        ) : (
+          <div className="flex-1 flex items-center justify-center bg-muted/20">
+            <div className="text-center">
+              <div className="w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                <Send className="w-12 h-12 text-primary" strokeWidth={2} />
+              </div>
+              <h2 className="text-2xl font-bold mb-2">Your Messages</h2>
+              <p className="text-muted-foreground mb-4">Select a conversation or start a new one</p>
+              <Button className="rounded-full" onClick={() => setShowNewConvo(true)}>
+                <Plus className="w-4 h-4 mr-2" /> New Message
+              </Button>
             </div>
-            <h2 className="text-2xl font-bold mb-2">Your Messages</h2>
-            <p className="text-muted-foreground mb-4">Select a conversation or start a new one</p>
-            <Button className="rounded-full" onClick={() => setShowNewConvo(true)}>
-              <Plus className="w-4 h-4 mr-2" /> New Message
-            </Button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

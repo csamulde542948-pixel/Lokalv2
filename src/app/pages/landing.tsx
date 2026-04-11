@@ -1,4 +1,4 @@
-﻿// â”€â”€â”€ Landing Page â€” lokalhost.club â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â”€â”€â”€ Landing Page â€” lokalhost.club â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Positioning: The uncensored dev social platform. Anti-Facebook. PH-first, global reach.
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router";
@@ -333,7 +333,7 @@ const APP_URL = "https://app.lokalhost.club";
 const FEATURES = [
   {
     title: "Project Roaster",
-    desc: "Paste any URL. Loki AI gives brutally honest Taglish feedback on design, UX, copy, performance. No feelings spared. No post removed.",
+    desc: "Paste any URL. Loki AI gives brutally honest Pinoy Style feedback on design, UX, copy, performance. No feelings spared. No post removed.",
     highlighted: true,
   },
   {
@@ -343,10 +343,12 @@ const FEATURES = [
   {
     title: "Launchpad",
     desc: "Ship your project and let the community upvote it. Like Product Hunt pero walang paywall. Get featured, get users, get roasted.",
+    tier2: true,
   },
   {
     title: "XP & Leaderboard",
     desc: "Earn XP for every post, comment, roast, and launch. Climb the ranks from Intern to CTO. Flex your grind, not just your LinkedIn title.",
+    tier2: true,
   },
   {
     title: "UI/UX & Design Welcome",
@@ -401,7 +403,7 @@ export function Landing() {
           <div className="hidden md:flex items-center gap-6 text-sm text-muted-foreground">
             <a href="#features" className="hover:text-foreground transition-colors">Features</a>
             <a href="#manifesto" className="hover:text-foreground transition-colors">Manifesto</a>
-            <a href="#beta" className="hover:text-foreground transition-colors">Beta</a>
+            <a href="#beta" className="hover:text-foreground transition-colors">Early Access</a>
             <Link to="/pricing" className="hover:text-foreground transition-colors">Pricing</Link>
           </div>
 
@@ -439,25 +441,31 @@ export function Landing() {
             {/* â”€â”€ Left: Text content (65%) â”€â”€ */}
             <div className="lg:w-[65%] min-w-0 text-center lg:text-left">
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-[1.1] mb-4">
-                Post your work.{" "}
+                Ship your work.{" "}
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary via-orange-500 to-red-500">
-                  No flags. No BS.
-                </span>
+                  Get roasted.
+                </span>{" "}
+                Build anyway.
               </h1>
 
               <p className="text-base sm:text-lg text-muted-foreground max-w-2xl mb-4 leading-relaxed lg:mx-0 mx-auto">
                 The <span className="text-foreground font-bold">uncensored social platform</span> for developers, designers &amp; builders.
-                Share projects, get brutally honest AI feedback in Taglish, climb the ranks.
+                Share projects, get brutally honest AI feedback in Pinoy Style, climb the ranks.
                 <span className="text-primary font-semibold"> No mod approval needed.</span>
               </p>
 
-              <p className="text-sm text-muted-foreground mb-8 italic">
-                &quot;Na-suspend account ko sa FB for sharing our startup website.&quot; &mdash; Sound familiar? &#x1F643;
-              </p>
+              <blockquote className="border-l-4 border-primary/60 pl-4 mb-8 text-left lg:mx-0 mx-auto max-w-xl">
+                <p className="text-base sm:text-lg font-semibold text-foreground leading-snug">
+                  &ldquo;Na-suspend account ko sa FB for sharing our startup website.&rdquo;
+                </p>
+                <footer className="text-sm text-muted-foreground mt-1">
+                  &mdash; Sound familiar? &#x1F643; You belong here.
+                </footer>
+              </blockquote>
 
               {/* Hero roast input */}
               <div className="max-w-xl mb-6 lg:mx-0 mx-auto">
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <div className="relative flex-1">
                     <Terminal className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" strokeWidth={2} />
                     <input
@@ -493,8 +501,8 @@ export function Landing() {
                   </span>
                 </label>
 
-                <p className="text-xs text-muted-foreground/50 mt-2">
-                  Free. No signup required to try. Loki AI will be honest &mdash; <span className="italic">walang awa</span>. &#x1F525;
+                <p className="text-sm font-semibold text-foreground/80 mt-2 flex items-center gap-1">
+                  Free. No signup required to try. Loki AI will be honest &mdash; <span className="text-primary font-bold italic">walang awa</span>. &#x1F525;
                 </p>
               </div>
 
@@ -547,7 +555,7 @@ export function Landing() {
           <FadeIn className="text-center mb-14">
             <p className="text-xs font-bold text-primary tracking-widest uppercase mb-2">The Platform</p>
             <h2 className="text-3xl sm:text-4xl font-black tracking-tight">
-              Not just a roaster. Your new dev home.
+              The roaster. The feed. The launchpad. Your dev home.
             </h2>
             <p className="text-muted-foreground mt-3 max-w-lg mx-auto text-sm">
               The social platform Facebook groups wish they were. Built by devs, for devs &mdash; walang censorship.
@@ -559,12 +567,19 @@ export function Landing() {
               <FadeIn key={f.title} delay={i * 80}>
                 <TermCard
                   title={f.title.toLowerCase().replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-")}
-                  accent={f.highlighted}
+                  accent={f.highlighted || f.tier2}
                 >
                   {f.highlighted && (
                     <div className="mb-3">
                       <span className="px-2 py-0.5 rounded bg-primary text-primary-foreground text-[10px] font-bold tracking-wide uppercase">
                         flagship
+                      </span>
+                    </div>
+                  )}
+                  {f.tier2 && (
+                    <div className="mb-3">
+                      <span className="px-2 py-0.5 rounded bg-primary/15 text-primary border border-primary/30 text-[10px] font-bold tracking-wide uppercase">
+                        key feature
                       </span>
                     </div>
                   )}
@@ -644,89 +659,92 @@ export function Landing() {
 
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded border border-amber-500/30 bg-amber-500/5 text-xs text-amber-600 dark:text-amber-400 font-mono font-semibold mb-4">
               <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-              Beta Coming Soon
+              Early Access
             </div>
 
             <h2 className="text-3xl sm:text-4xl font-black tracking-tight mb-3">
-              Be one of the first. &#x1F525;
+              Founding members get roasted first. And ranked forever.
             </h2>
             <p className="text-muted-foreground text-base sm:text-lg mb-2 max-w-lg mx-auto">
-              We&apos;re opening beta access soon. Early members get founding badges,
-              exclusive perks, and bragging rights forever.
+              Get the <span className="text-foreground font-bold">Founding Lodi badge</span>,
+              locked-in pricing for life, and your name in the first-ever lokalhost leaderboard.
             </p>
             <p className="text-xs text-muted-foreground mb-8 italic font-mono">
               Drop your email. We&apos;ll hit you up when it&apos;s time. No spam &mdash; ironic, we know. &#x1F60F;
             </p>
 
-            {/* Email signup */}
-            <div className="max-w-md mx-auto mb-6">
-              <div className="flex gap-2">
-                <input
-                  type="email"
-                  placeholder="you@email.com"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && handleBetaSignup()}
-                  className="flex-1 h-12 px-4 rounded-lg border bg-card text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
-                />
+
+            {/* Primary CTA - roast now, instant value */}
+            <div className="max-w-lg mx-auto mb-8">
+              <p className="text-sm font-semibold text-foreground mb-3">
+                Try the roaster right now &mdash; no signup needed:
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="relative flex-1">
+                  <Terminal className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" strokeWidth={2} />
+                  <input
+                    type="url"
+                    placeholder="https://yourproject.com"
+                    value={projectUrl}
+                    onChange={e => setProjectUrl(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && roastConsent && handleRoast()}
+                    className="w-full h-12 pl-10 pr-4 rounded-lg border bg-card text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+                  />
+                </div>
                 <button
-                  onClick={handleBetaSignup}
-                  disabled={!email.trim()}
+                  onClick={handleRoast}
+                  disabled={!projectUrl.trim() || !roastConsent}
                   className="h-12 px-6 bg-primary text-primary-foreground font-bold rounded-lg text-sm flex items-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
                 >
-                  {joined ? <><span className="font-mono font-bold">&#x2713;</span> Joined!</> : <><span className="font-mono font-bold">&gt;_</span> Join Beta</>}
+                  <Flame className="w-4 h-4" /> Roast It
                 </button>
               </div>
-              {joined && (
-                <p className="text-xs text-green-500 mt-2 font-semibold">
-                  &#x2705; You&apos;re in! We&apos;ll notify you when beta opens.
-                </p>
-              )}
+              {/* Consent checkbox */}
+              <label className="flex items-start gap-2 mt-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={roastConsent}
+                  onChange={e => setRoastConsent(e.target.checked)}
+                  className="mt-0.5 flex-shrink-0 accent-orange-500 w-3.5 h-3.5"
+                />
+                <span className="text-[11px] text-muted-foreground/70 leading-relaxed group-hover:text-muted-foreground transition-colors">
+                  I own this project (or have the owner&apos;s permission) and understand this roast is{" "}
+                  <strong className="text-muted-foreground/90">AI-generated satire</strong>, not factual assessment.{" "}
+                  <Link to="/terms#ai-roast" className="text-primary/70 hover:text-primary underline transition-colors">Learn more</Link>.
+                </span>
+              </label>
             </div>
 
-            {/* Secondary â”€ try roaster now */}
-            <div className="border-t pt-8 mt-8">
+            {/* Secondary CTA - join early access */}
+            <div className="border-t pt-8 mt-2">
               <p className="text-sm text-muted-foreground mb-4">
-                Can&apos;t wait? Try the roaster right now &mdash; no signup needed:
+                Want the Founding Lodi badge? Drop your email and we&apos;ll let you know when spots open:
               </p>
-              <div className="max-w-lg mx-auto">
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Terminal className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" strokeWidth={2} />
-                    <input
-                      type="url"
-                      placeholder="https://yourproject.com"
-                      value={projectUrl}
-                      onChange={e => setProjectUrl(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && roastConsent && handleRoast()}
-                      className="w-full h-12 pl-10 pr-4 rounded-lg border bg-card text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
-                    />
-                  </div>
+              <div className="max-w-md mx-auto mb-6">
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="email"
+                    placeholder="you@email.com"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && handleBetaSignup()}
+                    className="flex-1 h-12 px-4 rounded-lg border bg-card text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+                  />
                   <button
-                    onClick={handleRoast}
-                    disabled={!projectUrl.trim() || !roastConsent}
+                    onClick={handleBetaSignup}
+                    disabled={!email.trim()}
                     className="h-12 px-6 bg-primary text-primary-foreground font-bold rounded-lg text-sm flex items-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
                   >
-                    <Flame className="w-4 h-4" /> Roast It
+                    {joined ? <><span className="font-mono font-bold">&#x2713;</span> Joined!</> : <><span className="font-mono font-bold">&gt;_</span> Claim My Spot</>}
                   </button>
                 </div>
-
-                {/* Consent checkbox */}
-                <label className="flex items-start gap-2 mt-3 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={roastConsent}
-                    onChange={e => setRoastConsent(e.target.checked)}
-                    className="mt-0.5 flex-shrink-0 accent-orange-500 w-3.5 h-3.5"
-                  />
-                  <span className="text-[11px] text-muted-foreground/70 leading-relaxed group-hover:text-muted-foreground transition-colors">
-                    I own this project (or have the owner&apos;s permission) and understand this roast is{" "}
-                    <strong className="text-muted-foreground/90">AI-generated satire</strong>, not factual assessment.{" "}
-                    <Link to="/terms#ai-roast" className="text-primary/70 hover:text-primary underline transition-colors">Learn more</Link>.
-                  </span>
-                </label>
+                {joined && (
+                  <p className="text-xs text-green-500 mt-2 font-semibold">
+                    &#x2705; You&apos;re in! We&apos;ll notify you when early access opens.
+                  </p>
+                )}
               </div>
-              <p className="text-sm text-muted-foreground mt-6">
+              <p className="text-sm text-muted-foreground mt-4">
                 Or explore what&apos;s already live &rarr;{" "}
                 <a href={APP_URL} className="text-primary font-semibold hover:underline">
                   Open the app
@@ -737,9 +755,9 @@ export function Landing() {
         </div>
       </section>
 
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
       {/*  FOOTER                                                          */}
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
 
       <footer className="border-t py-8">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
@@ -775,6 +793,7 @@ export function Landing() {
           </p>
         </div>
       </footer>
+
     </div>
   );
 }

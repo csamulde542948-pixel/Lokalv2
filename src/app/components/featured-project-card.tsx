@@ -35,7 +35,7 @@ interface FeaturedProjectCardProps {
 
 export function FeaturedProjectCard({ project }: FeaturedProjectCardProps) {
   return (
-    <Card className="border bg-card hover:shadow-md transition-shadow">
+    <Card className="overflow-hidden border bg-card hover:shadow-md transition-shadow">
       <CardContent className="p-0 [&:last-child]:pb-0">
         {/* Sponsored Badge */}
         <div className="px-4 pt-3 pb-2 flex items-center justify-between border-b bg-muted/20">
@@ -135,7 +135,7 @@ export function FeaturedProjectCard({ project }: FeaturedProjectCardProps) {
           </div>
 
           {/* CTA Buttons */}
-          <div className="flex gap-2 pt-2">
+          <div className="flex flex-col sm:flex-row gap-2 pt-2">
             <Button 
               className="flex-1 gap-2" 
               onClick={() => window.open(project.url, '_blank')}

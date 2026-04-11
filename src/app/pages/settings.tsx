@@ -304,7 +304,7 @@ export function Settings() {
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="container mx-auto px-4 py-6">
+    <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-6">
       <div className="max-w-3xl mx-auto">
         {/* Header */}
         <div className="mb-6 flex items-center gap-3">
@@ -316,18 +316,18 @@ export function Settings() {
         </div>
 
         <Tabs defaultValue="profile" className="space-y-6">
-          <TabsList className="grid grid-cols-4 w-full">
-            <TabsTrigger value="profile" className="gap-1.5">
+          <TabsList className="grid grid-cols-2 sm:grid-cols-4 w-full">
+            <TabsTrigger value="profile" className="gap-1.5 text-xs sm:text-sm">
               <User className="w-3.5 h-3.5" /> Profile
             </TabsTrigger>
-            <TabsTrigger value="notifications" className="gap-1.5">
-              <Bell className="w-3.5 h-3.5" /> Notifications
+            <TabsTrigger value="notifications" className="gap-1.5 text-xs sm:text-sm">
+              <Bell className="w-3.5 h-3.5" /> Notifs
             </TabsTrigger>
-            <TabsTrigger value="security" className="gap-1.5">
+            <TabsTrigger value="security" className="gap-1.5 text-xs sm:text-sm">
               <Lock className="w-3.5 h-3.5" /> Security
             </TabsTrigger>
-            <TabsTrigger value="appearance" className="gap-1.5">
-              <Palette className="w-3.5 h-3.5" /> Appearance
+            <TabsTrigger value="appearance" className="gap-1.5 text-xs sm:text-sm">
+              <Palette className="w-3.5 h-3.5" /> Theme
             </TabsTrigger>
           </TabsList>
 
@@ -416,7 +416,7 @@ export function Settings() {
                     <Separator />
 
                     {/* Name + Username (username read-only) */}
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1.5">
                         <Label htmlFor="displayName">Display Name</Label>
                         <Input
@@ -469,7 +469,7 @@ export function Settings() {
                     <Separator />
 
                     {/* Extra profile fields */}
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1.5">
                         <Label htmlFor="jobTitle">Job Title</Label>
                         <Input id="jobTitle" value={jobTitle} onChange={e => setJobTitle(e.target.value)} placeholder="e.g. Full-stack Developer" className="h-9" />

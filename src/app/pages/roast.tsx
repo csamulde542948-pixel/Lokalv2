@@ -143,143 +143,156 @@ export function Roast() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-6">
-      <div className="max-w-4xl mx-auto">
+    <div className="py-4 sm:py-6">
+      {/* ── Header + Form ── */}
+      <div className="container mx-auto px-3 sm:px-4">
+        <div className="max-w-4xl mx-auto">
 
-        {/* ── Header ── */}
-        <div className="mb-6">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-12 h-12 bg-gradient-to-br from-red-500 to-orange-600 rounded-md flex items-center justify-center">
-              <Flame className="w-7 h-7 text-white" strokeWidth={2} fill="currentColor" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-semibold flex items-center gap-2">
-                Project Roaster
-                <Badge variant="secondary" className="text-xs rounded-md font-normal">
-                  AI-Powered
-                </Badge>
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                Get brutally honest AI feedback on your project. No feelings spared.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* ── Input Form ── */}
-        <Card className="border mb-6">
-          <CardHeader className="pb-4 border-b">
-            <CardTitle className="text-base flex items-center gap-2 font-mono">
-              <span className="text-primary font-mono font-bold">&gt;_</span>
-              Submit Your Project for Roasting
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-5 space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="projectUrl">Project URL</Label>
-              <div className="relative">
-                <Link2
-                  className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"
-                  strokeWidth={2}
-                />
-                <Input
-                  id="projectUrl"
-                  type="url"
-                  placeholder="https://yourproject.com"
-                  value={projectUrl}
-                  onChange={(e) => setProjectUrl(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  className="pl-10 border rounded-md h-10"
-                />
+          {/* ── Header ── */}
+          <div className="mb-6">
+            <div className="flex items-center gap-2.5 mb-2">
+              <div className="w-8 h-8 sm:w-12 sm:h-12 bg-gradient-to-br from-red-500 to-orange-600 rounded-md flex items-center justify-center flex-shrink-0">
+                <Flame className="w-4 h-4 sm:w-7 sm:h-7 text-white" strokeWidth={2} fill="currentColor" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-2xl font-semibold flex items-center gap-2 flex-wrap">
+                  Project Roaster
+                  <Badge variant="secondary" className="text-xs rounded-md font-normal">
+                    AI-Powered
+                  </Badge>
+                </h1>
+                <p className="text-xs sm:text-sm text-muted-foreground leading-snug line-clamp-2">
+                  Get brutally honest AI feedback on your project. No feelings spared.
+                </p>
               </div>
             </div>
+          </div>
 
-            <div className="flex items-center gap-2 p-3 bg-muted rounded-md border">
-              <AlertTriangle
-                className="w-4 h-4 text-orange-600 flex-shrink-0"
-                strokeWidth={2}
-              />
-              <p className="text-xs text-muted-foreground">
-                Warning: Our AI doesn't hold back. Prepare for honest (and brutal) Taglish feedback.
-                {!user && (
-                  <span className="ml-1">
-                    <Link to="/login" className="text-primary hover:underline">
-                      Sign in
-                    </Link>{" "}
-                    to save and share your roast.
-                  </span>
-                )}
-              </p>
-            </div>
+          {/* ── Input Form ── */}
+          <Card className="border mb-6">
+            <CardHeader className="pb-4 border-b">
+              <CardTitle className="text-base flex items-center gap-2 font-mono">
+                <span className="text-primary font-mono font-bold">&gt;_</span>
+                Submit Your Project for Roasting
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-5 space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="projectUrl">Project URL</Label>
+                <div className="relative">
+                  <Link2
+                    className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"
+                    strokeWidth={2}
+                  />
+                  <Input
+                    id="projectUrl"
+                    type="url"
+                    placeholder="https://yourproject.com"
+                    value={projectUrl}
+                    onChange={(e) => setProjectUrl(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    className="pl-10 border rounded-md h-10"
+                  />
+                </div>
+              </div>
 
-            {/* ── Layer 2: Roast consent gate ── */}
-            <div className="flex items-start gap-2.5 p-3 rounded-md border border-orange-500/20 bg-orange-500/5">
-              <Checkbox
-                id="roastConsent"
-                checked={roastConsent}
-                onCheckedChange={(v) => setRoastConsent(v as boolean)}
-                className="mt-0.5 flex-shrink-0"
-              />
-              <label
-                htmlFor="roastConsent"
-                className="text-xs text-muted-foreground leading-relaxed cursor-pointer"
+              <div className="flex items-center gap-2 p-3 bg-muted rounded-md border">
+                <AlertTriangle
+                  className="w-4 h-4 text-orange-600 flex-shrink-0"
+                  strokeWidth={2}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Warning: Our AI doesn't hold back. Prepare for honest (and brutal) Pinoy Style feedback.
+                  {!user && (
+                    <span className="ml-1">
+                      <Link to="/login" className="text-primary hover:underline">
+                        Sign in
+                      </Link>{" "}
+                      to save and share your roast.
+                    </span>
+                  )}
+                </p>
+              </div>
+
+              <div className="flex items-start gap-2.5 p-3 rounded-md border border-orange-500/20 bg-orange-500/5">
+                <Checkbox
+                  id="roastConsent"
+                  checked={roastConsent}
+                  onCheckedChange={(v) => setRoastConsent(v as boolean)}
+                  className="mt-0.5 flex-shrink-0"
+                />
+                <label
+                  htmlFor="roastConsent"
+                  className="text-xs text-muted-foreground leading-relaxed cursor-pointer"
+                >
+                  I own this project (or have the owner's permission to submit it) and I understand this
+                  roast is <strong>AI-generated satire</strong> — not factual assessment. I submitted
+                  this work voluntarily.{" "}
+                  <Link to="/terms#ai-roast" className="text-primary hover:underline">Learn more</Link>.
+                </label>
+              </div>
+
+              <Button
+                onClick={handleRoast}
+                disabled={!projectUrl.trim() || !roastConsent}
+                className="w-full gap-2"
               >
-                I own this project (or have the owner's permission to submit it) and I understand this
-                roast is <strong>AI-generated satire</strong> — not factual assessment. I submitted
-                this work voluntarily.{" "}
-                <Link to="/terms#ai-roast" className="text-primary hover:underline">Learn more</Link>.
-              </label>
-            </div>
+                <Flame className="w-4 h-4" strokeWidth={2} />
+                Roast My Project
+              </Button>
+            </CardContent>
+          </Card>
 
-            <Button
-              onClick={handleRoast}
-              disabled={!projectUrl.trim() || !roastConsent}
-              className="w-full gap-2"
-            >
-              <Flame className="w-4 h-4" strokeWidth={2} />
-              Roast My Project
-            </Button>
-          </CardContent>
-        </Card>
+        </div>
+      </div>
 
-        {/* ── Marquee ── */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between mb-1">
-            <h2 className="text-sm font-semibold text-muted-foreground">Recent Roasts 🔥</h2>
+      {/* ── Full-bleed Marquee ── */}
+      <div className="w-full overflow-hidden border-y py-6 space-y-3">
+        <div className="container mx-auto px-3 sm:px-4 mb-3">
+          <div className="max-w-4xl mx-auto flex items-center justify-between">
+            <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              Recent Roasts 🔥 — what Loki thinks of your projects
+            </p>
             {recentRoasts.length > 0 && (
               <Badge variant="outline" className="text-xs rounded-md font-normal">
                 {recentRoasts.length} projects roasted
               </Badge>
             )}
           </div>
+        </div>
 
-          {/* Row 1 – scrolls right */}
-          <div className="relative overflow-hidden">
-            <div className="flex gap-3 animate-scroll-right">
-              {marqueeItems
-                ? rowOne.map((r, i) => (
-                    <RoastMarqueeCard key={`r1-${i}`} roast={r as RecentRoast} />
-                  ))
-                : rowOne.map((r, i) => (
-                    <StaticMarqueeCard key={`r1-${i}`} {...(r as typeof STATIC_ROASTS[0])} />
-                  ))}
-            </div>
+        {/* Row 1 – scrolls right */}
+        <div className="relative overflow-hidden">
+          <div className="flex gap-3 animate-scroll-right" style={{ width: "max-content" }}>
+            {marqueeItems
+              ? rowOne.map((r, i) => (
+                  <RoastMarqueeCard key={`r1-${i}`} roast={r as RecentRoast} />
+                ))
+              : rowOne.map((r, i) => (
+                  <StaticMarqueeCard key={`r1-${i}`} {...(r as typeof STATIC_ROASTS[0])} />
+                ))}
           </div>
+        </div>
 
-          {/* Row 2 – scrolls left */}
-          <div className="relative overflow-hidden">
-            <div className="flex gap-3 animate-scroll-left">
-              {marqueeItems
-                ? rowTwo.map((r, i) => (
-                    <RoastMarqueeCard key={`r2-${i}`} roast={r as RecentRoast} />
-                  ))
-                : rowTwo.map((r, i) => (
-                    <StaticMarqueeCard key={`r2-${i}`} {...(r as typeof STATIC_ROASTS[0])} />
-                  ))}
-            </div>
+        {/* Row 2 – scrolls left */}
+        <div className="relative overflow-hidden">
+          <div className="flex gap-3 animate-scroll-left" style={{ width: "max-content" }}>
+            {marqueeItems
+              ? rowTwo.map((r, i) => (
+                  <RoastMarqueeCard key={`r2-${i}`} roast={r as RecentRoast} />
+                ))
+              : rowTwo.map((r, i) => (
+                  <StaticMarqueeCard key={`r2-${i}`} {...(r as typeof STATIC_ROASTS[0])} />
+                ))}
           </div>
+        </div>
+      </div>
 
-          {recentRoasts.length === 0 && (
+      {/* ── Empty state ── */}
+      {recentRoasts.length === 0 && (
+        <div className="container mx-auto px-3 sm:px-4 mt-4">
+          <div className="max-w-4xl mx-auto">
             <Card className="border">
               <CardContent className="p-10 text-center">
                 <div className="w-14 h-14 bg-muted rounded-full flex items-center justify-center mx-auto mb-3">
@@ -291,9 +304,9 @@ export function Roast() {
                 </p>
               </CardContent>
             </Card>
-          )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

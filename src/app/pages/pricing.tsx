@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { ArrowRight, FileText } from "lucide-react";
+import { ArrowRight, Moon, Sun, Github } from "lucide-react";
 import { BrandLogo } from "../components/brand-logo";
 
 // ─── Force dark mode on this standalone page ───────────────────────────────────
@@ -15,6 +15,27 @@ function useForceDark() {
       root.classList.toggle("dark", saved === "dark" || (!saved));
     };
   }, []);
+}
+
+// ─── Theme toggle (mirrors landing.tsx) ────────────────────────────────────────
+function useTheme() {
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("theme") as "light" | "dark" | null;
+    const initial = saved || "dark";
+    setTheme(initial);
+    document.documentElement.classList.toggle("dark", initial === "dark");
+  }, []);
+
+  const toggle = () => {
+    const next = theme === "light" ? "dark" : "light";
+    setTheme(next);
+    localStorage.setItem("theme", next);
+    document.documentElement.classList.toggle("dark", next === "dark");
+  };
+
+  return { theme, toggle };
 }
 
 // ─── Data ───────────────────────────────────────────────────────────────────────
@@ -114,7 +135,7 @@ const FAQS = [
   },
   {
     q: "Can I target a specific audience?",
-    a: "All lokalhost members see the Launchpad feed. Targeting is by community, not demographics.",
+    a: "Your project reaches the entire lokalhost community — every active Filipino dev and builder on the platform. No algorithmic filtering, no demographic gates. Direct visibility.",
   },
 ];
 
@@ -180,6 +201,7 @@ function TermCard({
 
 export function Pricing() {
   useForceDark();
+  const { theme, toggle } = useTheme();
 
   return (
     <div className="relative min-h-screen bg-background text-foreground font-mono overflow-x-hidden">
@@ -190,30 +212,28 @@ export function Pricing() {
 
       {/* ── Navbar ── */}
       <nav className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-lg">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <BrandLogo size="sm" showText linkTo="/landing" />
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <BrandLogo size="sm" showText linkTo="/" />
+          </div>
+
           <div className="hidden md:flex items-center gap-6 text-sm text-muted-foreground">
-            <Link to="/landing" className="hover:text-foreground transition-colors">Home</Link>
+            <Link to="/" className="hover:text-foreground transition-colors">Home</Link>
             <a href="#plans" className="hover:text-foreground transition-colors">Plans</a>
             <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
           </div>
+
           <div className="flex items-center gap-2">
-            {[
-              { to: "/terms", label: "Terms" },
-              { to: "/privacy", label: "Privacy" },
-              { to: "/refund-policy", label: "Refunds" },
-            ].map(({ to, label }) => (
-              <Link
-                key={to}
-                to={to}
-                className="hidden sm:inline text-xs text-muted-foreground hover:text-foreground font-mono px-2 py-1 rounded hover:bg-muted transition-colors"
-              >
-                {label}
-              </Link>
-            ))}
+            <button
+              onClick={toggle}
+              className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-muted transition-colors"
+              aria-label="Toggle theme"
+            >
+              {theme === "light" ? <Moon className="w-[18px] h-[18px]" /> : <Sun className="w-[18px] h-[18px]" />}
+            </button>
             <Link
               to="/"
-              className="inline-flex items-center gap-1.5 px-4 h-9 bg-primary text-primary-foreground text-sm font-semibold rounded-md hover:opacity-90 transition-opacity"
+              className="hidden sm:inline-flex items-center gap-1.5 px-4 h-9 bg-primary text-primary-foreground text-sm font-semibold rounded-md hover:opacity-90 transition-opacity"
             >
               Launch App <ArrowRight className="w-3.5 h-3.5" />
             </Link>
@@ -359,33 +379,36 @@ export function Pricing() {
 
       {/* ── Footer ── */}
       <footer className="border-t py-8">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <BrandLogo size="sm" showText linkTo="/landing" />
-            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              {[
-                { to: "/terms", label: "Terms of Service" },
-                { to: "/privacy", label: "Privacy Policy" },
-                { to: "/refund-policy", label: "Refund Policy" },
-                { to: "/acceptable-use", label: "Acceptable Use" },
-                { to: "/cookie-policy", label: "Cookie Policy" },
-              ].map(({ to, label }) => (
-                <Link
-                  key={to}
-                  to={to}
-                  className="hover:text-foreground transition-colors flex items-center gap-1"
-                >
-                  <FileText className="w-3 h-3" />{label}
-                </Link>
-              ))}
+            <div className="flex items-center gap-2">
+              <BrandLogo size="sm" showText={false} />
+              <div className="text-left">
+                <span className="font-semibold text-sm block">lokalhost<span style={{ color: "#ff6600" }}>.club</span></span>
+                <span className="text-[10px] text-muted-foreground">The dev social platform. No BS.</span>
+              </div>
             </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <Link to="/terms"          className="hover:text-foreground transition-colors">Terms</Link>
+              <Link to="/privacy"        className="hover:text-foreground transition-colors">Privacy</Link>
+              <Link to="/cookie-policy"  className="hover:text-foreground transition-colors">Cookies</Link>
+              <Link to="/acceptable-use" className="hover:text-foreground transition-colors">Acceptable Use</Link>
+              <Link to="/refund-policy"  className="hover:text-foreground transition-colors">Refunds</Link>
+              <a href="mailto:legal@lokalhost.club" className="hover:text-foreground transition-colors">Legal</a>
+              <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors flex items-center gap-1">
+                <Github className="w-3.5 h-3.5" /> GitHub
+              </a>
+            </div>
+
             <p className="text-xs text-muted-foreground">
-              Made with 🔥 by Filipino devs &middot; © 2026
+              Made with &#x1F525; by Filipino developers &middot; &copy; 2026
             </p>
           </div>
+
           <p className="text-center text-[10px] text-muted-foreground/40 mt-4">
-            Payments processed by Paddle.com &middot;{" "}
-            <a href="mailto:hello@lokalhost.club" className="hover:text-muted-foreground/70 underline">hello@lokalhost.club</a>
+            Payments processed by Paddle.com &middot; AI Roast outputs are satirical and do not represent factual assessments.{" "}
+            <Link to="/terms#ai-content" className="hover:text-muted-foreground/70 underline transition-colors">AI Disclaimer</Link>
           </p>
         </div>
       </footer>

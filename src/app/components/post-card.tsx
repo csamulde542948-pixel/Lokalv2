@@ -418,7 +418,7 @@ function MediaGrid({ imgs }: { imgs: string[] }) {
 
       {/* ── 1 image ──────────────────────────────────────────────────── */}
       {total === 1 && (
-        <div className="px-4 py-2">
+        <div className="px-2 sm:px-4 py-2">
           <div
             className="relative overflow-hidden cursor-pointer"
             style={{ maxHeight: 500 }}
@@ -436,7 +436,7 @@ function MediaGrid({ imgs }: { imgs: string[] }) {
 
       {/* ── 2 images ─────────────────────────────────────────────────── */}
       {total === 2 && (
-        <div className="px-4 py-2">
+        <div className="px-2 sm:px-4 py-2">
           <div className="flex gap-1.5" style={{ height: 280 }}>
             <Img src={imgs[0]} index={0} className="flex-1" />
             <Img src={imgs[1]} index={1} className="flex-1" />
@@ -446,7 +446,7 @@ function MediaGrid({ imgs }: { imgs: string[] }) {
 
       {/* ── 3 images ─────────────────────────────────────────────────── */}
       {total === 3 && (
-        <div className="px-4 py-2">
+        <div className="px-2 sm:px-4 py-2">
           <div className="flex gap-1.5" style={{ height: 320 }}>
             <Img src={imgs[0]} index={0} className="flex-1" />
             <div className="flex flex-col gap-1.5 flex-1">
@@ -459,7 +459,7 @@ function MediaGrid({ imgs }: { imgs: string[] }) {
 
       {/* ── 4 images ─────────────────────────────────────────────────── */}
       {total === 4 && (
-        <div className="px-4 py-2">
+        <div className="px-2 sm:px-4 py-2">
           <div className="flex flex-col gap-1.5" style={{ height: 360 }}>
             <div className="flex gap-1.5 flex-1">
               <Img src={imgs[0]} index={0} className="flex-1" />
@@ -475,7 +475,7 @@ function MediaGrid({ imgs }: { imgs: string[] }) {
 
       {/* ── 5+ images ────────────────────────────────────────────────── */}
       {total >= 5 && (
-        <div className="px-4 py-2">
+        <div className="px-2 sm:px-4 py-2">
           <div className="flex gap-1.5" style={{ height: 360 }}>
             <div className="flex flex-col gap-1.5 flex-1">
               <Img src={imgs[0]} index={0} className="flex-1" />
@@ -626,7 +626,7 @@ export function SharedPostPreview({ post }: { post: OriginalPost }) {
 
             {/* Roast body */}
             <div className="p-4 bg-gradient-to-b from-transparent to-primary/5">
-              <p className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap">
+              <p className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap break-words">
                 {displayText}
               </p>
               {needsReadMore && (
@@ -682,7 +682,7 @@ export function SharedPostPreview({ post }: { post: OriginalPost }) {
         {/* Content */}
         {cleanContent && (
           <div className="px-4 pb-3">
-            <p className="text-sm leading-relaxed whitespace-pre-wrap line-clamp-5">
+            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words line-clamp-5">
               {cleanContent}
             </p>
           </div>
@@ -1961,9 +1961,9 @@ export function PostCard({
                   className="gap-1.5 h-8 text-xs rounded-md px-2 text-primary hover:bg-primary/10"
                 >
                   {isFollowing ? (
-                    <><UserCheck className="w-3.5 h-3.5" strokeWidth={2} />Following</>
+                    <><UserCheck className="w-3.5 h-3.5" strokeWidth={2} /><span className="hidden sm:inline">Following</span></>
                   ) : (
-                    <><UserPlus className="w-3.5 h-3.5" strokeWidth={2} />Follow</>
+                    <><UserPlus className="w-3.5 h-3.5" strokeWidth={2} /><span className="hidden sm:inline">Follow</span></>
                   )}
                 </Button>
               )}
@@ -2014,7 +2014,7 @@ export function PostCard({
             {(() => {
               const clean = post.content.replace(/\[shared:[^\]]+\]/g, "").trim();
               return clean ? (
-                <p className="whitespace-pre-wrap text-sm leading-relaxed">{clean}</p>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed break-words">{clean}</p>
               ) : null;
             })()}
             {/* Nested original post preview (Facebook-style share) */}

@@ -787,12 +787,12 @@ export function Feed() {
 
   return (
     <div className="flex min-h-screen">
-      {/* Left Sidebar */}
-      <LeftSidebar className="hidden xl:block sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto" />
+      {/* Left Sidebar — fixed, non-scrollable */}
+      <LeftSidebar className="hidden xl:block fixed top-14 left-0 w-64 h-[calc(100vh-3.5rem)] overflow-hidden" />
 
       {/* Center Feed */}
-      <div className="flex-1 border-x">
-        <div className="max-w-[680px] mx-auto px-4 py-4 space-y-4">
+      <div className="flex-1 min-w-0 lg:border-x xl:ml-64 lg:mr-80">
+        <div className="max-w-[680px] mx-auto px-2 sm:px-4 py-4 space-y-4">
           {/* Featured Projects Stories */}
           <FeaturedProjects />
 
@@ -920,8 +920,8 @@ export function Feed() {
         </div>
       </div>
 
-      {/* Right Sidebar */}
-      <RightSidebar category="home" className="hidden lg:block sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto" />
+      {/* Right Sidebar — fixed, non-scrollable */}
+      <RightSidebar category="home" className="hidden lg:block fixed top-14 right-0 w-80 h-[calc(100vh-3.5rem)] overflow-hidden" />
     </div>
   );
 }

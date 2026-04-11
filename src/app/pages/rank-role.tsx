@@ -228,10 +228,10 @@ export function RankRole() {
   return (
     <div className="flex min-h-screen">
       {/* Left Sidebar */}
-      <LeftSidebar className="hidden xl:block sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto" />
+      <LeftSidebar className="hidden xl:block fixed top-14 left-0 w-64 h-[calc(100vh-3.5rem)] overflow-hidden" />
 
       {/* Main Content */}
-      <div className="flex-1 border-x">
+      <div className="flex-1 lg:border-x xl:ml-64 lg:mr-80">
         {loading && !data ? (
           <RankRoleSkeleton />
         ) : error ? (
@@ -241,7 +241,7 @@ export function RankRole() {
             </p>
           </div>
         ) : (
-          <div className="max-w-5xl mx-auto p-6 space-y-6">
+          <div className="max-w-5xl mx-auto p-3 sm:p-6 space-y-6">
             {/* Header */}
             <div>
               <h1 className="text-3xl font-black mb-2">Rank & Role</h1>
@@ -254,7 +254,7 @@ export function RankRole() {
             {currentRank && (
               <Card className="overflow-hidden">
                 <CardContent className="p-6">
-                  <div className="flex items-start gap-6">
+                  <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6">
                     {/* Rank icon */}
                     <div
                       className={`w-24 h-24 rounded-2xl border-4 flex items-center justify-center flex-shrink-0 ${rankClasses(currentRank).bgColor} ${rankClasses(currentRank).borderColor}`}
@@ -489,7 +489,7 @@ export function RankRole() {
       {/* Right Sidebar */}
       <RightSidebar
         category="rank-role"
-        className="hidden lg:block sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto"
+        className="hidden lg:block fixed top-14 right-0 w-80 h-[calc(100vh-3.5rem)] overflow-hidden"
       />
     </div>
   );

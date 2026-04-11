@@ -228,7 +228,7 @@ export function MessagesPopover({ isOpen, onClose }: MessagesPopoverProps) {
       <div className="fixed inset-0 z-40" onClick={onClose} />
 
       {/* Panel */}
-      <div className="fixed bottom-0 right-20 z-50 w-80 h-[32rem] bg-card border rounded-t-lg shadow-2xl flex flex-col overflow-hidden">
+      <div className="fixed bottom-16 lg:bottom-0 left-2 right-2 sm:left-auto sm:right-20 z-50 sm:w-80 h-[min(32rem,calc(100vh-8rem))] sm:h-[32rem] bg-card border rounded-t-lg shadow-2xl flex flex-col overflow-hidden">
         {selectedPreview && currentUserId ? (
           <MiniChat
             preview={selectedPreview}

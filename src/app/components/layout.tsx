@@ -3,7 +3,8 @@ import {
   HomeIcon as HomeSolid, 
   TrophyIcon as TrophySolid,
   RocketLaunchIcon as RocketSolid,
-  FireIcon as FireSolid
+  FireIcon as FireSolid,
+  UserIcon as UserSolid
 } from "@heroicons/react/24/solid";
 import { Search, Bell, MessageSquare, Menu, Code2, X, User, Users, FolderKanban, BarChart3, Settings, LogOut, Shield, Briefcase } from "lucide-react";
 import { BrandLogo } from "./brand-logo";
@@ -240,8 +241,8 @@ export function Layout() {
               </div>
             </div>
 
-            {/* Center: Navigation */}
-            <nav className="flex items-center gap-1 px-4">
+            {/* Center: Navigation — hidden on mobile, shown on lg+ */}
+            <nav className="hidden lg:flex items-center gap-1 px-4">
               <Link
                 to="/"
                 className={`flex items-center justify-center w-24 h-16 border-b-[3px] transition-colors relative group ${
@@ -250,11 +251,7 @@ export function Layout() {
                     : "border-transparent text-muted-foreground hover:bg-muted/50 rounded-lg"
                 }`}
               >
-                {isActive("/") ? (
-                  <HomeSolid className="w-6 h-6" />
-                ) : (
-                  <HomeSolid className="w-6 h-6" />
-                )}
+                <HomeSolid className="w-6 h-6" />
               </Link>
               <Link
                 to="/launchpad"
@@ -264,11 +261,7 @@ export function Layout() {
                     : "border-transparent text-muted-foreground hover:bg-muted/50 rounded-lg"
                 }`}
               >
-                {isActive("/launchpad") ? (
-                  <RocketSolid className="w-6 h-6" />
-                ) : (
-                  <RocketSolid className="w-6 h-6" />
-                )}
+                <RocketSolid className="w-6 h-6" />
               </Link>
               <Link
                 to="/roast"
@@ -278,11 +271,7 @@ export function Layout() {
                     : "border-transparent text-muted-foreground hover:bg-muted/50 rounded-lg"
                 }`}
               >
-                {isActive("/roast") ? (
-                  <FireSolid className="w-6 h-6" />
-                ) : (
-                  <FireSolid className="w-6 h-6" />
-                )}
+                <FireSolid className="w-6 h-6" />
               </Link>
               <Link
                 to="/leaderboard"
@@ -292,11 +281,7 @@ export function Layout() {
                     : "border-transparent text-muted-foreground hover:bg-muted/50 rounded-lg"
                 }`}
               >
-                {isActive("/leaderboard") ? (
-                  <TrophySolid className="w-6 h-6" />
-                ) : (
-                  <TrophySolid className="w-6 h-6" />
-                )}
+                <TrophySolid className="w-6 h-6" />
               </Link>
             </nav>
 
@@ -345,7 +330,7 @@ export function Layout() {
               <Button 
                 variant="ghost" 
                 size="icon" 
-                className="rounded-md h-9 w-9 text-muted-foreground hover:text-foreground hover:bg-muted"
+                className="rounded-md h-9 w-9 text-muted-foreground hover:text-foreground hover:bg-muted flex lg:hidden"
                 onClick={() => setShowMobileMenu(!showMobileMenu)}
               >
                 {showMobileMenu ? (
@@ -354,12 +339,15 @@ export function Layout() {
                   <Menu className="w-5 h-5" strokeWidth={2} />
                 )}
               </Button>
-              <Link to="/profile">
+              <button
+                onClick={() => setShowMobileMenu(!showMobileMenu)}
+                className="hidden lg:block rounded-full focus-visible:ring-2 focus-visible:ring-primary outline-none"
+              >
                 <Avatar className="w-8 h-8 cursor-pointer hover:ring-2 hover:ring-muted transition-all border-2 border-border">
                   <AvatarImage src={avatarSrc(me?.avatarUrl)} />
                   <AvatarFallback>{(me?.displayName ?? me?.name ?? "?")[0]?.toUpperCase()}</AvatarFallback>
                 </Avatar>
-              </Link>
+              </button>
             </div>
           </div>
         </div>
@@ -375,8 +363,8 @@ export function Layout() {
           />
           
           {/* Mobile Menu Panel */}
-          <div className="fixed top-16 right-0 w-80 bg-card border-l border-b shadow-xl z-50 animate-in slide-in-from-right duration-300">
-            <div className="p-4 space-y-1 max-h-[calc(100vh-4rem)] overflow-y-auto">
+          <div className="fixed top-16 right-0 w-full sm:w-80 bg-card border-l border-b shadow-xl z-50 animate-in slide-in-from-right duration-300">
+            <div className="p-4 space-y-1 max-h-[calc(100vh-4rem-3.5rem)] lg:max-h-[calc(100vh-4rem)] overflow-y-auto pb-4">
               {/* User Profile Section */}
               <Link 
                 to="/profile" 
@@ -516,27 +504,83 @@ export function Layout() {
         </>
       )}
 
-      {/* Main Content */}
-      <main className="flex-1">
+      {/* Main Content — pb-16 on mobile for bottom tab bar clearance, pb-12 on desktop for fixed footer */}
+      <main className="flex-1 pb-16 lg:pb-12">
         <Outlet />
       </main>
 
-      {/* ── Legal footer ── */}
-      <footer className="border-t bg-muted/20 py-3 px-4">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+      {/* ── Legal footer — fixed at bottom on desktop ── */}
+      <footer className="hidden lg:block fixed bottom-0 left-0 right-0 z-40 border-t bg-card py-3 px-4">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row flex-wrap items-center justify-between gap-2">
           <p className="text-[11px] text-muted-foreground/60">
             © 2026 lokalhost.club &middot; Made with 🔥 by Filipino developers
           </p>
-          <nav className="flex items-center gap-4 flex-wrap justify-end">
+          <nav className="flex items-center gap-3 sm:gap-4 flex-wrap justify-center sm:justify-end">
             <Link to="/terms"          className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors">Terms</Link>
             <Link to="/privacy"        className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors">Privacy</Link>
-            <Link to="/refund-policy"  className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors">Refund Policy</Link>
+            <Link to="/refund-policy"  className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors">Refund</Link>
             <Link to="/cookie-policy"  className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors">Cookies</Link>
             <Link to="/acceptable-use" className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors">Acceptable Use</Link>
             <a href="mailto:legal@lokalhost.club" className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors">Contact</a>
           </nav>
         </div>
       </footer>
+
+      {/* ── Mobile Bottom Tab Bar — visible on mobile/tablet only ── */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-card border-t safe-area-bottom">
+        <div className="flex items-center justify-around h-14">
+          <Link
+            to="/"
+            onClick={() => setShowMobileMenu(false)}
+            className={`flex flex-col items-center justify-center flex-1 h-full gap-0.5 transition-colors ${
+              isActive("/") ? "text-primary" : "text-muted-foreground"
+            }`}
+          >
+            <HomeSolid className="w-5 h-5" />
+            <span className="text-[10px] font-medium">Home</span>
+          </Link>
+          <Link
+            to="/launchpad"
+            onClick={() => setShowMobileMenu(false)}
+            className={`flex flex-col items-center justify-center flex-1 h-full gap-0.5 transition-colors ${
+              isActive("/launchpad") ? "text-primary" : "text-muted-foreground"
+            }`}
+          >
+            <RocketSolid className="w-5 h-5" />
+            <span className="text-[10px] font-medium">Launch</span>
+          </Link>
+          <Link
+            to="/roast"
+            onClick={() => setShowMobileMenu(false)}
+            className={`flex flex-col items-center justify-center flex-1 h-full gap-0.5 transition-colors ${
+              isActive("/roast") ? "text-primary" : "text-muted-foreground"
+            }`}
+          >
+            <FireSolid className="w-5 h-5" />
+            <span className="text-[10px] font-medium">Roast</span>
+          </Link>
+          <Link
+            to="/leaderboard"
+            onClick={() => setShowMobileMenu(false)}
+            className={`flex flex-col items-center justify-center flex-1 h-full gap-0.5 transition-colors ${
+              isActive("/leaderboard") ? "text-primary" : "text-muted-foreground"
+            }`}
+          >
+            <TrophySolid className="w-5 h-5" />
+            <span className="text-[10px] font-medium">Board</span>
+          </Link>
+          <Link
+            to="/profile"
+            onClick={() => setShowMobileMenu(false)}
+            className={`flex flex-col items-center justify-center flex-1 h-full gap-0.5 transition-colors ${
+              isActive("/profile") ? "text-primary" : "text-muted-foreground"
+            }`}
+          >
+            <UserSolid className="w-5 h-5" />
+            <span className="text-[10px] font-medium">You</span>
+          </Link>
+        </div>
+      </nav>
 
       {/* Popovers */}
       <MessagesPopover 

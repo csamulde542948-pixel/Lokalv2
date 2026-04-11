@@ -108,15 +108,19 @@ export function Leaderboard() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-6">
+    <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-6">
-          <div className="flex items-center gap-3 mb-2">
-            <Trophy className="w-8 h-8 text-primary" strokeWidth={2} />
-            <div>
-              <h1 className="text-2xl font-semibold">Leaderboard</h1>
-              <p className="text-sm text-muted-foreground">Top developers and projects in the community</p>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                <Trophy className="w-4 h-4 sm:w-5 sm:h-5 text-primary" strokeWidth={2} />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-2xl font-semibold leading-tight">Leaderboard</h1>
+                <p className="text-xs sm:text-sm text-muted-foreground leading-snug line-clamp-2">Top developers and projects in the community</p>
+              </div>
             </div>
           </div>
         </div>
@@ -130,15 +134,16 @@ export function Leaderboard() {
 
         {/* Featured Projects */}
         <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Crown className="w-5 h-5 text-primary" strokeWidth={2} />
-              <h2 className="text-lg font-semibold">Featured Projects</h2>
-              <Badge variant="secondary" className="text-xs rounded-md font-normal">Premium</Badge>
+          <div className="flex items-center justify-between gap-2 mb-4">
+            <div className="flex items-center gap-2 min-w-0">
+              <Crown className="w-4 h-4 sm:w-5 sm:h-5 text-primary flex-shrink-0" strokeWidth={2} />
+              <h2 className="text-base sm:text-lg font-semibold leading-tight">Featured Projects</h2>
+              <Badge variant="secondary" className="text-xs rounded-md font-normal flex-shrink-0">Premium</Badge>
             </div>
-            <Button variant="outline" size="sm" className="gap-2 h-8 text-xs">
-              <Zap className="w-3.5 h-3.5" strokeWidth={2} />
-              Get Featured
+            <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs flex-shrink-0 px-2 sm:px-3">
+              <Zap className="w-3.5 h-3.5 flex-shrink-0" strokeWidth={2} />
+              <span className="hidden xs:inline sm:inline">Get Featured</span>
+              <span className="xs:hidden sm:hidden">Feature</span>
             </Button>
           </div>
 

@@ -391,7 +391,7 @@ export function Profile() {
   return (
     <div className="min-h-screen bg-background">
       {/* Cover Photo — standalone element, NOT wrapping the info bar */}
-      <div className="h-56 sm:h-72 bg-gradient-to-br from-primary/20 via-muted to-primary/10 relative overflow-hidden">
+      <div className="h-40 sm:h-56 md:h-72 bg-gradient-to-br from-primary/20 via-muted to-primary/10 relative overflow-hidden">
         <img
           src={localCoverUrl || profile?.coverUrl || DEFAULT_COVER}
           alt="Cover"
@@ -424,22 +424,58 @@ export function Profile() {
 
       {/* Profile Info Bar — BELOW the cover, avatar overlaps bottom edge via negative margin */}
       <div className="bg-card border-b shadow-sm">
-        <div className="max-w-5xl mx-auto px-4">
+        <div className="max-w-5xl mx-auto px-2 sm:px-4">
           {loading ? (
-            <div className="py-4 flex items-center gap-4">
-              <Skeleton className="w-24 h-24 rounded-full -mt-12 flex-shrink-0 border-4 border-card" />
-              <div className="space-y-2 pt-2">
-                <Skeleton className="h-5 w-40" />
-                <Skeleton className="h-3 w-24" />
+            <>
+              {/* Mobile skeleton */}
+              <div className="sm:hidden">
+                <div className="flex items-end justify-between -mt-12 pb-2">
+                  <Skeleton className="w-24 h-24 rounded-full border-4 border-card flex-shrink-0" />
+                  <div className="flex gap-2 pb-1">
+                    <Skeleton className="h-8 w-20 rounded-md" />
+                    <Skeleton className="h-8 w-8 rounded-md" />
+                  </div>
+                </div>
+                <div className="pb-3 space-y-2">
+                  <Skeleton className="h-5 w-36" />
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="h-4 w-16 rounded-full" />
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
+                    <Skeleton className="h-3 w-12" />
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-3 w-14" />
+                  </div>
+                </div>
               </div>
-            </div>
+              {/* Desktop skeleton */}
+              <div className="hidden sm:flex items-center gap-4 py-4">
+                <Skeleton className="w-32 h-32 rounded-full -mt-16 flex-shrink-0 border-4 border-card" />
+                <div className="flex-1 space-y-2 pt-2">
+                  <Skeleton className="h-5 w-40" />
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="h-3 w-16" />
+                  <div className="flex gap-3 pt-1">
+                    <Skeleton className="h-3 w-14" />
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-3 w-16" />
+                  </div>
+                </div>
+                <div className="flex gap-2 flex-shrink-0 self-start pt-2">
+                  <Skeleton className="h-8 w-24 rounded-md" />
+                  <Skeleton className="h-8 w-8 rounded-md" />
+                </div>
+              </div>
+            </>
           ) : (
             <>
-              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 pb-3">
-                {/* Avatar + name */}
-                <div className="flex flex-col sm:flex-row items-center sm:items-end gap-4">
-                  <div className="relative -mt-14 sm:-mt-16 flex-shrink-0">
-                    <Avatar className="w-28 h-28 sm:w-32 sm:h-32 border-4 border-card ring-2 ring-background">
+              {/* ── MOBILE layout (< sm): avatar row + info row stacked ── */}
+              <div className="sm:hidden">
+                {/* Row 1: avatar (overlapping cover) + action buttons flush right */}
+                <div className="flex items-end justify-between -mt-12 pb-2">
+                  {/* Avatar */}
+                  <div className="relative flex-shrink-0">
+                    <Avatar className="w-24 h-24 border-4 border-card ring-2 ring-background">
                       <AvatarImage src={avatarSrc(localAvatarUrl || profile?.avatarUrl)} />
                       <AvatarFallback className="text-2xl font-bold">
                         {displayName?.[0]?.toUpperCase()}
@@ -468,90 +504,221 @@ export function Profile() {
                       </>
                     )}
                   </div>
-                  <div className="text-center sm:text-left pb-2">
-                    <h1 className="text-2xl font-bold leading-tight">{displayName}</h1>
-                    <p className="text-sm text-muted-foreground">@{profile?.username ?? "—"}</p>
-                    {profile?.rank && (
-                      <Badge
-                        className="mt-1 text-xs"
-                        style={{
-                          backgroundColor: profile.rank.color + "22",
-                          color: profile.rank.color,
-                          borderColor: profile.rank.color + "55",
-                        }}
-                        variant="outline"
-                      >
-                        {profile.rank.name}
-                      </Badge>
+
+                  {/* Action buttons — vertically centered with avatar bottom */}
+                  <div className="flex gap-2 flex-shrink-0 pb-1">
+                    {isOtherUser && !isOwnProfile ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant={isFollowing ? "secondary" : "default"}
+                          className="gap-1.5"
+                          onClick={handleFollowToggle}
+                        >
+                          {isFollowing ? (
+                            <><UserCheck className="w-4 h-4" strokeWidth={2} />Following</>
+                          ) : (
+                            <><UserPlus className="w-4 h-4" strokeWidth={2} />Follow</>
+                          )}
+                        </Button>
+                        <Button size="sm" variant="secondary">
+                          <MoreHorizontal className="w-4 h-4" strokeWidth={2} />
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button size="sm" className="gap-1.5">
+                          <Edit className="w-4 h-4" strokeWidth={2} />
+                          Edit
+                        </Button>
+                        <Button size="sm" variant="secondary">
+                          <MoreHorizontal className="w-4 h-4" strokeWidth={2} />
+                        </Button>
+                      </>
                     )}
                   </div>
                 </div>
 
-                {/* Action buttons */}
-                <div className="flex gap-2 pb-2 justify-center sm:justify-start flex-shrink-0">
-                  {isOtherUser && !isOwnProfile ? (
-                    <>
-                      <Button
-                        size="sm"
-                        variant={isFollowing ? "secondary" : "default"}
-                        className="gap-2"
-                        onClick={handleFollowToggle}
-                      >
-                        {isFollowing ? (
-                          <><UserCheck className="w-4 h-4" strokeWidth={2} />Following</>
-                        ) : (
-                          <><UserPlus className="w-4 h-4" strokeWidth={2} />Follow</>
-                        )}
-                      </Button>
-                      <Button size="sm" variant="secondary">
-                        <MoreHorizontal className="w-4 h-4" strokeWidth={2} />
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <Button size="sm" className="gap-2">
-                        <Edit className="w-4 h-4" strokeWidth={2} />
-                        Edit Profile
-                      </Button>
-                      <Button size="sm" variant="secondary">
-                        <MoreHorizontal className="w-4 h-4" strokeWidth={2} />
-                      </Button>
-                    </>
+                {/* Row 2: name, username, badge, stats — no wasted space */}
+                <div className="pb-3 space-y-1">
+                  <h1 className="text-lg font-bold leading-tight truncate">{displayName}</h1>
+                  <p className="text-sm text-muted-foreground truncate">@{profile?.username ?? "—"}</p>
+                  {profile?.rank && (
+                    <Badge
+                      className="text-xs"
+                      style={{
+                        backgroundColor: profile.rank.color + "22",
+                        color: profile.rank.color,
+                        borderColor: profile.rank.color + "55",
+                      }}
+                      variant="outline"
+                    >
+                      {profile.rank.name}
+                    </Badge>
                   )}
+                  {/* Stats */}
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-sm text-muted-foreground">
+                    <button
+                      className="hover:text-foreground transition-colors hover:underline underline-offset-2"
+                      onClick={() => setActiveTab("posts")}
+                    >
+                      <span className="font-semibold text-foreground">{profile?.postsCount ?? 0}</span>{" "}posts
+                    </button>
+                    <button
+                      className="hover:text-foreground transition-colors hover:underline underline-offset-2"
+                      onClick={() => isOwnProfile ? navigate("/followers") : setActiveTab("about")}
+                    >
+                      <span className="font-semibold text-foreground">{followersCount}</span>{" "}followers
+                    </button>
+                    <button
+                      className="hover:text-foreground transition-colors hover:underline underline-offset-2"
+                      onClick={() => isOwnProfile ? navigate("/followers") : setActiveTab("about")}
+                    >
+                      <span className="font-semibold text-foreground">{profile?.followingCount ?? 0}</span>{" "}following
+                    </button>
+                    <button
+                      className="hover:text-foreground transition-colors hover:underline underline-offset-2"
+                      onClick={() => setActiveTab("projects")}
+                    >
+                      <span className="font-semibold text-foreground">{projects.length}</span>{" "}projects
+                    </button>
+                    {profile?.xp != null && (
+                      <span>
+                        <span className="font-semibold text-foreground">{profile.xp.toLocaleString()}</span> XP
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* Stats row */}
-              <div className="flex gap-5 pb-3 text-sm text-muted-foreground flex-wrap justify-center sm:justify-start">
-                <button
-                  className="hover:text-foreground transition-colors hover:underline underline-offset-2"
-                  onClick={() => setActiveTab("posts")}
-                >
-                  <span className="font-semibold text-foreground">{profile?.postsCount ?? 0}</span> posts
-                </button>
-                <button
-                  className="hover:text-foreground transition-colors hover:underline underline-offset-2"
-                  onClick={() => isOwnProfile ? navigate("/followers") : setActiveTab("about")}
-                >
-                  <span className="font-semibold text-foreground">{followersCount}</span> followers
-                </button>
-                <button
-                  className="hover:text-foreground transition-colors hover:underline underline-offset-2"
-                  onClick={() => isOwnProfile ? navigate("/followers") : setActiveTab("about")}
-                >
-                  <span className="font-semibold text-foreground">{profile?.followingCount ?? 0}</span> following
-                </button>
-                <button
-                  className="hover:text-foreground transition-colors hover:underline underline-offset-2"
-                  onClick={() => setActiveTab("projects")}
-                >
-                  <span className="font-semibold text-foreground">{projects.length}</span> projects
-                </button>
-                {profile?.xp != null && (
-                  <span>
-                    <span className="font-semibold text-foreground">{profile.xp.toLocaleString()}</span> XP
-                  </span>
-                )}
+              {/* ── DESKTOP layout (sm+): original side-by-side, unchanged ── */}
+              <div className="hidden sm:flex items-start gap-4 pt-1 pb-3">
+                {/* Avatar */}
+                <div className="relative -mt-16 flex-shrink-0">
+                  <Avatar className="w-32 h-32 border-4 border-card ring-2 ring-background">
+                    <AvatarImage src={avatarSrc(localAvatarUrl || profile?.avatarUrl)} />
+                    <AvatarFallback className="text-2xl font-bold">
+                      {displayName?.[0]?.toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  {!isOtherUser && (
+                    <>
+                      <Button
+                        size="icon"
+                        variant="secondary"
+                        className="absolute bottom-1 right-1 h-7 w-7 rounded-full bg-muted hover:bg-muted/80"
+                        onClick={() => avatarFileRef.current?.click()}
+                        disabled={avatarUploading}
+                      >
+                        {avatarUploading
+                          ? <Loader2 className="w-3 h-3 animate-spin" />
+                          : <Camera className="w-3.5 h-3.5" strokeWidth={2} />}
+                      </Button>
+                      <input
+                        ref={avatarFileRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/gif,image/webp"
+                        className="hidden"
+                        onChange={handleAvatarUpload}
+                      />
+                    </>
+                  )}
+                </div>
+
+                {/* Name / username / rank + stats + action buttons */}
+                <div className="flex-1 min-w-0 pt-2">
+                  {/* Top row: name + action buttons */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h1 className="text-2xl font-bold leading-tight truncate">{displayName}</h1>
+                      <p className="text-sm text-muted-foreground truncate">@{profile?.username ?? "—"}</p>
+                      {profile?.rank && (
+                        <Badge
+                          className="mt-1 text-xs"
+                          style={{
+                            backgroundColor: profile.rank.color + "22",
+                            color: profile.rank.color,
+                            borderColor: profile.rank.color + "55",
+                          }}
+                          variant="outline"
+                        >
+                          {profile.rank.name}
+                        </Badge>
+                      )}
+                    </div>
+
+                    {/* Action buttons — top-right */}
+                    <div className="flex gap-2 flex-shrink-0">
+                      {isOtherUser && !isOwnProfile ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant={isFollowing ? "secondary" : "default"}
+                            className="gap-1.5"
+                            onClick={handleFollowToggle}
+                          >
+                            {isFollowing ? (
+                              <><UserCheck className="w-4 h-4" strokeWidth={2} />Following</>
+                            ) : (
+                              <><UserPlus className="w-4 h-4" strokeWidth={2} />Follow</>
+                            )}
+                          </Button>
+                          <Button size="sm" variant="secondary">
+                            <MoreHorizontal className="w-4 h-4" strokeWidth={2} />
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button size="sm" className="gap-1.5">
+                            <Edit className="w-4 h-4" strokeWidth={2} />
+                            <span className="hidden xs:inline">Edit Profile</span>
+                            <span className="xs:hidden">Edit</span>
+                          </Button>
+                          <Button size="sm" variant="secondary">
+                            <MoreHorizontal className="w-4 h-4" strokeWidth={2} />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Stats row */}
+                  <div className="flex flex-wrap gap-x-5 gap-y-0 mt-2 pb-1 text-sm text-muted-foreground">
+                    <button
+                      className="hover:text-foreground transition-colors hover:underline underline-offset-2"
+                      onClick={() => setActiveTab("posts")}
+                    >
+                      <span className="font-semibold text-foreground">{profile?.postsCount ?? 0}</span>{" "}
+                      posts
+                    </button>
+                    <button
+                      className="hover:text-foreground transition-colors hover:underline underline-offset-2"
+                      onClick={() => isOwnProfile ? navigate("/followers") : setActiveTab("about")}
+                    >
+                      <span className="font-semibold text-foreground">{followersCount}</span>{" "}
+                      followers
+                    </button>
+                    <button
+                      className="hover:text-foreground transition-colors hover:underline underline-offset-2"
+                      onClick={() => isOwnProfile ? navigate("/followers") : setActiveTab("about")}
+                    >
+                      <span className="font-semibold text-foreground">{profile?.followingCount ?? 0}</span>{" "}
+                      following
+                    </button>
+                    <button
+                      className="hover:text-foreground transition-colors hover:underline underline-offset-2"
+                      onClick={() => setActiveTab("projects")}
+                    >
+                      <span className="font-semibold text-foreground">{projects.length}</span>{" "}
+                      projects
+                    </button>
+                    {profile?.xp != null && (
+                      <span>
+                        <span className="font-semibold text-foreground">{profile.xp.toLocaleString()}</span> XP
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
             </>
           )}
@@ -578,7 +745,7 @@ export function Profile() {
       </div>
 
       {/* Content Area */}
-      <div className="max-w-5xl mx-auto px-4 py-6">
+      <div className="max-w-5xl mx-auto px-2 sm:px-4 py-4 sm:py-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Left Sidebar */}
           <div className="lg:col-span-1 space-y-4">

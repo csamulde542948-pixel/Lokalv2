@@ -182,7 +182,7 @@ export function NotificationsPopover({ isOpen, onClose, onUnreadCount }: Notific
       {/* Panel */}
       <div
         ref={panelRef}
-        className="fixed top-16 right-4 z-50 w-96 max-h-[calc(100vh-5rem)] bg-card border rounded-xl shadow-2xl flex flex-col"
+        className="fixed top-16 left-2 right-2 sm:left-auto sm:right-4 z-50 sm:w-96 max-h-[calc(100vh-5rem)] bg-card border rounded-xl shadow-2xl flex flex-col"
       >
         {/* Header */}
         <div className="p-4 border-b">

@@ -1,4 +1,4 @@
-﻿import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useQuery, useMutation } from "@apollo/client/react";
@@ -796,24 +796,38 @@ export function Launchpad() {
   const canSubmit = !creating && !!selectedProject && !!formData.title && !!formData.description;
 
   return (
-    <div className="container mx-auto px-4 py-6">
+    <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-6">
       <div className="max-w-3xl mx-auto">
 
         {/* ── Page header ── */}
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-              <Rocket className="w-5 h-5 text-primary" strokeWidth={2} />
+        <div className="mb-6 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {/* Rocket icon — smaller on mobile */}
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+              <Rocket className="w-4 h-4 sm:w-5 sm:h-5 text-primary" strokeWidth={2} />
             </div>
-            <div>
-              <h1 className="text-2xl font-bold">Launchpad</h1>
-              <p className="text-sm text-muted-foreground">Find beta testers, get feedback & collaborate</p>
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-2xl font-bold leading-tight">Launchpad</h1>
+              <p className="text-xs sm:text-sm text-muted-foreground leading-snug line-clamp-2">Find beta testers, get feedback & collaborate</p>
             </div>
           </div>
           {user && (
-            <Button onClick={() => setShowCreateForm(!showCreateForm)} className="gap-2 rounded-full">
-              {showCreateForm ? <><X className="w-4 h-4" />Cancel</> : <><Plus className="w-4 h-4" />Create Event</>}
-            </Button>
+            <>
+              {/* Mobile: compact circle + button */}
+              <Button
+                size="icon"
+                onClick={() => setShowCreateForm(!showCreateForm)}
+                className="sm:hidden rounded-full w-9 h-9 flex-shrink-0"
+                variant={showCreateForm ? "secondary" : "default"}
+                title={showCreateForm ? "Cancel" : "Create Event"}
+              >
+                {showCreateForm ? <X className="w-4 h-4" strokeWidth={2.5} /> : <Plus className="w-4 h-4" strokeWidth={2.5} />}
+              </Button>
+              {/* Desktop: full labelled button */}
+              <Button onClick={() => setShowCreateForm(!showCreateForm)} className="hidden sm:flex gap-2 rounded-full flex-shrink-0">
+                {showCreateForm ? <><X className="w-4 h-4" />Cancel</> : <><Plus className="w-4 h-4" />Create Event</>}
+              </Button>
+            </>
           )}
         </div>
 

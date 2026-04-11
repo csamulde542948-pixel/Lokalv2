@@ -550,7 +550,7 @@ export function RoastedProjectCard({ post, onLike, isFollowing: isFollowingProp 
         </div>
 
         {/* ── Roast card ──────────────────────────────────────────────────── */}
-        <div className="mx-4 mb-3 border-2 border-primary/25 rounded-xl overflow-hidden bg-card shadow-sm">
+        <div className="mx-2 sm:mx-4 mb-3 border-2 border-primary/25 rounded-xl overflow-hidden bg-card shadow-sm">
 
           {/* Project header */}
           <div className="bg-gradient-to-r from-primary/12 via-primary/8 to-primary/4 border-b border-primary/20 px-4 py-3">
@@ -608,7 +608,7 @@ export function RoastedProjectCard({ post, onLike, isFollowing: isFollowingProp 
 
           {/* Roast body */}
           <div className="p-4 bg-gradient-to-b from-transparent to-primary/5">
-            <p className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap">
+            <p className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap break-words">
               {displayText}
             </p>
             {needsReadMore && (

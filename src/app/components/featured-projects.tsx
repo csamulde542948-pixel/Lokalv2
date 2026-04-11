@@ -7,7 +7,7 @@ function FakeStoryCard({ hasRing = false }: { hasRing?: boolean }) {
   return (
     <div className="flex-shrink-0">
       <div
-        className={`w-[120px] h-[180px] rounded-xl p-[3px] ${
+        className={`w-[90px] h-[136px] sm:w-[120px] sm:h-[180px] rounded-xl p-[3px] ${
           hasRing ? "bg-gradient-to-br from-muted-foreground/20 via-muted-foreground/10 to-muted-foreground/20" : "bg-border"
         }`}
       >
@@ -15,13 +15,13 @@ function FakeStoryCard({ hasRing = false }: { hasRing?: boolean }) {
           {/* Thumbnail placeholder */}
           <Skeleton className="w-full h-full rounded-none" />
           {/* Avatar at top */}
-          <div className="absolute top-3 left-3">
-            <Skeleton className="w-9 h-9 rounded-full" />
+          <div className="absolute top-2 sm:top-3 left-2 sm:left-3">
+            <Skeleton className="w-7 h-7 sm:w-9 sm:h-9 rounded-full" />
           </div>
           {/* Name at bottom */}
-          <div className="absolute bottom-2 left-2 right-2 space-y-1">
-            <Skeleton className="h-2.5 w-16" />
-            <Skeleton className="h-2 w-12" />
+          <div className="absolute bottom-1.5 sm:bottom-2 left-1.5 sm:left-2 right-1.5 sm:right-2 space-y-1">
+            <Skeleton className="h-2 sm:h-2.5 w-12 sm:w-16" />
+            <Skeleton className="h-1.5 sm:h-2 w-10 sm:w-12" />
           </div>
         </div>
       </div>
@@ -33,18 +33,18 @@ export function FeaturedProjects() {
   return (
     <div className="relative rounded-xl border bg-card overflow-hidden">
       {/* Blurred skeleton stories row in the background */}
-      <div className="pointer-events-none select-none px-4 py-3" aria-hidden>
-        <div className="flex gap-3 overflow-hidden blur-[1.5px] opacity-50">
+      <div className="pointer-events-none select-none px-3 sm:px-4 py-2 sm:py-3" aria-hidden>
+        <div className="flex gap-2 sm:gap-3 overflow-hidden blur-[1.5px] opacity-50">
           {/* Create story placeholder — with orange circle + icon */}
           <div className="flex-shrink-0">
-            <div className="w-[120px] h-[180px] rounded-xl bg-muted border-2 border-dashed border-muted-foreground/15 overflow-hidden">
-              <div className="h-[130px] bg-gradient-to-br from-muted to-muted-foreground/10 flex items-center justify-center">
-                <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center shadow-md">
-                  <Plus className="w-5 h-5 text-white" strokeWidth={2.5} />
+            <div className="w-[90px] h-[136px] sm:w-[120px] sm:h-[180px] rounded-xl bg-muted border-2 border-dashed border-muted-foreground/15 overflow-hidden">
+              <div className="h-[95px] sm:h-[130px] bg-gradient-to-br from-muted to-muted-foreground/10 flex items-center justify-center">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-orange-500 flex items-center justify-center shadow-md">
+                  <Plus className="w-4 h-4 sm:w-5 sm:h-5 text-white" strokeWidth={2.5} />
                 </div>
               </div>
-              <div className="h-[50px] flex items-center justify-center px-2">
-                <p className="text-xs font-medium text-muted-foreground text-center leading-tight">Create Story</p>
+              <div className="h-[41px] sm:h-[50px] flex items-center justify-center px-2">
+                <p className="text-[10px] sm:text-xs font-medium text-muted-foreground text-center leading-tight">Create Story</p>
               </div>
             </div>
           </div>

@@ -202,7 +202,7 @@ export function CreatePost({ onPost }: CreatePostProps) {
 
   return (
     <Card className="border">
-      <CardContent className="p-4">
+      <CardContent className="p-3 sm:p-4">
         {showFeelingPicker && (
           <div className="mb-3 rounded-xl border bg-card shadow-lg overflow-hidden">
             <div className="flex items-center gap-2 px-3 py-2.5 border-b">
@@ -283,30 +283,30 @@ export function CreatePost({ onPost }: CreatePostProps) {
           </div>
         )}
 
-        <div className="flex gap-3">
-          <Avatar className="w-10 h-10 border-2 border-border flex-shrink-0">
+        <div className="flex gap-3 items-center">
+          <Avatar className="w-9 h-9 sm:w-10 sm:h-10 border-2 border-border flex-shrink-0">
             <AvatarImage src={avatarSrc(me?.avatarUrl)} />
             <AvatarFallback>
               {(me?.displayName ?? me?.username ?? me?.name ?? user?.email ?? "?")[0]?.toUpperCase()}
             </AvatarFallback>
           </Avatar>
 
-          <div className="flex-1 space-y-3">
+          <div className="flex-1 min-w-0 space-y-3">
             {!isExpanded ? (
               <div
                 onClick={() => setIsExpanded(true)}
-                className="bg-muted hover:bg-border rounded-full px-4 py-2.5 cursor-text transition-colors border flex items-center justify-between gap-2"
+                className="bg-muted hover:bg-border rounded-full px-3 sm:px-4 py-2 sm:py-2.5 cursor-text transition-colors border flex items-center gap-2 overflow-hidden"
               >
-                <span className="text-sm text-muted-foreground flex-1">
+                <span className="text-sm text-muted-foreground truncate flex-1 min-w-0">
                   {feeling
                     ? `${feeling.emoji} feeling ${feeling.label}...`
                     : "What are you building?"}
                 </span>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <span className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-muted/80 text-muted-foreground">
+                <div className="flex items-center gap-0.5 flex-shrink-0">
+                  <span className="w-7 h-7 flex items-center justify-center rounded-full text-muted-foreground">
                     <Images className="w-4 h-4" strokeWidth={2} />
                   </span>
-                  <span className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-muted/80 text-muted-foreground">
+                  <span className="w-7 h-7 flex items-center justify-center rounded-full text-muted-foreground">
                     <Smile className="w-4 h-4" strokeWidth={2} />
                   </span>
                 </div>
