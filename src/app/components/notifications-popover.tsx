@@ -18,6 +18,7 @@ const GET_NOTIFICATIONS = gql`
   query GetNotifications($limit: Int, $offset: Int) {
     notifications(limit: $limit, offset: $offset) {
       unreadCount
+      total
       notifications {
         id
         type
@@ -25,6 +26,7 @@ const GET_NOTIFICATIONS = gql`
         isRead
         createdAt
         entityId
+        postId
         actor {
           id
           name
@@ -47,8 +49,9 @@ const MARK_ALL_READ = gql`
 `;
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
-type NotifType = "LIKE" | "COMMENT" | "FOLLOW" | "PROJECT_ROAST" | "JOB_APPLICATION"
-  | "EVENT_REMINDER" | "LAUNCHPAD_INTEREST" | "XP_LEVELUP" | "MENTION" | string;
+type NotifType = "LIKE" | "COMMENT" | "FOLLOW" | "PROJECT_ROAST" | "ROAST_REACTION"
+  | "JOB_APPLICATION" | "EVENT_REMINDER" | "LAUNCHPAD_INTEREST" | "XP_LEVELUP"
+  | "MENTION" | "SHARE" | "EARNED_ROLE" | string;
 
 function getIcon(type: NotifType) {
   const s = "w-3.5 h-3.5";
@@ -59,7 +62,9 @@ function getIcon(type: NotifType) {
     case "SHARE":              return <Share2         className={`${s} text-violet-500`}      strokeWidth={2} />;
     case "MENTION":            return <AtSign         className={`${s} text-cyan-500`}        strokeWidth={2} />;
     case "PROJECT_ROAST":      return <Flame          className={`${s} text-orange-500`}      strokeWidth={2} fill="currentColor" />;
+    case "ROAST_REACTION":     return <span className="text-[13px] leading-none">🔥</span>;
     case "XP_LEVELUP":         return <Trophy         className={`${s} text-yellow-400`}      strokeWidth={2} fill="currentColor" />;
+    case "EARNED_ROLE":        return <Trophy         className={`${s} text-purple-400`}      strokeWidth={2} fill="currentColor" />;
     case "LAUNCHPAD_INTEREST": return <Rocket         className={`${s} text-indigo-500`}      strokeWidth={2} />;
     case "JOB_APPLICATION":    return <Briefcase      className={`${s} text-teal-500`}        strokeWidth={2} />;
     case "EVENT_REMINDER":     return <CalendarClock  className={`${s} text-pink-500`}        strokeWidth={2} />;
@@ -75,30 +80,28 @@ function timeAgo(iso: string) {
   return `${Math.floor(s / 86400)}d`;
 }
 
-function navTarget(type: NotifType, entityId?: string | null, actorUsername?: string | null): string | null {
+function navTarget(type: NotifType, entityId?: string | null, actorUsername?: string | null, postId?: string | null): string | null {
+  // For post-related types use postId first, fall back to entityId
+  const postTarget = postId ?? entityId;
   switch (type) {
-    // Post-related: navigate to feed with the post highlighted via query param
     case "LIKE":
     case "COMMENT":
     case "MENTION":
-    case "SHARE":              return entityId ? `/?post=${entityId}` : "/";
-    // FOLLOW: navigate to actor's profile by username
+    case "SHARE":
+    case "ROAST_REACTION":     return postTarget ? `/?post=${postTarget}` : "/";
     case "FOLLOW":             return actorUsername ? `/profile/${actorUsername}` : null;
-    // Project: route is /project/:id (no "s")
     case "PROJECT_ROAST":      return entityId ? `/project/${entityId}` : null;
-    // Job application notification → job detail page
     case "JOB_APPLICATION":    return entityId ? `/jobs/${entityId}` : "/jobs";
-    // Event reminder → event detail page
     case "EVENT_REMINDER":     return entityId ? `/events/${entityId}` : "/events";
     case "LAUNCHPAD_INTEREST": return `/launchpad`;
-    // XP/system notifications have no specific destination
-    case "XP_LEVELUP":         return null;
+    case "XP_LEVELUP":
+    case "EARNED_ROLE":        return null;
     default:                   return null;
   }
 }
 
 /** Notification types that should open the PostModal instead of navigating */
-const POST_MODAL_TYPES: NotifType[] = ["LIKE", "COMMENT", "MENTION", "SHARE"];
+const POST_MODAL_TYPES: NotifType[] = ["LIKE", "COMMENT", "MENTION", "SHARE", "ROAST_REACTION", "PROJECT_ROAST"];
 
 /** Returns the display message — uses stored message if set, else a type default */
 function displayMessage(type: NotifType, message?: string | null): string {
@@ -110,7 +113,9 @@ function displayMessage(type: NotifType, message?: string | null): string {
     case "SHARE":              return "shared your post";
     case "MENTION":            return "mentioned you in a post";
     case "PROJECT_ROAST":      return "roasted your project";
+    case "ROAST_REACTION":     return "gave your roast a 🔥";
     case "XP_LEVELUP":         return "You leveled up!";
+    case "EARNED_ROLE":        return "You earned a new role!";
     case "LAUNCHPAD_INTEREST": return "is interested in your launch";
     case "JOB_APPLICATION":    return "applied to your job posting";
     case "EVENT_REMINDER":     return "Upcoming event reminder";
@@ -129,7 +134,8 @@ interface NotificationsPopoverProps {
 export function NotificationsPopover({ isOpen, onClose, onUnreadCount }: NotificationsPopoverProps) {
   const navigate = useNavigate();
   const panelRef = useRef<HTMLDivElement>(null);
-  const [modalPostId, setModalPostId] = useState<string | null>(null);
+  const [modalPostId,   setModalPostId]   = useState<string | null>(null);
+  const [modalNotifType, setModalNotifType] = useState<string | null>(null);
 
   const { data, loading, refetch } = useQuery(GET_NOTIFICATIONS, {
     variables: { limit: 30, offset: 0 },
@@ -156,12 +162,31 @@ export function NotificationsPopover({ isOpen, onClose, onUnreadCount }: Notific
     if (!notif.isRead) {
       await markRead({ variables: { notificationId: notif.id } });
     }
-    // Post-related: open inline modal so user sees the card without leaving the page
-    if (POST_MODAL_TYPES.includes(notif.type) && notif.entityId) {
-      setModalPostId(notif.entityId);
-      return;
+
+    if (POST_MODAL_TYPES.includes(notif.type)) {
+      // postId is the reliable feed-post id.
+      // For PROJECT_ROAST: backend now resolves postId even for legacy notifications.
+      // entityId on PROJECT_ROAST is the Roast record id — NOT a post id, skip it.
+      const postTarget = notif.postId ?? (notif.type === "PROJECT_ROAST" ? null : notif.entityId);
+
+      if (postTarget) {
+        setModalPostId(postTarget);
+        setModalNotifType(notif.type);
+        return;
+      }
+
+      // PROJECT_ROAST with no postId — still open the modal with a null postId
+      // so the user at least sees the notification type context.
+      // The modal will show a "could not load post" state but that's better than nothing.
+      if (notif.type === "PROJECT_ROAST") {
+        setModalPostId("__roast_no_post__");
+        setModalNotifType(notif.type);
+        return;
+      }
     }
-    const target = navTarget(notif.type, notif.entityId, notif.actor?.username);
+
+    // No post to open — navigate to the relevant page
+    const target = navTarget(notif.type, notif.entityId, notif.actor?.username, notif.postId);
     if (target) { navigate(target); onClose(); }
   }
 
@@ -173,7 +198,8 @@ export function NotificationsPopover({ isOpen, onClose, onUnreadCount }: Notific
       {modalPostId && (
         <PostModal
           postId={modalPostId}
-          onClose={() => setModalPostId(null)}
+          notifType={modalNotifType ?? undefined}
+          onClose={() => { setModalPostId(null); setModalNotifType(null); }}
         />
       )}
       {/* Backdrop */}

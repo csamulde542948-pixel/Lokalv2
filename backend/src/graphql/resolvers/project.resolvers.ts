@@ -1,5 +1,6 @@
 import { GraphQLContext } from "../context";
-import { awardXp } from "../../services/xp";
+import { awardXp, checkAndAwardRoles } from "../../services/xp";
+import { assertCanCreateProject } from "../../services/rankLimits";
 import { addActivityToFeed } from "../../lib/stream";
 import { scrapeProjectInfo } from "../../services/projectScraper.service";
 import { captureAndUploadScreenshot } from "../../services/screenshot.service";
@@ -155,9 +156,13 @@ export const projectResolvers = {
     createProject: async (
       _: unknown,
       { input }: { input: any },
-      { user, prisma }: GraphQLContext
+      { user, prisma, clientIp }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
+
+      // ── Rank-based project slot check ──────────────────────────────────────
+      // Throws with a descriptive message if the user has hit their rank limit.
+      await assertCanCreateProject(user.id);
 
       const project = await prisma.$transaction(async (tx: any) => {
         const tagNames: string[] = input.tags ?? [];
@@ -214,7 +219,8 @@ export const projectResolvers = {
       }).catch(console.error);
 
       // Award XP
-      awardXp(user.id, "LAUNCH_PROJECT").catch(console.error);
+      awardXp(user.id, "LAUNCH_PROJECT", undefined, clientIp).catch(console.error);
+      checkAndAwardRoles(user.id).catch(console.error);
 
       return project;
     },
@@ -323,7 +329,7 @@ export const projectResolvers = {
     starProject: async (
       _: unknown,
       { projectId }: { projectId: string },
-      { user, prisma }: GraphQLContext
+      { user, prisma, clientIp }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
 
@@ -336,7 +342,7 @@ export const projectResolvers = {
         await prisma.projectStar.create({
           data: { projectId, profileId: user.id },
         });
-        awardXp(user.id, "SHARE_PROJECT").catch(console.error);
+        awardXp(user.id, "SHARE_PROJECT", undefined, clientIp).catch(console.error);
         return prisma.project.update({
           where: { id: projectId },
           data: { starsCount: { increment: 1 } },

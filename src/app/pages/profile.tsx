@@ -11,6 +11,7 @@ import { Skeleton } from "../components/ui/skeleton";
 import { PostCard } from "../components/post-card";
 import { RoastedProjectCard, FeedPost } from "../components/roasted-project-card";
 import { CreatePost } from "../components/create-post";
+import { AvatarFrame, pickFrameRole } from "../components/avatar-frame";
 import {
   MapPin, Link2, Calendar, Code2, Camera,
   Edit, UserPlus, UserCheck, MoreHorizontal, Star, Users, Image as ImageIcon, Loader2,
@@ -38,7 +39,8 @@ const GET_ME = gql`
       followingCount
       postsCount
       projectsCount
-      rank { name color }
+      rank { name color iconName bgColor borderColor }
+      earnedRoles { id role { id name emoji description } earnedAt }
     }
   }
 `;
@@ -90,7 +92,8 @@ const GET_PROFILE_BY_USERNAME = gql`
       id name username displayName avatarUrl bio location website xp
       followersCount followingCount postsCount projectsCount
       isFollowedByMe
-      rank { name color }
+      rank { name color iconName bgColor borderColor }
+      earnedRoles { id role { id name emoji description } earnedAt }
     }
   }
 `;
@@ -475,12 +478,18 @@ export function Profile() {
                 <div className="flex items-end justify-between -mt-12 pb-2">
                   {/* Avatar */}
                   <div className="relative flex-shrink-0">
-                    <Avatar className="w-24 h-24 border-4 border-card ring-2 ring-background">
-                      <AvatarImage src={avatarSrc(localAvatarUrl || profile?.avatarUrl)} />
-                      <AvatarFallback className="text-2xl font-bold">
-                        {displayName?.[0]?.toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
+                    <AvatarFrame
+                      roleName={pickFrameRole((profile?.earnedRoles ?? []).map((ur: any) => ur.role.name))}
+                      rankName={profile?.rank?.name}
+                      size={96}
+                    >
+                      <Avatar className="w-24 h-24">
+                        <AvatarImage src={avatarSrc(localAvatarUrl || profile?.avatarUrl)} />
+                        <AvatarFallback className="text-2xl font-bold">
+                          {displayName?.[0]?.toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                    </AvatarFrame>
                     {!isOtherUser && (
                       <>
                         <Button
@@ -595,12 +604,18 @@ export function Profile() {
               <div className="hidden sm:flex items-start gap-4 pt-1 pb-3">
                 {/* Avatar */}
                 <div className="relative -mt-16 flex-shrink-0">
-                  <Avatar className="w-32 h-32 border-4 border-card ring-2 ring-background">
-                    <AvatarImage src={avatarSrc(localAvatarUrl || profile?.avatarUrl)} />
-                    <AvatarFallback className="text-2xl font-bold">
-                      {displayName?.[0]?.toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
+                  <AvatarFrame
+                    roleName={pickFrameRole((profile?.earnedRoles ?? []).map((ur: any) => ur.role.name))}
+                    rankName={profile?.rank?.name}
+                    size={128}
+                  >
+                    <Avatar className="w-32 h-32">
+                      <AvatarImage src={avatarSrc(localAvatarUrl || profile?.avatarUrl)} />
+                      <AvatarFallback className="text-2xl font-bold">
+                        {displayName?.[0]?.toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                  </AvatarFrame>
                   {!isOtherUser && (
                     <>
                       <Button
@@ -819,6 +834,34 @@ export function Profile() {
               </CardContent>
             </Card>
 
+            {/* Roles card */}
+            {(profile?.earnedRoles?.length ?? 0) > 0 && (
+              <Card className="border">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Roles</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {profile.earnedRoles.map((ur: any) => (
+                    <div
+                      key={ur.id}
+                      className="flex items-center gap-2 py-1"
+                      title={ur.role.description}
+                    >
+                      <span className="text-xl leading-none w-6 text-center">{ur.role.emoji}</span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold leading-tight">{ur.role.name}</p>
+                        {ur.role.description && (
+                          <p className="text-xs text-muted-foreground leading-tight line-clamp-1">
+                            {ur.role.description}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+
             {/* Projects sidebar card */}
             <Card className="border">
               <CardHeader className="pb-3">
@@ -1007,6 +1050,28 @@ export function Profile() {
                           </span>
                         </div>
                       </div>
+
+                      {/* Roles section */}
+                      {(profile?.earnedRoles?.length ?? 0) > 0 && (
+                        <>
+                          <Separator />
+                          <div>
+                            <h3 className="font-semibold mb-3">Roles &amp; Achievements</h3>
+                            <div className="flex flex-wrap gap-2">
+                              {profile.earnedRoles.map((ur: any) => (
+                                <div
+                                  key={ur.id}
+                                  title={ur.role.description ?? ur.role.name}
+                                  className="flex items-center gap-1.5 bg-muted rounded-full px-3 py-1 text-sm"
+                                >
+                                  <span className="text-base leading-none">{ur.role.emoji}</span>
+                                  <span className="font-medium">{ur.role.name}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </>
                   )}
                 </CardContent>

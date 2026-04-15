@@ -1,5 +1,6 @@
 import { GraphQLContext } from "../context";
 import { awardXp } from "../../services/xp";
+import { assertCanCreateLaunchpadEvent } from "../../services/rankLimits";
 import { createNotification } from "../../lib/notifications";
 import { isValidEmail } from "../../middleware/security";
 
@@ -139,9 +140,13 @@ export const launchpadResolvers = {
     createLaunchpadEvent: async (
       _: unknown,
       { input }: { input: any },
-      { user, prisma }: GraphQLContext
+      { user, prisma, clientIp }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
+
+      // ── Rank-based launchpad event slot check ──────────────────────────────
+      // Throws with a descriptive message if the user has hit their rank limit.
+      await assertCanCreateLaunchpadEvent(user.id);
 
       const tagNames: string[] = input.tags ?? [];
       const tagRecords = await Promise.all(
@@ -182,7 +187,7 @@ export const launchpadResolvers = {
       });
 
       // Award XP for launching
-      awardXp(user.id, "LAUNCH_PROJECT").catch(console.error);
+      awardXp(user.id, "LAUNCH_PROJECT", undefined, clientIp).catch(console.error);
       return launchpadEvent;
     },
 

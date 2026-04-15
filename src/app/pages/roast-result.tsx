@@ -31,19 +31,19 @@ const GENERATE_ROAST = gql`
       title
       quickRoast
       fullRoast
-      overallScore
       projectUrl
       projectName
     }
   }
 `;
 
-const PUBLISH_ROAST_POST = gql`
-  mutation PublishRoastPost($input: CreatePostInput!) {
-    createPost(input: $input) {
+const SUBMIT_ROAST = gql`
+  mutation SubmitRoast($input: SubmitRoastInput!) {
+    submitRoast(input: $input) {
       id
-      content
-      projectName
+      quickRoast
+      fullRoast
+      projectId
       createdAt
     }
   }
@@ -76,7 +76,6 @@ interface GeneratedRoast {
   title: string;
   quickRoast: string;
   fullRoast: string;
-  overallScore: number;
   projectUrl: string;
   projectName: string;
 }
@@ -386,10 +385,10 @@ export function RoastResult() {
 
   const incoming = location.state as IncomingState | null;
 
-  const [publishRoastPost] = useMutation<
-    { createPost: { id: string } },
-    { input: { content: string; projectName?: string; tags?: string[] } }
-  >(PUBLISH_ROAST_POST);
+  const [submitRoast] = useMutation<
+    { submitRoast: { id: string } },
+    { input: { projectUrl: string; projectName: string; projectId?: string; title?: string; quickRoast?: string; fullRoast?: string } }
+  >(SUBMIT_ROAST);
 
   const [generateRoast, { loading }] = useMutation<
     { generateRoast: GeneratedRoast },
@@ -467,10 +466,22 @@ export function RoastResult() {
     }
     setPublishLoading(true);
     setPublishError(null);
-    const content = `🔥 Just roasted **${roast.projectName}** with Lokal AI!\n\n${roast.fullRoast}\n\n👉 ${roast.projectUrl}`;
     try {
-      await publishRoastPost({
-        variables: { input: { content, projectName: roast.projectName, tags: ["roast", "ai", "lokal"] } },
+      // submitRoast saves to the Roast table, notifies the project owner,
+      // awards XP, and creates a feed post as a side effect on the backend.
+      // projectId is not available at this point (user pasted a URL, not
+      // picked from their own projects), so it's omitted — the backend will
+      // still save the roast content and publish it to the feed.
+      await submitRoast({
+        variables: {
+          input: {
+            projectUrl: roast.projectUrl,
+            projectName: roast.projectName,
+            title: roast.title,
+            quickRoast: roast.quickRoast,
+            fullRoast: roast.fullRoast,
+          },
+        },
       });
       clearRoastSession();
       setPublished(true);

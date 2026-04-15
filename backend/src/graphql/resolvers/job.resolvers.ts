@@ -101,7 +101,7 @@ export const jobResolvers = {
     createJob: async (
       _: unknown,
       { input }: { input: any },
-      { user, prisma }: GraphQLContext
+      { user, prisma, clientIp }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
 
@@ -133,7 +133,7 @@ export const jobResolvers = {
         },
       });
 
-      awardXp(user.id, "CREATE_JOB").catch(console.error);
+      awardXp(user.id, "CREATE_JOB", undefined, clientIp).catch(console.error);
       return job;
     },
 

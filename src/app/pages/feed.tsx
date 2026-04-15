@@ -33,6 +33,8 @@ const GET_FEED = gql`
         myReaction
         postType
         createdAt
+        roastReactionCount
+        roastReactedByMe
         author {
           id
           name
@@ -40,6 +42,7 @@ const GET_FEED = gql`
           username
           avatarUrl
           isFollowedByMe
+          rank { name }
         }
         tags {
           id
@@ -60,6 +63,7 @@ const GET_FEED = gql`
             displayName
             username
             avatarUrl
+            rank { name }
           }
         }
         commentsPreview(limit: 3) {
@@ -529,6 +533,7 @@ function adaptPost(p: any) {
       name: p.author.displayName ?? p.author.username ?? p.author.name,
       avatar: avatarSrc(p.author.avatarUrl),
       username: `@${p.author.username}`,
+      rank: p.author.rank ?? null,
     },
     content: p.content,
     image: p.imageUrl,
@@ -543,6 +548,8 @@ function adaptPost(p: any) {
     postType: (p.postType ?? "post") as "post" | "roast",
     tags: p.tags ?? [],
     initialComments: (p.commentsPreview ?? p.comments ?? []).map(adaptComment),
+    roastReactedByMe:    p.roastReactedByMe    ?? false,
+    roastReactionCount:  p.roastReactionCount  ?? 0,
     originalPost: p.originalPost
       ? {
           id: p.originalPost.id,

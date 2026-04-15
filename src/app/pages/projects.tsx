@@ -74,6 +74,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useLocation } from "react-router";
+import { toast } from "sonner";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 
@@ -493,8 +494,19 @@ export function Projects() {
         },
       });
       handleDialogOpenChange(false);
-    } catch (_) {/* server error surfaced via Apollo */ }
-    finally { setUploadProgress(null); }
+      toast.success("Project submitted!", { description: "Your project is now live on Lokal." });
+    } catch (err: any) {
+      const msg: string = err?.message ?? "";
+      if (msg.toLowerCase().includes("project limit") || msg.toLowerCase().includes("quota")) {
+        toast.error("Project limit reached 🗂", {
+          description: msg.includes("upgrade") ? msg : "You've used all your project slots for your current rank. Level up to unlock more!",
+          duration: 6000,
+          action: { label: "View Ranks", onClick: () => window.location.href = "/rank-role" },
+        });
+      } else {
+        toast.error("Failed to create project", { description: msg || "Something went wrong. Please try again." });
+      }
+    } finally { setUploadProgress(null); }
   }, [formData, uploads, createProject, handleDialogOpenChange]);
 
   return (

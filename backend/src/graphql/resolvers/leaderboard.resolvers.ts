@@ -1,4 +1,5 @@
 import { GraphQLContext } from "../context";
+import { getSubmissionQuota } from "../../services/rankLimits";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -42,7 +43,6 @@ export const leaderboardResolvers = {
         where: { xp: { gt: 0 } },
         orderBy: { xp: "desc" },
         take: safeLimit,
-        include: { rank: true },
       });
 
       // ── 2. Top Projects (stars + likes) ───────────────────────────────────
@@ -50,7 +50,7 @@ export const leaderboardResolvers = {
         where: { visibility: "PUBLIC" },
         orderBy: [{ starsCount: "desc" }, { likesCount: "desc" }],
         take: safeLimit,
-        include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
+        include: { author: true },
       });
 
       // ── 3. Featured Projects ───────────────────────────────────────────────
@@ -58,7 +58,7 @@ export const leaderboardResolvers = {
         where: { isFeatured: true, visibility: "PUBLIC" },
         orderBy: { starsCount: "desc" },
         take: 6,
-        include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
+        include: { author: true },
       });
 
       // ── 4. Shipper of the Week ─────────────────────────────────────────────
@@ -111,10 +111,9 @@ export const leaderboardResolvers = {
         }));
 
       // ── 5. Roast Survivor (permanent hall of fame) ─────────────────────────
-      // Profiles with roasts on their projects, sorted by avg overall score survived
+      // Profiles with roasts on their projects, sorted by number of roasts received
       const roastAggs = await prisma.roast.groupBy({
         by: ["projectId"],
-        _avg: { overallScore: true },
         _count: { id: true },
         having: { id: { _count: { gte: 1 } } },
       });
@@ -129,13 +128,12 @@ export const leaderboardResolvers = {
         : [];
 
       // Aggregate per author
-      const survivorMap = new Map<string, { roastsReceived: number; totalScore: number }>();
+      const survivorMap = new Map<string, { roastsReceived: number }>();
       for (const agg of roastAggs) {
         const proj = roastedProjects.find((p: any) => p.id === agg.projectId);
         if (!proj) continue;
-        const existing = survivorMap.get(proj.authorId) ?? { roastsReceived: 0, totalScore: 0 };
+        const existing = survivorMap.get(proj.authorId) ?? { roastsReceived: 0 };
         existing.roastsReceived += agg._count.id;
-        existing.totalScore += (agg._avg.overallScore ?? 0) * agg._count.id;
         survivorMap.set(proj.authorId, existing);
       }
 
@@ -150,33 +148,35 @@ export const leaderboardResolvers = {
       const roastSurvivorEntries = survivorProfiles
         .map((p: any) => {
           const stats = survivorMap.get(p.id)!;
-          const avg = stats.roastsReceived > 0 ? stats.totalScore / stats.roastsReceived : 0;
-          return { profile: p, roastsReceived: stats.roastsReceived, avgOverallScore: avg, totalRoastScore: stats.totalScore };
+          return { profile: p, roastsReceived: stats.roastsReceived };
         })
-        .sort((a: any, b: any) => b.roastsReceived - a.roastsReceived || b.avgOverallScore - a.avgOverallScore)
+        .sort((a: any, b: any) => b.roastsReceived - a.roastsReceived)
         .slice(0, safeLimit)
         .map((e: any, idx: number) => ({
           rank: idx + 1,
           profile: e.profile,
           roastsReceived: e.roastsReceived,
-          avgOverallScore: Math.round(e.avgOverallScore * 10) / 10,
-          totalRoastScore: Math.round(e.totalRoastScore * 10) / 10,
         }));
 
       // ── 6. Laban Launcher (longest active shipping streak) ─────────────────
-      const streaks = await (prisma as any).shippingStreak.findMany({
-        where: { currentStreak: { gt: 0 } },
-        orderBy: [{ currentStreak: "desc" }, { longestStreak: "desc" }],
-        take: safeLimit,
-        include: { profile: { select: PROFILE_FIELDS } },
-      });
-
-      const labanEntries = streaks.map((s: any, idx: number) => ({
-        rank: idx + 1,
-        profile: s.profile,
-        currentStreak: s.currentStreak,
-        longestStreak: s.longestStreak,
-      }));
+      let labanEntries: any[] = [];
+      try {
+        const streaks = await (prisma as any).shippingStreak.findMany({
+          where: { currentStreak: { gt: 0 } },
+          orderBy: [{ currentStreak: "desc" }, { longestStreak: "desc" }],
+          take: safeLimit,
+          include: { profile: { select: PROFILE_FIELDS } },
+        });
+        labanEntries = streaks.map((s: any, idx: number) => ({
+          rank: idx + 1,
+          profile: s.profile,
+          currentStreak: s.currentStreak,
+          longestStreak: s.longestStreak,
+        }));
+      } catch (_) {
+        // Table may not exist yet — run migration 17_leaderboard_tracking.sql
+        labanEntries = [];
+      }
 
       // ── 7. Community Builder (monthly) ─────────────────────────────────────
       // Score = roasts given this month × 3 + launchpad interests this month × 2
@@ -228,44 +228,48 @@ export const leaderboardResolvers = {
         }));
 
       // ── 8. Underdog (biggest XP gain this week, from outside top 20) ───────
-      // Get the most recent snapshot for this week
-      const weeklySnapshots = await (prisma as any).weeklyXpSnapshot.findMany({
-        where: { weekStart: { gte: weekStart } },
-        select: { profileId: true, xpAtWeekStart: true, rankAtWeekStart: true },
-      });
+      let underdogEntries: any[] = [];
+      try {
+        const weeklySnapshots = await (prisma as any).weeklyXpSnapshot.findMany({
+          where: { weekStart: { gte: weekStart } },
+          select: { profileId: true, xpAtWeekStart: true, rankAtWeekStart: true },
+        });
 
-      const snapshotMap = new Map<string, { xpAtWeekStart: number; rankAtWeekStart: number }>(
-        weeklySnapshots.map((s: any) => [s.profileId, { xpAtWeekStart: s.xpAtWeekStart, rankAtWeekStart: s.rankAtWeekStart }])
-      );
+        const snapshotMap = new Map<string, { xpAtWeekStart: number; rankAtWeekStart: number }>(
+          weeklySnapshots.map((s: any) => [s.profileId, { xpAtWeekStart: s.xpAtWeekStart, rankAtWeekStart: s.rankAtWeekStart }])
+        );
 
-      // Only consider profiles that were outside top 20 at week start
-      const underdogCandidateIds = weeklySnapshots
-        .filter((s: any) => s.rankAtWeekStart > 20)
-        .map((s: any) => s.profileId);
+        const underdogCandidateIds = weeklySnapshots
+          .filter((s: any) => s.rankAtWeekStart > 20)
+          .map((s: any) => s.profileId);
 
-      const underdogProfiles = underdogCandidateIds.length > 0
-        ? await prisma.profile.findMany({
-            where: { id: { in: underdogCandidateIds } },
-            select: PROFILE_FIELDS,
+        const underdogProfiles = underdogCandidateIds.length > 0
+          ? await prisma.profile.findMany({
+              where: { id: { in: underdogCandidateIds } },
+              select: PROFILE_FIELDS,
+            })
+          : [];
+
+        underdogEntries = underdogProfiles
+          .map((p: any) => {
+            const snap = snapshotMap.get(p.id)!;
+            const xpGain = p.xp - snap.xpAtWeekStart;
+            return { profile: p, xpGain, previousRank: snap.rankAtWeekStart, currentXp: p.xp };
           })
-        : [];
-
-      const underdogEntries = underdogProfiles
-        .map((p: any) => {
-          const snap = snapshotMap.get(p.id)!;
-          const xpGain = p.xp - snap.xpAtWeekStart;
-          return { profile: p, xpGain, previousRank: snap.rankAtWeekStart, currentXp: p.xp };
-        })
-        .filter((e: any) => e.xpGain > 0)
-        .sort((a: any, b: any) => b.xpGain - a.xpGain)
-        .slice(0, safeLimit)
-        .map((e: any, idx: number) => ({
-          rank: idx + 1,
-          profile: e.profile,
-          xpGain: e.xpGain,
-          previousRank: e.previousRank,
-          currentXp: e.currentXp,
-        }));
+          .filter((e: any) => e.xpGain > 0)
+          .sort((a: any, b: any) => b.xpGain - a.xpGain)
+          .slice(0, safeLimit)
+          .map((e: any, idx: number) => ({
+            rank: idx + 1,
+            profile: e.profile,
+            xpGain: e.xpGain,
+            previousRank: e.previousRank,
+            currentXp: e.currentXp,
+          }));
+      } catch (_) {
+        // Table may not exist yet — run migration 17_leaderboard_tracking.sql
+        underdogEntries = [];
+      }
 
       return {
         developers: topDevelopers.map((d: any, idx: number) => ({
@@ -293,8 +297,28 @@ export const leaderboardResolvers = {
       return prisma.rank.findMany({ orderBy: { minXp: "asc" } });
     },
 
+    roles: async (_: unknown, __: unknown, { prisma }: GraphQLContext) => {
+      return prisma.role.findMany({ orderBy: { id: "asc" } });
+    },
+
     xpActivities: async (_: unknown, __: unknown, { prisma }: GraphQLContext) => {
       return prisma.xpActivity.findMany({ orderBy: { xpReward: "desc" } });
+    },
+
+    mySubmissionQuota: async (_: unknown, __: unknown, { user }: GraphQLContext) => {
+      if (!user) throw new Error("Unauthorized");
+      const quota = await getSubmissionQuota(user.id);
+      return {
+        rankName: quota.rankName,
+        projects: {
+          used: quota.projects.used,
+          limit: quota.projects.limit === "unlimited" ? null : quota.projects.limit,
+        },
+        launchpadEvents: {
+          used: quota.launchpadEvents.used,
+          limit: quota.launchpadEvents.limit === "unlimited" ? null : quota.launchpadEvents.limit,
+        },
+      };
     },
 
     popularTags: async (

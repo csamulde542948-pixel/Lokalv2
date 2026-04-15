@@ -1,15 +1,13 @@
-import { useState } from "react";
-import { gql } from "@apollo/client/core";
+ï»¿import { gql } from "@apollo/client/core";
 import { useQuery } from "@apollo/client/react";
 import { Card, CardContent, CardHeader } from "../components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
-import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Skeleton } from "../components/ui/skeleton";
 import { Separator } from "../components/ui/separator";
 import {
   Trophy, TrendingUp, Code2, Users, Star, GitFork, Crown, Zap,
-  ExternalLink, Flame, Heart, Rocket, Swords, ArrowUpRight, RefreshCw,
+  Flame, Heart, Rocket, Swords, ArrowUpRight, RefreshCw,
 } from "lucide-react";
 
 // --- GraphQL -----------------------------------------------------------------
@@ -39,7 +37,7 @@ const GET_LEADERBOARD = gql`
         profile { id name username avatarUrl }
       }
       roastSurvivor {
-        rank roastsReceived avgOverallScore
+        rank roastsReceived
         profile { id name username avatarUrl }
       }
       labanLauncher {
@@ -61,9 +59,15 @@ const GET_LEADERBOARD = gql`
 // --- Helpers -----------------------------------------------------------------
 
 function RankBadge({ rank }: { rank: number }) {
-  if (rank === 1) return <span className="text-lg leading-none select-none">??</span>;
-  if (rank === 2) return <span className="text-lg leading-none select-none">??</span>;
-  if (rank === 3) return <span className="text-lg leading-none select-none">??</span>;
+  if (rank === 1) return (
+    <span className="w-6 h-6 rounded-full bg-gradient-to-br from-yellow-400 to-amber-500 flex items-center justify-center text-[10px] font-black text-white shadow-sm shadow-yellow-500/40 select-none">1</span>
+  );
+  if (rank === 2) return (
+    <span className="w-6 h-6 rounded-full bg-gradient-to-br from-slate-300 to-slate-400 flex items-center justify-center text-[10px] font-black text-white shadow-sm select-none">2</span>
+  );
+  if (rank === 3) return (
+    <span className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-600 to-orange-700 flex items-center justify-center text-[10px] font-black text-white shadow-sm select-none">3</span>
+  );
   return (
     <span className="text-xs font-bold text-muted-foreground w-6 text-center tabular-nums">
       {rank}
@@ -93,11 +97,23 @@ function RowSkeleton() {
   );
 }
 
-function EmptyBoard({ icon, message }: { icon: React.ReactNode; message: string }) {
+function GhostRow({ rank }: { rank: number }) {
+  const isTop3 = rank <= 3;
   return (
-    <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
-      <div className="opacity-30 scale-125">{icon}</div>
-      <p className="text-xs text-center max-w-[140px] leading-relaxed">{message}</p>
+    <div className={`flex items-center gap-3 px-4 py-2.5 ${isTop3 ? "opacity-60" : "opacity-35"}`}>
+      <div className="w-6 flex items-center justify-center flex-shrink-0">
+        {isTop3 ? (
+          <Skeleton className={`w-6 h-6 rounded-full ${rank === 1 ? "bg-yellow-500/20" : rank === 2 ? "bg-slate-400/20" : "bg-amber-700/20"}`} />
+        ) : (
+          <span className="text-xs font-bold text-muted-foreground/30 w-6 text-center">{rank}</span>
+        )}
+      </div>
+      <Skeleton className="w-8 h-8 rounded-full flex-shrink-0" />
+      <div className="flex-1 space-y-1.5">
+        <Skeleton className={`h-3 rounded ${rank === 1 ? "w-28" : rank === 2 ? "w-24" : "w-20"}`} />
+        <Skeleton className="h-2.5 w-14 rounded" />
+      </div>
+      <Skeleton className="h-4 w-12 rounded" />
     </div>
   );
 }
@@ -138,10 +154,17 @@ function BoardHeader({ icon, iconBg, title, reset, resetColor, description, acti
   );
 }
 
+function rankRowBg(rank: number) {
+  if (rank === 1) return "bg-yellow-500/8 hover:bg-yellow-500/12";
+  if (rank === 2) return "bg-slate-400/6 hover:bg-slate-400/10";
+  if (rank === 3) return "bg-amber-600/6 hover:bg-amber-600/10";
+  return "hover:bg-muted/40";
+}
+
 // --- Board: Top Developers ----------------------------------------------------
 
 function DevelopersBoard({ data, loading }: { data: any[]; loading: boolean }) {
-  const rows = data.slice(0, 10);
+  const rows = data.slice(0, 15);
   return (
     <Card className="flex flex-col h-full border bg-card">
       <BoardHeader
@@ -156,7 +179,7 @@ function DevelopersBoard({ data, loading }: { data: any[]; loading: boolean }) {
           ? [...Array(8)].map((_, i) => <div key={i}><RowSkeleton />{i < 7 && <Separator />}</div>)
           : rows.map((dev: any, i: number) => (
             <div key={dev.profile.id}>
-              <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors cursor-pointer">
+              <div className={`flex items-center gap-3 px-4 py-2.5 transition-colors cursor-pointer ${rankRowBg(dev.rank)}`}>
                 <div className="w-6 flex items-center justify-center flex-shrink-0">
                   <RankBadge rank={dev.rank} />
                 </div>
@@ -166,7 +189,7 @@ function DevelopersBoard({ data, loading }: { data: any[]; loading: boolean }) {
                 </Avatar>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1">
-                    <span className="text-sm font-medium truncate leading-none">{dev.profile.name}</span>
+                    <span className={`text-sm font-medium truncate leading-none ${dev.rank <= 3 ? "font-semibold" : ""}`}>{dev.profile.name}</span>
                     <TrendIcon trend={dev.trend} />
                   </div>
                   <p className="text-[11px] text-muted-foreground mt-0.5 truncate">@{dev.profile.username}</p>
@@ -180,7 +203,9 @@ function DevelopersBoard({ data, loading }: { data: any[]; loading: boolean }) {
             </div>
           ))}
         {!loading && rows.length === 0 && (
-          <EmptyBoard icon={<Users className="w-8 h-8" />} message="No developers yet" />
+          <div className="opacity-60">
+            {[...Array(7)].map((_, i) => <div key={i}><GhostRow rank={i + 1} />{i < 6 && <Separator />}</div>)}
+          </div>
         )}
       </CardContent>
     </Card>
@@ -190,7 +215,7 @@ function DevelopersBoard({ data, loading }: { data: any[]; loading: boolean }) {
 // --- Board: Shipper of the Week -----------------------------------------------
 
 function ShipperBoard({ data, loading }: { data: any[]; loading: boolean }) {
-  const rows = data.slice(0, 10);
+  const rows = data.slice(0, 15);
   return (
     <Card className="flex flex-col h-full border bg-card">
       <BoardHeader
@@ -206,7 +231,7 @@ function ShipperBoard({ data, loading }: { data: any[]; loading: boolean }) {
           ? [...Array(8)].map((_, i) => <div key={i}><RowSkeleton />{i < 7 && <Separator />}</div>)
           : rows.map((entry: any, i: number) => (
             <div key={entry.profile.id}>
-              <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors cursor-pointer">
+              <div className={`flex items-center gap-3 px-4 py-2.5 transition-colors cursor-pointer ${rankRowBg(entry.rank)}`}>
                 <div className="w-6 flex items-center justify-center flex-shrink-0">
                   <RankBadge rank={entry.rank} />
                 </div>
@@ -216,7 +241,7 @@ function ShipperBoard({ data, loading }: { data: any[]; loading: boolean }) {
                 </Avatar>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1">
-                    <span className="text-sm font-medium truncate leading-none">{entry.profile.name}</span>
+                    <span className={`text-sm font-medium truncate leading-none ${entry.rank <= 3 ? "font-semibold" : ""}`}>{entry.profile.name}</span>
                     <TrendIcon trend={entry.trend} />
                   </div>
                   <p className="text-[11px] text-muted-foreground mt-0.5">@{entry.profile.username}</p>
@@ -234,7 +259,9 @@ function ShipperBoard({ data, loading }: { data: any[]; loading: boolean }) {
             </div>
           ))}
         {!loading && rows.length === 0 && (
-          <EmptyBoard icon={<Rocket className="w-8 h-8" />} message="No shippers yet — ship something this week!" />
+          <div className="opacity-60">
+            {[...Array(7)].map((_, i) => <div key={i}><GhostRow rank={i + 1} />{i < 6 && <Separator />}</div>)}
+          </div>
         )}
       </CardContent>
     </Card>
@@ -244,7 +271,7 @@ function ShipperBoard({ data, loading }: { data: any[]; loading: boolean }) {
 // --- Board: Roast Survivor ----------------------------------------------------
 
 function RoastSurvivorBoard({ data, loading }: { data: any[]; loading: boolean }) {
-  const rows = data.slice(0, 10);
+  const rows = data.slice(0, 15);
   return (
     <Card className="flex flex-col h-full border bg-card">
       <BoardHeader
@@ -253,14 +280,14 @@ function RoastSurvivorBoard({ data, loading }: { data: any[]; loading: boolean }
         title="Roast Survivor"
         reset="Permanent"
         resetColor="border-orange-500/30 text-orange-600 bg-orange-500/10"
-        description="Hall of fame — roasts absorbed"
+        description="Hall of fame Ã¯Â¿Â½ roasts absorbed"
       />
       <CardContent className="p-0 flex-1">
         {loading && rows.length === 0
           ? [...Array(8)].map((_, i) => <div key={i}><RowSkeleton />{i < 7 && <Separator />}</div>)
           : rows.map((entry: any, i: number) => (
             <div key={entry.profile.id}>
-              <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors cursor-pointer">
+              <div className={`flex items-center gap-3 px-4 py-2.5 transition-colors cursor-pointer ${rankRowBg(entry.rank)}`}>
                 <div className="w-6 flex items-center justify-center flex-shrink-0">
                   <RankBadge rank={entry.rank} />
                 </div>
@@ -269,7 +296,7 @@ function RoastSurvivorBoard({ data, loading }: { data: any[]; loading: boolean }
                   <AvatarFallback className="text-xs">{entry.profile.name?.[0]}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium truncate leading-none block">{entry.profile.name}</span>
+                  <span className={`text-sm truncate leading-none block ${entry.rank <= 3 ? "font-semibold" : "font-medium"}`}>{entry.profile.name}</span>
                   <p className="text-[11px] text-muted-foreground mt-0.5">@{entry.profile.username}</p>
                 </div>
                 <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
@@ -278,16 +305,15 @@ function RoastSurvivorBoard({ data, loading }: { data: any[]; loading: boolean }
                     <span className="font-bold">{entry.roastsReceived}</span>
                     <span className="text-muted-foreground">roasts</span>
                   </div>
-                  <p className="text-[10px] text-muted-foreground">
-                    avg <span className="font-semibold text-foreground">{entry.avgOverallScore?.toFixed(1)}</span>/10
-                  </p>
                 </div>
               </div>
               {i < rows.length - 1 && <Separator />}
             </div>
           ))}
         {!loading && rows.length === 0 && (
-          <EmptyBoard icon={<Flame className="w-8 h-8" />} message="Get your project roasted to appear here" />
+          <div className="opacity-60">
+            {[...Array(7)].map((_, i) => <div key={i}><GhostRow rank={i + 1} />{i < 6 && <Separator />}</div>)}
+          </div>
         )}
       </CardContent>
     </Card>
@@ -297,7 +323,7 @@ function RoastSurvivorBoard({ data, loading }: { data: any[]; loading: boolean }
 // --- Board: Laban Launcher ----------------------------------------------------
 
 function LabanLauncherBoard({ data, loading }: { data: any[]; loading: boolean }) {
-  const rows = data.slice(0, 10);
+  const rows = data.slice(0, 15);
   return (
     <Card className="flex flex-col h-full border bg-card">
       <BoardHeader
@@ -313,7 +339,7 @@ function LabanLauncherBoard({ data, loading }: { data: any[]; loading: boolean }
           ? [...Array(8)].map((_, i) => <div key={i}><RowSkeleton />{i < 7 && <Separator />}</div>)
           : rows.map((entry: any, i: number) => (
             <div key={entry.profile.id}>
-              <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors cursor-pointer">
+              <div className={`flex items-center gap-3 px-4 py-2.5 transition-colors cursor-pointer ${rankRowBg(entry.rank)}`}>
                 <div className="w-6 flex items-center justify-center flex-shrink-0">
                   <RankBadge rank={entry.rank} />
                 </div>
@@ -322,7 +348,7 @@ function LabanLauncherBoard({ data, loading }: { data: any[]; loading: boolean }
                   <AvatarFallback className="text-xs">{entry.profile.name?.[0]}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium truncate leading-none block">{entry.profile.name}</span>
+                  <span className={`text-sm truncate leading-none block ${entry.rank <= 3 ? "font-semibold" : "font-medium"}`}>{entry.profile.name}</span>
                   <p className="text-[11px] text-muted-foreground mt-0.5">@{entry.profile.username}</p>
                 </div>
                 <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
@@ -340,7 +366,9 @@ function LabanLauncherBoard({ data, loading }: { data: any[]; loading: boolean }
             </div>
           ))}
         {!loading && rows.length === 0 && (
-          <EmptyBoard icon={<Swords className="w-8 h-8" />} message="Ship something daily to start a streak" />
+          <div className="opacity-60">
+            {[...Array(7)].map((_, i) => <div key={i}><GhostRow rank={i + 1} />{i < 6 && <Separator />}</div>)}
+          </div>
         )}
       </CardContent>
     </Card>
@@ -350,7 +378,7 @@ function LabanLauncherBoard({ data, loading }: { data: any[]; loading: boolean }
 // --- Board: Community Builder -------------------------------------------------
 
 function CommunityBuilderBoard({ data, loading }: { data: any[]; loading: boolean }) {
-  const rows = data.slice(0, 10);
+  const rows = data.slice(0, 15);
   return (
     <Card className="flex flex-col h-full border bg-card">
       <BoardHeader
@@ -366,7 +394,7 @@ function CommunityBuilderBoard({ data, loading }: { data: any[]; loading: boolea
           ? [...Array(8)].map((_, i) => <div key={i}><RowSkeleton />{i < 7 && <Separator />}</div>)
           : rows.map((entry: any, i: number) => (
             <div key={entry.profile.id}>
-              <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors cursor-pointer">
+              <div className={`flex items-center gap-3 px-4 py-2.5 transition-colors cursor-pointer ${rankRowBg(entry.rank)}`}>
                 <div className="w-6 flex items-center justify-center flex-shrink-0">
                   <RankBadge rank={entry.rank} />
                 </div>
@@ -375,7 +403,7 @@ function CommunityBuilderBoard({ data, loading }: { data: any[]; loading: boolea
                   <AvatarFallback className="text-xs">{entry.profile.name?.[0]}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium truncate leading-none block">{entry.profile.name}</span>
+                  <span className={`text-sm truncate leading-none block ${entry.rank <= 3 ? "font-semibold" : "font-medium"}`}>{entry.profile.name}</span>
                   <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground">
                     <span className="flex items-center gap-0.5"><Flame className="w-2.5 h-2.5" />{entry.roastsGiven}</span>
                     <span className="flex items-center gap-0.5"><Rocket className="w-2.5 h-2.5" />{entry.launchpadParticipation}</span>
@@ -390,7 +418,9 @@ function CommunityBuilderBoard({ data, loading }: { data: any[]; loading: boolea
             </div>
           ))}
         {!loading && rows.length === 0 && (
-          <EmptyBoard icon={<Heart className="w-8 h-8" />} message="Give a roast or join a Launchpad event" />
+          <div className="opacity-60">
+            {[...Array(7)].map((_, i) => <div key={i}><GhostRow rank={i + 1} />{i < 6 && <Separator />}</div>)}
+          </div>
         )}
       </CardContent>
     </Card>
@@ -400,7 +430,7 @@ function CommunityBuilderBoard({ data, loading }: { data: any[]; loading: boolea
 // --- Board: Underdog ----------------------------------------------------------
 
 function UnderdogBoard({ data, loading }: { data: any[]; loading: boolean }) {
-  const rows = data.slice(0, 10);
+  const rows = data.slice(0, 15);
   return (
     <Card className="flex flex-col h-full border bg-card">
       <BoardHeader
@@ -416,7 +446,7 @@ function UnderdogBoard({ data, loading }: { data: any[]; loading: boolean }) {
           ? [...Array(8)].map((_, i) => <div key={i}><RowSkeleton />{i < 7 && <Separator />}</div>)
           : rows.map((entry: any, i: number) => (
             <div key={entry.profile.id}>
-              <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors cursor-pointer">
+              <div className={`flex items-center gap-3 px-4 py-2.5 transition-colors cursor-pointer ${rankRowBg(entry.rank)}`}>
                 <div className="w-6 flex items-center justify-center flex-shrink-0">
                   <RankBadge rank={entry.rank} />
                 </div>
@@ -425,9 +455,9 @@ function UnderdogBoard({ data, loading }: { data: any[]; loading: boolean }) {
                   <AvatarFallback className="text-xs">{entry.profile.name?.[0]}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium truncate leading-none block">{entry.profile.name}</span>
+                  <span className={`text-sm truncate leading-none block ${entry.rank <= 3 ? "font-semibold" : "font-medium"}`}>{entry.profile.name}</span>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
-                    was #{entry.previousRank} · {entry.currentXp.toLocaleString()} XP
+                    was #{entry.previousRank} &rarr; {entry.currentXp.toLocaleString()} XP
                   </p>
                 </div>
                 <div className="flex items-center gap-0.5 flex-shrink-0 bg-green-500/10 border border-green-500/20 rounded-md px-2 py-0.5">
@@ -439,7 +469,9 @@ function UnderdogBoard({ data, loading }: { data: any[]; loading: boolean }) {
             </div>
           ))}
         {!loading && rows.length === 0 && (
-          <EmptyBoard icon={<ArrowUpRight className="w-8 h-8" />} message="Grind XP from outside top 20 this week" />
+          <div className="opacity-60">
+            {[...Array(7)].map((_, i) => <div key={i}><GhostRow rank={i + 1} />{i < 6 && <Separator />}</div>)}
+          </div>
         )}
       </CardContent>
     </Card>
@@ -449,7 +481,7 @@ function UnderdogBoard({ data, loading }: { data: any[]; loading: boolean }) {
 // --- Board: Top Projects ------------------------------------------------------
 
 function ProjectsBoard({ data, loading }: { data: any[]; loading: boolean }) {
-  const rows = data.slice(0, 10);
+  const rows = data.slice(0, 15);
   return (
     <Card className="flex flex-col h-full border bg-card">
       <BoardHeader
@@ -467,7 +499,7 @@ function ProjectsBoard({ data, loading }: { data: any[]; loading: boolean }) {
             return (
               <div key={p.id}>
                 <div
-                  className="flex items-start gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors cursor-pointer"
+                  className={`flex items-start gap-3 px-4 py-2.5 transition-colors cursor-pointer ${rankRowBg(item.rank)}`}
                   onClick={() => (window.location.href = `/project/${p.id}`)}
                 >
                   <div className="w-6 flex items-center justify-center mt-0.5 flex-shrink-0">
@@ -475,7 +507,7 @@ function ProjectsBoard({ data, loading }: { data: any[]; loading: boolean }) {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1 mb-0.5">
-                      <span className="text-sm font-medium truncate text-primary leading-none">{p.name}</span>
+                      <span className={`text-sm truncate text-primary leading-none ${item.rank <= 3 ? "font-semibold" : "font-medium"}`}>{p.name}</span>
                       <TrendIcon trend={item.trend} />
                     </div>
                     <p className="text-[11px] text-muted-foreground line-clamp-1 mb-1">{p.tagline}</p>
@@ -499,96 +531,117 @@ function ProjectsBoard({ data, loading }: { data: any[]; loading: boolean }) {
             );
           })}
         {!loading && rows.length === 0 && (
-          <EmptyBoard icon={<Code2 className="w-8 h-8" />} message="No projects yet" />
+          <div className="opacity-60">
+            {[...Array(7)].map((_, i) => <div key={i}><GhostRow rank={i + 1} />{i < 6 && <Separator />}</div>)}
+          </div>
         )}
       </CardContent>
     </Card>
   );
 }
 
-// --- Board: Featured Projects -------------------------------------------------
+// --- Featured Projects Stripe -------------------------------------------------
 
-function FeaturedBoard({ data, loading }: { data: any[]; loading: boolean }) {
+function FeaturedStripe({ data, loading }: { data: any[]; loading: boolean }) {
+  // Build ghost pills for skeleton â€” same shape as real pills
+  const skeletonPills = [...Array(8)].map((_, i) => (
+    <div
+      key={i}
+      className="flex items-center gap-2 flex-shrink-0 border border-yellow-500/20 rounded-full px-3 py-1.5 bg-card"
+    >
+      <Skeleton className="w-5 h-5 rounded-full flex-shrink-0" />
+      <Skeleton className={`h-2.5 rounded ${i % 3 === 0 ? "w-24" : i % 3 === 1 ? "w-16" : "w-20"}`} />
+      <Skeleton className="h-2 w-8 rounded" />
+    </div>
+  ));
+
+  if (loading && data.length === 0) {
+    return (
+      <div className="w-full border-y border-yellow-500/20 bg-gradient-to-r from-yellow-500/8 via-amber-500/5 to-yellow-500/8 mb-6 overflow-hidden relative">
+        <div className="absolute left-[130px] top-0 h-full w-12 z-10 pointer-events-none bg-gradient-to-r from-background to-transparent" />
+        <div className="absolute right-[110px] top-0 h-full w-12 z-10 pointer-events-none bg-gradient-to-l from-background to-transparent" />
+        <div className="flex items-center py-2.5">
+          {/* sticky label */}
+          <div className="flex items-center gap-1.5 flex-shrink-0 pl-4 pr-4 z-20 border-r border-yellow-500/20">
+            <Crown className="w-3.5 h-3.5 text-yellow-500/50" strokeWidth={2} fill="currentColor" />
+            <span className="text-[10px] font-black text-yellow-600/50 dark:text-yellow-400/50 uppercase tracking-widest whitespace-nowrap">Featured</span>
+          </div>
+          {/* scrolling skeleton track â€” same animation as live */}
+          <div className="overflow-hidden flex-1 mx-2">
+            <div className="flex gap-3 animate-scroll-right" style={{ width: "max-content" }}>
+              {[...skeletonPills, ...skeletonPills].map((pill, i) => (
+                <div key={i}>{pill}</div>
+              ))}
+            </div>
+          </div>
+          {/* CTA placeholder */}
+          <div className="flex-shrink-0 pl-3 pr-4 z-20 border-l border-yellow-500/20">
+            <Skeleton className="h-6 w-24 rounded-md" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (data.length === 0) return null;
+
+  const items = [...data, ...data, ...data];
+
   return (
-    <Card className="flex flex-col h-full border bg-card">
-      <BoardHeader
-        icon={<Crown className="w-4 h-4 text-yellow-500" strokeWidth={2} />}
-        iconBg="bg-yellow-500/10"
-        title="Featured Projects"
-        reset="Sponsored"
-        resetColor="border-yellow-500/40 text-yellow-600 bg-yellow-500/10"
-        description="Paid spotlight — get your project seen"
-        action={
-          <Button variant="outline" size="sm" className="h-6 px-2 text-[11px] gap-1 flex-shrink-0">
-            <Zap className="w-3 h-3" strokeWidth={2} /> Get Featured
+    <div className="w-full border-y border-yellow-500/20 bg-gradient-to-r from-yellow-500/8 via-amber-500/5 to-yellow-500/8 mb-6 overflow-hidden relative">
+      {/* fade edges */}
+      <div className="absolute left-[130px] top-0 h-full w-12 z-10 pointer-events-none bg-gradient-to-r from-background/0 via-transparent to-transparent" />
+      <div className="absolute right-[110px] top-0 h-full w-12 z-10 pointer-events-none bg-gradient-to-l from-background/0 via-transparent to-transparent" />
+
+      <div className="flex items-center py-2.5">
+        {/* sticky label */}
+        <div className="flex items-center gap-1.5 flex-shrink-0 pl-4 pr-4 z-20 border-r border-yellow-500/20">
+          <Crown className="w-3.5 h-3.5 text-yellow-500" strokeWidth={2} fill="currentColor" />
+          <span className="text-[10px] font-black text-yellow-600 dark:text-yellow-400 uppercase tracking-widest whitespace-nowrap">Featured</span>
+        </div>
+
+        {/* scrolling track */}
+        <div className="overflow-hidden flex-1 mx-2">
+          <div className="flex gap-3 animate-scroll-right" style={{ width: "max-content" }}>
+            {items.map((p: any, i: number) => (
+              <a
+                key={`${p.id}-${i}`}
+                href={p.projectUrl ?? `/project/${p.id}`}
+                target={p.projectUrl ? "_blank" : undefined}
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 flex-shrink-0 border border-yellow-500/25 hover:border-yellow-500/60 bg-card hover:bg-yellow-500/10 rounded-full px-3 py-1.5 transition-all group"
+              >
+                <Avatar className="w-5 h-5 border border-yellow-500/30 flex-shrink-0">
+                  <AvatarImage src={p.owner?.avatarUrl} />
+                  <AvatarFallback className="text-[8px] bg-yellow-500/20">{p.name?.[0]}</AvatarFallback>
+                </Avatar>
+                <span className="text-[11px] font-semibold text-foreground whitespace-nowrap group-hover:text-yellow-600 dark:group-hover:text-yellow-400 transition-colors">
+                  {p.name}
+                </span>
+                {p.starsCount > 0 && (
+                  <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                    <Star className="w-2.5 h-2.5 text-yellow-500" strokeWidth={2} />
+                    {p.starsCount}
+                  </span>
+                )}
+                {p.tags?.[0] && (
+                  <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-yellow-500/15 text-yellow-700 dark:text-yellow-300 border border-yellow-500/20 whitespace-nowrap">
+                    {p.tags[0].name}
+                  </span>
+                )}
+              </a>
+            ))}
+          </div>
+        </div>
+
+        {/* Get Featured CTA */}
+        <div className="flex-shrink-0 pl-3 pr-4 z-20 border-l border-yellow-500/20">
+          <Button variant="outline" size="sm" className="h-6 px-2.5 text-[10px] gap-1 border-yellow-500/40 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/10 hover:border-yellow-500/60">
+            <Zap className="w-2.5 h-2.5" strokeWidth={2} /> Get Featured
           </Button>
-        }
-      />
-      <CardContent className="p-3 flex-1">
-        {loading && data.length === 0 ? (
-          <div className="grid grid-cols-1 gap-2">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="rounded-lg border p-3 space-y-2">
-                <div className="flex gap-2 items-center">
-                  <Skeleton className="w-8 h-8 rounded-full" />
-                  <Skeleton className="h-3 w-20 rounded" />
-                </div>
-                <Skeleton className="h-2.5 w-full rounded" />
-                <Skeleton className="h-2.5 w-3/4 rounded" />
-              </div>
-            ))}
-          </div>
-        ) : data.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full py-8 gap-3">
-            <Crown className="w-10 h-10 text-yellow-500/30" strokeWidth={1.5} />
-            <p className="text-xs text-muted-foreground text-center leading-relaxed">
-              No featured projects yet.<br />Get your project in front of the community.
-            </p>
-            <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs">
-              <Zap className="w-3 h-3" strokeWidth={2} /> Get Featured
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {data.map((p: any) => (
-              <div key={p.id} className="rounded-lg border border-yellow-500/20 bg-gradient-to-r from-yellow-500/5 to-card p-3 hover:border-yellow-500/40 transition-all">
-                <div className="flex items-start gap-2.5 mb-2">
-                  <Avatar className="w-8 h-8 border border-border flex-shrink-0">
-                    <AvatarImage src={p.owner?.avatarUrl} />
-                    <AvatarFallback className="text-xs">{p.name?.[0]}</AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm font-semibold text-yellow-600 dark:text-yellow-400 truncate">{p.name}</span>
-                      <Crown className="w-3 h-3 text-yellow-500 flex-shrink-0" strokeWidth={2} fill="currentColor" />
-                    </div>
-                    <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">{p.tagline}</p>
-                  </div>
-                  {p.projectUrl && (
-                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0 flex-shrink-0" asChild>
-                      <a href={p.projectUrl} target="_blank" rel="noopener noreferrer">
-                        <ExternalLink className="w-3 h-3" strokeWidth={2} />
-                      </a>
-                    </Button>
-                  )}
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex flex-wrap gap-1">
-                    {(p.tags ?? []).slice(0, 2).map((t: any) => (
-                      <Badge key={t.name} variant="secondary" className="text-[10px] py-0 px-1.5 rounded font-normal">{t.name}</Badge>
-                    ))}
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                    <span className="flex items-center gap-0.5"><Star className="w-2.5 h-2.5" />{p.starsCount}</span>
-                    <span className="flex items-center gap-0.5"><GitFork className="w-2.5 h-2.5" />{p.forksCount}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -602,10 +655,10 @@ export function Leaderboard() {
   const lb = (data as any)?.leaderboard;
 
   return (
-    <div className="w-full px-3 sm:px-6 py-5 pb-20">
+    <div className="w-full pb-20">
 
       {/* Page Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between px-3 sm:px-6 pt-5 mb-5">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
             <Trophy className="w-5 h-5 text-primary" strokeWidth={2} />
@@ -615,7 +668,7 @@ export function Leaderboard() {
             <p className="text-xs text-muted-foreground">Ship. Roast. Build. Repeat.</p>
           </div>
         </div>
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground pr-3 sm:pr-6">
           <RefreshCw className="w-3 h-3" strokeWidth={2} />
           <span className="hidden sm:inline">Live rankings</span>
         </div>
@@ -623,29 +676,34 @@ export function Leaderboard() {
 
       {/* Error */}
       {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive mb-6">
-          ? {error.message}
+        <div className="mx-3 sm:mx-6 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive mb-5">
+          {error.message}
         </div>
       )}
 
-      {/* -- Row 1: Top Devs + Shipper + Roast Survivor (3-col) -- */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-4">
-        <DevelopersBoard   data={lb?.developers    ?? []} loading={loading} />
-        <ShipperBoard      data={lb?.shipper        ?? []} loading={loading} />
-        <RoastSurvivorBoard data={lb?.roastSurvivor ?? []} loading={loading} />
-      </div>
+      {/* -- Featured Projects Stripe -- */}
+      <FeaturedStripe data={lb?.featuredProjects ?? []} loading={loading} />
 
-      {/* -- Row 2: Laban + Community + Underdog (3-col) -- */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-4">
-        <LabanLauncherBoard    data={lb?.labanLauncher    ?? []} loading={loading} />
-        <CommunityBuilderBoard data={lb?.communityBuilder ?? []} loading={loading} />
-        <UnderdogBoard         data={lb?.underdog         ?? []} loading={loading} />
-      </div>
+      {/* -- Board grids -- */}
+      <div className="px-3 sm:px-6">
+        {/* Row 1: Top Devs + Shipper + Roast Survivor (3-col) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-4">
+          <DevelopersBoard    data={lb?.developers    ?? []} loading={loading} />
+          <ShipperBoard       data={lb?.shipper        ?? []} loading={loading} />
+          <RoastSurvivorBoard data={lb?.roastSurvivor ?? []} loading={loading} />
+        </div>
 
-      {/* -- Row 3: Top Projects + Featured (2-col, projects wider) -- */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4">
-        <ProjectsBoard data={lb?.projects         ?? []} loading={loading} />
-        <FeaturedBoard data={lb?.featuredProjects  ?? []} loading={loading} />
+        {/* Row 2: Laban + Community + Underdog (3-col) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-4">
+          <LabanLauncherBoard    data={lb?.labanLauncher    ?? []} loading={loading} />
+          <CommunityBuilderBoard data={lb?.communityBuilder ?? []} loading={loading} />
+          <UnderdogBoard         data={lb?.underdog         ?? []} loading={loading} />
+        </div>
+
+        {/* Row 3: Top Projects (full width) */}
+        <div className="grid grid-cols-1 gap-4">
+          <ProjectsBoard data={lb?.projects ?? []} loading={loading} />
+        </div>
       </div>
 
     </div>

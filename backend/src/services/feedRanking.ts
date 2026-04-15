@@ -96,6 +96,26 @@ let cacheExpiry = 0;
 const CACHE_TTL_MS = 60_000; // 60 seconds
 
 /**
+ * Safe config reader: returns the DB value only when it is a finite number AND
+ * passes the optional minimum-value guard.  Falls back to the default otherwise.
+ *
+ * Using `?? default` alone is NOT sufficient because 0 is falsy in JS only for
+ * the `||` operator — `??` lets 0 through.  We therefore use an explicit finite
+ * + minimum check so that a corrupt DB row (value = 0, NaN, Infinity) can never
+ * zero-out a multiplier and blank the entire feed.
+ */
+function safeWeight(
+  map: Map<string, number>,
+  key: string,
+  fallback: number,
+  min = -Infinity
+): number {
+  const v = map.get(key);
+  if (v === undefined || !Number.isFinite(v) || v < min) return fallback;
+  return v;
+}
+
+/**
  * Load weight config from DB (feed_config table).
  * Caches in memory for 60 seconds to avoid DB hit every request.
  * Falls back to DEFAULT_WEIGHTS on any error.
@@ -107,19 +127,22 @@ export async function loadWeightConfig(prisma: any): Promise<FeedWeightConfig> {
   try {
     const rows: { key: string; value: number }[] = await prisma.feedConfig.findMany();
     const configMap = new Map(rows.map((r) => [r.key, r.value]));
+
+    // Multipliers that appear directly in the final product MUST be ≥ 0.1 so that
+    // a single zero value cannot collapse the entire feed score to 0.
     cachedWeights = {
-      engagementLikeWeight: configMap.get("engagementLikeWeight") ?? DEFAULT_WEIGHTS.engagementLikeWeight,
-      engagementCommentWeight: configMap.get("engagementCommentWeight") ?? DEFAULT_WEIGHTS.engagementCommentWeight,
-      engagementShareWeight: configMap.get("engagementShareWeight") ?? DEFAULT_WEIGHTS.engagementShareWeight,
-      typeProjectMultiplier: configMap.get("typeProjectMultiplier") ?? DEFAULT_WEIGHTS.typeProjectMultiplier,
-      typeRoastMultiplier: configMap.get("typeRoastMultiplier") ?? DEFAULT_WEIGHTS.typeRoastMultiplier,
-      typeEventMultiplier: configMap.get("typeEventMultiplier") ?? DEFAULT_WEIGHTS.typeEventMultiplier,
-      typePostMultiplier: configMap.get("typePostMultiplier") ?? DEFAULT_WEIGHTS.typePostMultiplier,
-      followingBoostValue: configMap.get("followingBoostValue") ?? DEFAULT_WEIGHTS.followingBoostValue,
-      notInterestedPenaltyValue: configMap.get("notInterestedPenaltyValue") ?? DEFAULT_WEIGHTS.notInterestedPenaltyValue,
-      decayLambda: configMap.get("decayLambda") ?? DEFAULT_WEIGHTS.decayLambda,
-      lowCtrSemanticMultiplier: configMap.get("lowCtrSemanticMultiplier") ?? DEFAULT_WEIGHTS.lowCtrSemanticMultiplier,
-      lowCtrThreshold: configMap.get("lowCtrThreshold") ?? DEFAULT_WEIGHTS.lowCtrThreshold,
+      engagementLikeWeight:      safeWeight(configMap, "engagementLikeWeight",      DEFAULT_WEIGHTS.engagementLikeWeight,      0),
+      engagementCommentWeight:   safeWeight(configMap, "engagementCommentWeight",    DEFAULT_WEIGHTS.engagementCommentWeight,   0),
+      engagementShareWeight:     safeWeight(configMap, "engagementShareWeight",      DEFAULT_WEIGHTS.engagementShareWeight,     0),
+      typeProjectMultiplier:     safeWeight(configMap, "typeProjectMultiplier",      DEFAULT_WEIGHTS.typeProjectMultiplier,     0.1),
+      typeRoastMultiplier:       safeWeight(configMap, "typeRoastMultiplier",        DEFAULT_WEIGHTS.typeRoastMultiplier,       0.1),
+      typeEventMultiplier:       safeWeight(configMap, "typeEventMultiplier",        DEFAULT_WEIGHTS.typeEventMultiplier,       0.1),
+      typePostMultiplier:        safeWeight(configMap, "typePostMultiplier",         DEFAULT_WEIGHTS.typePostMultiplier,        0.1),
+      followingBoostValue:       safeWeight(configMap, "followingBoostValue",        DEFAULT_WEIGHTS.followingBoostValue,       0.1),
+      notInterestedPenaltyValue: safeWeight(configMap, "notInterestedPenaltyValue",  DEFAULT_WEIGHTS.notInterestedPenaltyValue, 0.01),
+      decayLambda:               safeWeight(configMap, "decayLambda",               DEFAULT_WEIGHTS.decayLambda,               0),
+      lowCtrSemanticMultiplier:  safeWeight(configMap, "lowCtrSemanticMultiplier",   DEFAULT_WEIGHTS.lowCtrSemanticMultiplier,  0.1),
+      lowCtrThreshold:           safeWeight(configMap, "lowCtrThreshold",            DEFAULT_WEIGHTS.lowCtrThreshold,           0),
     };
     cacheExpiry = Date.now() + CACHE_TTL_MS;
     return cachedWeights;
@@ -239,28 +262,37 @@ export function scorePost(
     signals.sharesCount * weights.engagementShareWeight;
   const engagementScore = Math.max(rawEngagement, 1.0);
 
-  const decayFactor = timeDecay(signals.createdAt, weights.decayLambda);
-  const rankBoost = authorRankMultiplier(signals.authorXp);
-  const socialBoost = socialProofMultiplier(signals.socialProof);
-  const typeBoost = getTypeMultiplier(signals.postType, weights);
-  const interestBoost = 1.0 + signals.tagAffinityScore; // 1.0–2.0
-  const followingBoost = signals.isFromFollowing ? weights.followingBoostValue : 1.0;
-  const authorAffinityBoost = 1.0 + signals.authorAffinityScore; // 1.0–2.0 (already sigmoid-normalized)
-  const velocityBoost = engagementVelocityMultiplier(signals);
+  // Every factor that participates in the final product is clamped to a minimum
+  // of 0.01 so that a single corrupt/zero signal can never blank the whole feed.
+  // The clamp is intentionally small — it only fires on bad data, not normal operation.
+  const clamp = (v: number, min = 0.01): number =>
+    Number.isFinite(v) ? Math.max(v, min) : min;
+
+  const decayFactor = clamp(timeDecay(signals.createdAt, weights.decayLambda));
+  const rankBoost = clamp(authorRankMultiplier(signals.authorXp));
+  const socialBoost = clamp(socialProofMultiplier(signals.socialProof));
+  const typeBoost = clamp(getTypeMultiplier(signals.postType, weights));
+  const interestBoost = clamp(1.0 + Math.max(signals.tagAffinityScore, 0)); // 1.0–2.0
+  const followingBoost = clamp(signals.isFromFollowing ? weights.followingBoostValue : 1.0);
+  const authorAffinityBoost = clamp(1.0 + Math.max(signals.authorAffinityScore, 0)); // 1.0–2.0 (already sigmoid-normalized)
+  const velocityBoost = clamp(engagementVelocityMultiplier(signals));
 
   // Negative signal: harshly penalize content user marked "not interested"
-  const notInterestedPenalty = signals.notInterested ? weights.notInterestedPenaltyValue : 1.0;
+  // Floor at 0.01 — even "not interested" posts get a non-zero score so they
+  // don't cause NaN propagation if anything divides by finalScore downstream.
+  const notInterestedPenalty = clamp(signals.notInterested ? weights.notInterestedPenaltyValue : 1.0);
 
   // Semantic relevance — session-aware: boost extra if user's session CTR is low
   // This helps recover users who aren't engaging — show them more relevant content
   let semanticBase = signals.semanticRelevance ?? 0;
+  if (!Number.isFinite(semanticBase) || semanticBase < 0) semanticBase = 0;
   if (sessionCtr !== undefined && sessionCtr < weights.lowCtrThreshold && semanticBase > 0) {
     semanticBase *= weights.lowCtrSemanticMultiplier;
   }
-  const semanticBoost = 1.0 + Math.min(semanticBase, 2.0); // cap at 3.0x
+  const semanticBoost = clamp(1.0 + Math.min(semanticBase, 2.0)); // 1.0–3.0x
 
   // Dwell-time quality multiplier (1.0–2.0x)
-  const dwellBoost = dwellQualityMultiplier(signals.avgDwellMs);
+  const dwellBoost = clamp(dwellQualityMultiplier(signals.avgDwellMs));
 
   const finalScore =
     engagementScore

@@ -14,7 +14,7 @@ import {
   FeedWeightConfig,
   DEFAULT_WEIGHTS,
 } from "../../services/feedRanking";
-import { awardXp } from "../../services/xp";
+import { awardXp, checkAndAwardRoles } from "../../services/xp";
 
 // ─────────────────────────────────────────────────────────────
 // Cursor Helpers — Relay-style opaque cursor encoding
@@ -170,26 +170,39 @@ export const feedResolvers = {
         })
         .filter(Boolean) as string[];
 
-      // Filter out already-seen posts to avoid showing duplicates across refreshes
-      const seenSet = new Set(seenIds);
+      // Filter out already-seen posts to avoid showing duplicates across refreshes.
+      // Cap seenIds at 200 entries — a client that accumulates hundreds of IDs
+      // over days of scrolling can exhaust the entire candidate pool and produce
+      // a blank feed.  We keep only the 200 most-recently-seen (tail of the array)
+      // because older entries are unlikely to re-appear anyway.
+      const cappedSeenIds = seenIds.length > 200 ? seenIds.slice(-200) : seenIds;
+      const seenSet = new Set(cappedSeenIds);
       let freshPostIds = postIds.filter((id) => !seenSet.has(id));
 
-      // Cold-start: if user has very few candidates (< 5), supplement with trending posts
+      // Cold-start: if user has very few candidates (< 5), supplement with trending posts.
+      // Try progressively wider windows (72h → 7d → 30d) so a quiet period or a
+      // brand-new account never ends up with an empty candidate list.
       if (freshPostIds.length < 5) {
-        try {
-          const trendingPosts = await prisma.post.findMany({
-            where: {
-              id: { notIn: [...freshPostIds, ...seenIds] },
-              createdAt: { gte: new Date(Date.now() - 72 * 60 * 60 * 1000) }, // last 72h
-            },
-            orderBy: [{ likesCount: "desc" }, { commentsCount: "desc" }],
-            take: 15,
-            select: { id: true },
-          });
-          const trendingIds = trendingPosts.map((p: any) => p.id);
-          freshPostIds = [...freshPostIds, ...trendingIds];
-        } catch (err) {
-          console.error("[feed] cold-start trending fallback error:", err);
+        const coldWindows = [72, 7 * 24, 30 * 24];
+        for (const hours of coldWindows) {
+          try {
+            const trendingPosts = await prisma.post.findMany({
+              where: {
+                id: { notIn: [...freshPostIds, ...cappedSeenIds] },
+                createdAt: { gte: new Date(Date.now() - hours * 60 * 60 * 1000) },
+              },
+              orderBy: [{ likesCount: "desc" }, { commentsCount: "desc" }],
+              take: 15,
+              select: { id: true },
+            });
+            if (trendingPosts.length > 0) {
+              freshPostIds = [...freshPostIds, ...trendingPosts.map((p: any) => p.id)];
+              break; // stop widening once we have results
+            }
+          } catch (err) {
+            console.error("[feed] cold-start trending fallback error:", err);
+            break;
+          }
         }
       }
 
@@ -739,7 +752,7 @@ export const feedResolvers = {
     createPost: async (
       _: unknown,
       { input }: { input: any },
-      { user, prisma }: GraphQLContext
+      { user, prisma, clientIp }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
 
@@ -797,7 +810,7 @@ export const feedResolvers = {
       }).catch(console.error);
 
       // Award XP
-      await awardXp(user.id, "CREATE_POST").catch(console.error);
+      await awardXp(user.id, "CREATE_POST", undefined, clientIp).catch(console.error);
 
       // Update tag affinity scores
       updateTagAffinities(user.id, input.tags ?? [], prisma).catch(
@@ -824,7 +837,7 @@ export const feedResolvers = {
     likePost: async (
       _: unknown,
       { postId, reaction = "Like" }: { postId: string; reaction?: string },
-      { user, prisma }: GraphQLContext
+      { user, prisma, clientIp }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
 
@@ -853,11 +866,12 @@ export const feedResolvers = {
         },
       });
 
-      // Award XP to post author
-      awardXp(post.authorId, "RECEIVE_LIKE").catch(console.error);
-
-      // Track author affinity + tag affinity for feed ranking
+      // Track author affinity + tag affinity for feed ranking.
+      // XP is awarded only on a *new* like — not on a reaction change — to prevent
+      // exploit where a user rapidly toggles reactions to farm RECEIVE_LIKE XP.
       if (!existing) {
+        // Pass actorId so awardXp can reject self-likes at the service level
+        awardXp(post.authorId, "RECEIVE_LIKE", user.id, clientIp).catch(console.error);
         updateAuthorAffinity(user.id, post.authorId, "likeCount", prisma).catch(console.error);
         updateTagAffinitiesOnEngagement(user.id, postId, 0.1, prisma).catch(console.error);
         logInteraction(prisma, user.id, post.authorId, postId, "POST_LIKE", 1.0);
@@ -918,7 +932,7 @@ export const feedResolvers = {
     sharePost: async (
       _: unknown,
       { postId, message = "" }: { postId: string; message?: string },
-      { user, prisma }: GraphQLContext
+      { user, prisma, clientIp }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
 
@@ -975,7 +989,7 @@ export const feedResolvers = {
       }
 
       // Award XP to sharer
-      awardXp(user.id, "CREATE_POST").catch(console.error);
+      awardXp(user.id, "CREATE_POST", undefined, clientIp).catch(console.error);
 
       // Track author affinity + tag affinity for feed ranking
       updateAuthorAffinity(user.id, rootOriginal.authorId, "shareCount", prisma).catch(console.error);
@@ -992,7 +1006,7 @@ export const feedResolvers = {
     commentOnPost: async (
       _: unknown,
       { input }: { input: { postId: string; content: string; mentions?: string[] } },
-      { user, prisma }: GraphQLContext
+      { user, prisma, clientIp }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
 
@@ -1039,7 +1053,9 @@ export const feedResolvers = {
       incrementFeedEngagementCount(prisma, user.id).catch(console.error);
 
       // Award XP to post author
-      awardXp(comment.post.authorId, "RECEIVE_COMMENT").catch(console.error);
+      awardXp(comment.post.authorId, "RECEIVE_COMMENT", user.id, clientIp).catch(console.error);
+      // Check Mentor role (20+ comments on others' posts)
+      checkAndAwardRoles(user.id).catch(console.error);
 
       // Notify
       if (comment.post.authorId !== user.id) {
@@ -1522,6 +1538,22 @@ export const feedResolvers = {
       return loaders.postMyReactionLoader.load(parent.id);
     },
 
+    roastReactionCount: (parent: any) => {
+      return parent.roastReactionCount ?? 0;
+    },
+
+    roastReactedByMe: async (
+      parent: { id: string },
+      _: unknown,
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) return false;
+      const reaction = await prisma.roastReaction.findUnique({
+        where: { postId_reactorId: { postId: parent.id, reactorId: user.id } },
+      });
+      return !!reaction;
+    },
+
     /**
      * Lightweight comment preview for feed cards.
      * Returns top N root comments sorted by likes (descending), with NO nested replies.
@@ -1697,27 +1729,42 @@ async function exploreFeed(
   offset: number,
   prisma: any
 ) {
-  // P1 #5: Time filter — only show posts from last 7 days to avoid full table scan
-  // MED-07: Actually sort by rankScore DESC (populated by the feed ranking pipeline),
-  // with likesCount as secondary signal and createdAt as tiebreaker.
-  // Posts without a rankScore (null) sort after scored ones thanks to "sort: 'last'".
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const posts = await prisma.post.findMany({
-    where: { createdAt: { gte: sevenDaysAgo } },
-    orderBy: [{ rankScore: { sort: "desc", nulls: "last" } }, { likesCount: "desc" }, { createdAt: "desc" }],
-    take: limit + 1,
-    skip: offset,
-    include: {
-      author: { include: { rank: true } },
-      tags: { include: { tag: true } },
-    },
-  });
-
-  return {
-    posts: posts.slice(0, limit),
-    hasMore: posts.length > limit,
-    nextOffset: offset + limit,
+  // MED-07: Sort by rankScore DESC, then likesCount, then createdAt.
+  // Time window widens progressively so a low-activity period never
+  // returns an empty list: try 7 days → 30 days → all time.
+  const orderBy = [
+    { rankScore: { sort: "desc", nulls: "last" } },
+    { likesCount: "desc" },
+    { createdAt: "desc" },
+  ] as const;
+  const include = {
+    author: { include: { rank: true } },
+    tags: { include: { tag: true } },
   };
+
+  const windows = [7, 30, null] as const; // null = no time filter (all-time)
+  for (const days of windows) {
+    const where = days
+      ? { createdAt: { gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) } }
+      : {};
+    const posts = await prisma.post.findMany({
+      where,
+      orderBy,
+      take: limit + 1,
+      skip: offset,
+      include,
+    });
+    if (posts.length > 0) {
+      return {
+        posts: posts.slice(0, limit),
+        hasMore: posts.length > limit,
+        nextOffset: offset + limit,
+      };
+    }
+  }
+
+  // Absolute fallback — platform has no posts at all yet
+  return { posts: [], hasMore: false, nextOffset: offset };
 }
 
 /**

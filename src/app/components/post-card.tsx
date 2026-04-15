@@ -23,6 +23,7 @@ import {
 import { useAuth } from "../../contexts/AuthContext";
 import { SharePostDialog } from "./share-post-dialog";
 
+
 /* ─── GraphQL ─────────────────────────────────────────────────────────────── */
 const GET_ME_AVATAR = gql`
   query PostCardGetMeAvatar {
@@ -120,7 +121,7 @@ const GET_POST_COMMENTS = gql`
 /* ─── Types ───────────────────────────────────────────────────────────────── */
 export interface OriginalPost {
   id: string;
-  author: { id?: string; name: string; username: string; avatarUrl?: string };
+  author: { id?: string; name: string; username: string; avatarUrl?: string; rank?: { name: string } | null };
   content: string;
   imageUrl?: string;
   imageUrls?: string[];
@@ -132,7 +133,7 @@ export interface OriginalPost {
 
 export interface Post {
   id: string;
-  author: { id?: string; name: string; avatar: string; username: string };
+  author: { id?: string; name: string; avatar: string; username: string; rank?: { name: string } | null };
   content: string;
   image?: string;
   images?: string[];
@@ -542,7 +543,7 @@ export function SharedPostPreview({ post }: { post: OriginalPost }) {
           {/* Author header — matches RoastedProjectCard header exactly */}
           <div className="flex items-center gap-3 px-4 py-3">
             <Link to={profileHref} className="flex-shrink-0 focus:outline-none">
-              <Avatar className="w-10 h-10 border-2 border-border">
+              <Avatar className="w-10 h-10">
                 <AvatarImage src={authorAvatar} />
                 <AvatarFallback>{post.author.name[0]?.toUpperCase()}</AvatarFallback>
               </Avatar>
@@ -655,7 +656,7 @@ export function SharedPostPreview({ post }: { post: OriginalPost }) {
         {/* Header — matches PostCard header exactly */}
         <div className="flex items-center gap-3 px-4 py-3">
           <Link to={profileHref} className="rounded-full flex-shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-            <Avatar className="w-10 h-10 border-2 border-border">
+            <Avatar className="w-10 h-10">
               <AvatarImage src={post.author.avatarUrl ?? avatarFallbackUrl} />
               <AvatarFallback>{post.author.name?.[0]?.toUpperCase()}</AvatarFallback>
             </Avatar>
@@ -1925,7 +1926,7 @@ export function PostCard({
           {/* ── Header ──────────────────────────────────────────────────── */}
           <div className="flex items-center gap-3 px-4 py-3">
             <Link to={post.author.username ? `/profile/${post.author.username.replace(/^@/, "")}` : "/profile"} className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary flex-shrink-0">
-              <Avatar className="w-10 h-10 border-2 border-border">
+              <Avatar className="w-10 h-10">
                 <AvatarImage src={avatarSrc(post.author.avatar)} />
                 <AvatarFallback>{post.author.name[0]}</AvatarFallback>
               </Avatar>

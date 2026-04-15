@@ -8,6 +8,7 @@ import {
 } from "@heroicons/react/24/solid";
 import { Search, Bell, MessageSquare, Menu, Code2, X, User, Users, FolderKanban, BarChart3, Settings, LogOut, Shield, Briefcase } from "lucide-react";
 import { BrandLogo } from "./brand-logo";
+import { AvatarFrame } from "./avatar-frame";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
@@ -343,10 +344,12 @@ export function Layout() {
                 onClick={() => setShowMobileMenu(!showMobileMenu)}
                 className="hidden lg:block rounded-full focus-visible:ring-2 focus-visible:ring-primary outline-none"
               >
-                <Avatar className="w-8 h-8 cursor-pointer hover:ring-2 hover:ring-muted transition-all border-2 border-border">
-                  <AvatarImage src={avatarSrc(me?.avatarUrl)} />
-                  <AvatarFallback>{(me?.displayName ?? me?.name ?? "?")[0]?.toUpperCase()}</AvatarFallback>
-                </Avatar>
+                <AvatarFrame rankName={me?.rank?.name} size={32}>
+                  <Avatar className="w-8 h-8 cursor-pointer">
+                    <AvatarImage src={avatarSrc(me?.avatarUrl)} />
+                    <AvatarFallback>{(me?.displayName ?? me?.name ?? "?")[0]?.toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                </AvatarFrame>
               </button>
             </div>
           </div>
@@ -371,10 +374,12 @@ export function Layout() {
                 onClick={() => setShowMobileMenu(false)}
                 className="flex items-center gap-3 p-3 rounded-md hover:bg-muted cursor-pointer transition-colors mb-4"
               >
-                <Avatar className="w-10 h-10 border-2 border-border">
-                  <AvatarImage src={avatarSrc(me?.avatarUrl)} />
-                  <AvatarFallback>{(me?.displayName ?? me?.name ?? "?")[0]?.toUpperCase()}</AvatarFallback>
-                </Avatar>
+                <AvatarFrame rankName={me?.rank?.name} size={40}>
+                  <Avatar className="w-10 h-10">
+                    <AvatarImage src={avatarSrc(me?.avatarUrl)} />
+                    <AvatarFallback>{(me?.displayName ?? me?.name ?? "?")[0]?.toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                </AvatarFrame>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm truncate">{me?.displayName ?? me?.name ?? "Your Profile"}</p>
                   <p className="text-xs text-muted-foreground truncate">{me?.username ? `@${me.username}` : ""}</p>

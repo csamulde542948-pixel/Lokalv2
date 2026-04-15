@@ -41,13 +41,16 @@ const IS_DEPLOYED = IS_PRODUCTION || IS_STAGING;
 // ─── DataLoader factories ────────────────────────────────────────────────────
 
 function createProfileLoader() {
-  return new DataLoader(async (ids: readonly string[]) => {
-    const profiles = await prisma.profile.findMany({
-      where: { id: { in: [...ids] } },
-      include: { rank: true },
-    });
+  return new DataLoader(async (ids: readonly (string | null | undefined)[]) => {
+    const validIds = ids.filter((id): id is string => !!id);
+    const profiles = validIds.length > 0
+      ? await prisma.profile.findMany({
+          where: { id: { in: validIds } },
+          include: { rank: true },
+        })
+      : [];
     const map = new Map(profiles.map((p: any) => [p.id, p]));
-    return ids.map((id) => map.get(id) ?? null);
+    return ids.map((id) => (id ? map.get(id) ?? null : null));
   });
 }
 

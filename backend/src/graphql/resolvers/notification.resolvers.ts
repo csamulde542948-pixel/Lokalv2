@@ -98,12 +98,47 @@ export const notificationResolvers = {
   },
 
   Notification: {
-    actor: async (parent: { actorId: string }, _: unknown, { loaders }: GraphQLContext) => {
+    actor: async (parent: { actorId?: string | null }, _: unknown, { loaders }: GraphQLContext) => {
+      if (!parent.actorId) return null;
       return loaders.profileLoader.load(parent.actorId);
     },
     // Resolve entityId: prefer postId, then projectId, then raw entityId
     entityId: (parent: { postId?: string | null; projectId?: string | null; entityId?: string | null }) => {
       return parent.postId ?? parent.projectId ?? parent.entityId ?? null;
+    },
+    // Expose postId directly so the frontend can open post modals precisely.
+    // For PROJECT_ROAST notifications created before the postId fix (postId = null),
+    // look up the feed post by finding the roaster's most-recent #roast post for
+    // this project so clicking the notification still opens the PostModal.
+    postId: async (
+      parent: { postId?: string | null; type: string; actorId?: string | null; projectId?: string | null },
+      _: unknown,
+      { prisma }: GraphQLContext
+    ) => {
+      if (parent.postId) return parent.postId;
+      if (parent.type !== "PROJECT_ROAST" || !parent.actorId || !parent.projectId) return null;
+      try {
+        // Find the project so we know its name
+        const project = await prisma.project.findUnique({
+          where: { id: parent.projectId },
+          select: { name: true },
+        });
+        if (!project) return null;
+        // Find the most-recent feed post authored by the roaster with #roast tag
+        // and matching projectName — this is the feed post created by submitRoast
+        const post = await prisma.post.findFirst({
+          where: {
+            authorId: parent.actorId,
+            projectName: project.name,
+            tags: { some: { tag: { name: "roast" } } },
+          },
+          orderBy: { createdAt: "desc" },
+          select: { id: true },
+        });
+        return post?.id ?? null;
+      } catch {
+        return null;
+      }
     },
     // Ensure message is never null (fallback to empty string)
     message: (parent: { message?: string | null; type: string }) => {
@@ -115,7 +150,9 @@ export const notificationResolvers = {
         case "MENTION":            return "mentioned you in a comment";
         case "SHARE":              return "shared your post";
         case "PROJECT_ROAST":      return "roasted your project";
+        case "ROAST_REACTION":     return "gave your roast a 🔥";
         case "XP_LEVELUP":         return "You leveled up!";
+        case "EARNED_ROLE":        return "You earned a new role!";
         case "LAUNCHPAD_INTEREST": return "is interested in your launch";
         case "JOB_APPLICATION":    return "applied to your job posting";
         case "EVENT_REMINDER":     return "Your event is coming up soon";

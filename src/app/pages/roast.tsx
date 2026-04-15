@@ -22,7 +22,6 @@ const GET_RECENT_ROASTS = gql`
   query GetRecentRoasts {
     roasts(limit: 20) {
       id
-      overallScore
       quickRoast
       projectName
       projectUrl
@@ -40,7 +39,6 @@ const GET_RECENT_ROASTS = gql`
 
 interface RecentRoast {
   id: string;
-  overallScore: number;
   quickRoast: string;
   projectName: string;
   projectUrl: string;

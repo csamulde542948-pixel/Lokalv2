@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { gql } from "@apollo/client/core";
-import { useMutation, useLazyQuery } from "@apollo/client/react";
+import { useMutation, useLazyQuery, useQuery } from "@apollo/client/react";
 import { Card, CardContent } from "./ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { avatarSrc } from "../../lib/defaults";
@@ -54,6 +54,27 @@ const UNFOLLOW_USER = gql`
   }
 `;
 
+const ROAST_REACT = gql`
+  mutation RoastReact($postId: ID!) {
+    roastReact(postId: $postId) {
+      id
+      roastReactionCount
+      roastReactedByMe
+    }
+  }
+`;
+
+const MY_ROAST_TOKENS = gql`
+  query MyRoastTokensCard {
+    myRoastTokens {
+      used
+      allowance
+      remaining
+      resetsAt
+    }
+  }
+`;
+
 // ─── Public Post shape (what the feed gives us) ───────────────────────────────
 export interface FeedPost {
   id: string;
@@ -80,6 +101,8 @@ export interface FeedPost {
   image?: string;
   initialComments?: CommentData[];
   originalPost?: OriginalPost | null;
+  roastReactedByMe?:   boolean;
+  roastReactionCount?: number;
 }
 
 // ─── Legacy static interface kept for backwards compatibility ─────────────────
@@ -160,6 +183,7 @@ export function RoastedProjectCard({ post, onLike, isFollowing: isFollowingProp 
 
   const authorId       = p.author.id;
   const isOwnPost      = !!user && !!authorId && user.id === authorId;
+  const isRoastPost    = (p.tags ?? []).some((t) => t.name === "roast");
 
   // ── Follow state ────────────────────────────────────────────────────────
   const [localFollowing, setLocalFollowing] = useState(isFollowingProp);
@@ -167,6 +191,23 @@ export function RoastedProjectCard({ post, onLike, isFollowing: isFollowingProp 
 
   const [followUser]   = useMutation(FOLLOW_USER);
   const [unfollowUser] = useMutation(UNFOLLOW_USER);
+
+  // ── 🔥 Roast React state ──────────────────────────────────────────────────
+  const [roastReacted,      setRoastReacted]      = useState(p.roastReactedByMe   ?? false);
+  const [roastReactCount,   setRoastReactCount]   = useState(p.roastReactionCount ?? 0);
+  const [roastReactError,   setRoastReactError]   = useState<string | null>(null);
+  const [roastReactLoading, setRoastReactLoading] = useState(false);
+  const [flameHovered,      setFlameHovered]      = useState(false);
+
+  const { data: tokenData, refetch: refetchTokens } = useQuery(MY_ROAST_TOKENS, {
+    skip: !user || !isRoastPost,
+    fetchPolicy: "network-only",
+  });
+  const tokensRemaining: number = (tokenData as any)?.myRoastTokens?.remaining ?? 999;
+  const tokenDataLoaded: boolean = !!(tokenData as any)?.myRoastTokens;
+  const tokenAllowance: number  = (tokenData as any)?.myRoastTokens?.allowance  ?? 1;
+
+  const [doRoastReact] = useMutation(ROAST_REACT);
 
   async function handleFollow() {
     if (!authorId) return;
@@ -181,6 +222,45 @@ export function RoastedProjectCard({ post, onLike, isFollowing: isFollowingProp 
       onFollowToggle?.();
     } catch {
       setLocalFollowing(!nowFollowing); // revert on error
+    }
+  }
+
+  // ── 🔥 Roast React handler ─────────────────────────────────────────────────
+  async function handleRoastReact() {
+    if (!user) return; // shouldn't happen — button hidden for anon
+    if (isOwnPost)    return; // shouldn't happen — button disabled
+    if (roastReacted) return; // one-way spend — already reacted
+
+    setRoastReactLoading(true);
+    setRoastReactError(null);
+
+    // Optimistic update
+    setRoastReacted(true);
+    setRoastReactCount((n: number) => n + 1);
+
+    try {
+      await doRoastReact({ variables: { postId: p.id } });
+      refetchTokens(); // refresh token count after spend
+    } catch (err: any) {
+      // Revert optimistic update on error
+      setRoastReacted(false);
+      setRoastReactCount((n: number) => Math.max(0, n - 1));
+
+      const msg: string = err?.message ?? "";
+      if (msg.startsWith("ROAST_TOKEN_EXHAUSTED:")) {
+        const limit = msg.split(":")[1];
+        setRoastReactError(
+          `No 🔥 tokens left today (${limit}/${limit} used). Balik bukas! 🕛`
+        );
+      } else if (msg.includes("already gave")) {
+        setRoastReacted(true); // was already reacted — keep optimistic
+        setRoastReactCount((n: number) => n); // count stays
+        setRoastReactError(null);
+      } else {
+        setRoastReactError("Failed to send 🔥 react. Try again.");
+      }
+    } finally {
+      setRoastReactLoading(false);
     }
   }
 
@@ -589,10 +669,66 @@ export function RoastedProjectCard({ post, onLike, isFollowing: isFollowingProp 
                 )}
               </div>
 
-              <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px] px-1.5 py-0 h-5 gap-1 flex-shrink-0">
-                <Flame className="w-2.5 h-2.5" strokeWidth={2.5} />
-                AI Roast
-              </Badge>
+              {/* 🔥 Roast it! button — visible to all logged-in users; disabled for own post */}
+              {user && (
+                <div className="relative ml-auto flex-shrink-0">
+                  <button
+                    onClick={handleRoastReact}
+                    onMouseEnter={() => setFlameHovered(true)}
+                    onMouseLeave={() => setFlameHovered(false)}
+                    disabled={isOwnPost || roastReacted || roastReactLoading || (tokenDataLoaded && tokensRemaining === 0)}
+                    title={
+                      isOwnPost
+                        ? "This is your roast"
+                        : roastReacted
+                        ? "Already roasted!"
+                        : tokenDataLoaded && tokensRemaining === 0
+                        ? `No tokens left — resets midnight Manila 🕛`
+                        : tokenDataLoaded
+                        ? `${tokensRemaining}/${tokenAllowance} token${tokenAllowance === 1 ? "" : "s"} left today`
+                        : "Roast it!"
+                    }
+                    className={`relative flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all duration-200 disabled:cursor-not-allowed ${
+                      roastReacted
+                        ? "bg-orange-500/15 border-orange-500/40 text-orange-400 opacity-80 shadow-[0_0_8px_2px_rgba(249,115,22,0.25)]"
+                        : isOwnPost || (tokenDataLoaded && tokensRemaining === 0)
+                        ? "bg-muted/50 border-border text-muted-foreground opacity-50"
+                        : "roast-btn-glow bg-primary/10 border-primary/30 text-primary hover:bg-orange-500/15 hover:border-orange-500/50 hover:text-orange-400 hover:shadow-[0_0_14px_4px_rgba(249,115,22,0.38)] active:scale-95"
+                    }`}
+                  >
+                    {/* Animated flame emoji */}
+                    <span
+                      className={`text-[13px] leading-none select-none ${
+                        roastReacted
+                          ? "roast-flame-done"
+                          : flameHovered && !isOwnPost && (!tokenDataLoaded || tokensRemaining > 0)
+                          ? "roast-flame-hover"
+                          : !isOwnPost && (!tokenDataLoaded || tokensRemaining > 0)
+                          ? "roast-flame-idle"
+                          : ""
+                      }`}
+                    >
+                      🔥
+                    </span>
+                    <span>
+                      {roastReactLoading ? "…" : roastReacted ? "Roasted!" : "Roast it!"}
+                    </span>
+                    {/* Token counter pill */}
+                    {!roastReacted && (tokenData as any) && tokensRemaining > 0 && (
+                      <span className="text-[9px] font-mono bg-orange-500/20 text-orange-400 px-1 rounded leading-none">
+                        {tokensRemaining}/{tokenAllowance}
+                      </span>
+                    )}
+                  </button>
+                  {/* Inline error */}
+                  {roastReactError && (
+                    <p className="absolute top-full mt-1 left-0 right-0 text-center text-[9px] text-destructive font-mono leading-tight pointer-events-none whitespace-nowrap">
+                      {roastReactError}
+                    </p>
+                  )}
+                </div>
+              )}
+
             </div>
           </div>
 

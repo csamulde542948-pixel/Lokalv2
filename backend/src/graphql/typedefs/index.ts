@@ -69,11 +69,13 @@ export const typeDefs = gql`
     FOLLOW
     SHARE
     PROJECT_ROAST
+    ROAST_REACTION
     JOB_APPLICATION
     EVENT_REMINDER
     LAUNCHPAD_INTEREST
     XP_LEVELUP
     MENTION
+    EARNED_ROLE
   }
 
   enum Trend {
@@ -160,6 +162,19 @@ export const typeDefs = gql`
     icon: String
   }
 
+  # How many slots a user has used vs their rank-based cap.
+  # "limit" is null when the rank is Legend (unlimited).
+  type SubmissionSlot {
+    used: Int!
+    limit: Int        # null = unlimited
+  }
+
+  type SubmissionQuota {
+    rankName: String!
+    projects: SubmissionSlot!
+    launchpadEvents: SubmissionSlot!
+  }
+
   # =============================================
   # POSTS / FEED
   # =============================================
@@ -175,10 +190,12 @@ export const typeDefs = gql`
     likesCount: Int!
     commentsCount: Int!
     sharesCount: Int!
+    roastReactionCount: Int!        # 🔥 token reactions received
     tags: [Tag!]!
-    likedByMe: Boolean!         # requires auth context
-    myReaction: String          # "Like" | "Love" | "Fire" | "Haha" | "Wow" | "Sad" | null
-    postType: String!           # "roast" | "post" — derived from tags
+    likedByMe: Boolean!             # requires auth context
+    myReaction: String              # "Like" | "Love" | "Fire" | "Haha" | "Wow" | "Sad" | null
+    roastReactedByMe: Boolean!      # true if current user gave a 🔥 token react
+    postType: String!               # "roast" | "post" — derived from tags
     createdAt: DateTime!
     updatedAt: DateTime!
     comments(limit: Int, offset: Int): [PostComment!]!
@@ -318,11 +335,8 @@ export const typeDefs = gql`
     projectUrl: String!
     projectName: String!
     title: String!
-    overallScore: Float!
     quickRoast: String!
     fullRoast: String
-    strengths: [String!]!
-    improvements: [String!]!
     likesCount: Int!
     commentsCount: Int!
     sharesCount: Int!
@@ -336,11 +350,16 @@ export const typeDefs = gql`
     title: String!
     quickRoast: String!
     fullRoast: String!
-    overallScore: Float!
-    strengths: [String!]!
-    improvements: [String!]!
     projectUrl: String!
     projectName: String!
+  }
+
+  # Daily 🔥 Roast Token status for the current user
+  type RoastTokenStatus {
+    used:      Int!
+    allowance: Int!
+    remaining: Int!
+    resetsAt:  DateTime!
   }
 
   # Scraped project info from URL (Jina Reader + GitHub API + AI classification)
@@ -502,6 +521,7 @@ export const typeDefs = gql`
     actor: Profile
     type: NotificationType!
     entityId: String
+    postId: String
     message: String!
     isRead: Boolean!
     createdAt: DateTime!
@@ -510,6 +530,7 @@ export const typeDefs = gql`
   type NotificationsResult {
     notifications: [Notification!]!
     unreadCount: Int!
+    total: Int!
   }
 
   # =============================================
@@ -539,13 +560,11 @@ export const typeDefs = gql`
     trend: Trend!
   }
 
-  # Board: Roast Survivor — hall of fame, sorted by avg roast score absorbed
+  # Board: Roast Survivor — hall of fame, sorted by number of roasts absorbed
   type RoastSurvivorEntry {
     rank: Int!
     profile: Profile!
     roastsReceived: Int!
-    avgOverallScore: Float!
-    totalRoastScore: Float!
   }
 
   # Board: Laban Launcher — longest active shipping streak in days
@@ -703,6 +722,8 @@ export const typeDefs = gql`
     # Roasts
     roasts(limit: Int, offset: Int): [Roast!]!
     roast(id: ID!): Roast
+    # Daily 🔥 Roast Token balance for the current user (requires auth)
+    myRoastTokens: RoastTokenStatus!
 
     # Jobs
     jobs(
@@ -753,7 +774,12 @@ export const typeDefs = gql`
 
     # Rank system
     ranks: [Rank!]!
+    roles: [Role!]!
     xpActivities: [XpActivity!]!
+
+    # Submission quota — how many projects/launchpad events the current user
+    # has used vs their rank-based limit. Used to gate the "Create" buttons.
+    mySubmissionQuota: SubmissionQuota!
 
     # GetStream chat token
     streamToken: StreamToken!
@@ -841,6 +867,8 @@ export const typeDefs = gql`
     generateRoast(input: GenerateRoastInput!): GeneratedRoast!
     submitRoast(input: SubmitRoastInput!): Roast!
     likeRoast(roastId: ID!): Roast!
+    # Spend 1 daily 🔥 token to react on a roast post (one-way, no un-react)
+    roastReact(postId: ID!): Post!
 
     # Jobs
     createJob(input: CreateJobInput!): Job!
@@ -888,6 +916,9 @@ export const typeDefs = gql`
 
     # Chat
     startDM(otherUserId: ID!): String!
+
+    # Roles (admin / system — award a role to a user)
+    awardRole(profileId: ID!, roleName: String!): UserRole!
   }
 
   # Feed config entry for admin tuning (P2 #10)
@@ -1005,9 +1036,6 @@ export const typeDefs = gql`
     title: String
     quickRoast: String
     fullRoast: String
-    overallScore: Float
-    strengths: [String!]
-    improvements: [String!]
   }
 
   input CreateJobInput {

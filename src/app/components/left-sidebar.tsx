@@ -1,4 +1,5 @@
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
+import { AvatarFrame } from "./avatar-frame";
 import { avatarSrc } from "../../lib/defaults";
 import { Skeleton } from "./ui/skeleton";
 import { User, Users, FolderKanban, BarChart3, Settings, Rocket, Flame, Trophy, Sparkles, Shield, Briefcase, Calendar } from "lucide-react";
@@ -127,7 +128,7 @@ export function LeftSidebar({ className = "" }: LeftSidebarProps) {
     skip: !user,
     fetchPolicy: "cache-first",
   });
-  const me = meData?.me;
+  const me = (meData as any)?.me;
 
   return (
     <aside className={`w-64 p-4 space-y-4 ${className}`}>
@@ -141,10 +142,12 @@ export function LeftSidebar({ className = "" }: LeftSidebarProps) {
             </>
           ) : (
             <>
-              <Avatar className="w-8 h-8 border-2 border-border flex-shrink-0">
-                <AvatarImage src={avatarSrc(me?.avatarUrl)} />
-                <AvatarFallback>{(me?.name ?? user?.email ?? "?")[0].toUpperCase()}</AvatarFallback>
-              </Avatar>
+              <AvatarFrame rankName={me?.rank?.name} size={32} className="flex-shrink-0">
+                <Avatar className="w-8 h-8">
+                  <AvatarImage src={avatarSrc(me?.avatarUrl)} />
+                  <AvatarFallback className="text-xs">{(me?.name ?? user?.email ?? "?")[0].toUpperCase()}</AvatarFallback>
+                </Avatar>
+              </AvatarFrame>
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-sm truncate">{me?.name ?? user?.email ?? "You"}</p>
                 {me?.username && <p className="text-xs text-muted-foreground truncate">@{me.username}</p>}

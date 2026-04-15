@@ -8,7 +8,7 @@ import {
   createDMChannel,
 } from "../../lib/stream";
 import { sendWelcomeEmail } from "../../services/email";
-import { awardXp } from "../../services/xp";
+import { awardXp, awardRole, ROLE_NAMES } from "../../services/xp";
 import { createNotification } from "../../lib/notifications";
 import { searchRateLimiter } from "../../lib/rateLimit";
 
@@ -163,7 +163,7 @@ export const profileResolvers = {
     createProfile: async (
       _: unknown,
       { input }: { input: any },
-      { user, prisma }: GraphQLContext
+      { user, prisma, clientIp }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
 
@@ -203,7 +203,7 @@ export const profileResolvers = {
       }
 
       // Award XP for completing profile basics
-      await awardXp(user.id, "COMPLETE_PROFILE");
+      await awardXp(user.id, "COMPLETE_PROFILE", undefined, clientIp);
 
       return profile;
     },
@@ -272,7 +272,7 @@ export const profileResolvers = {
     completeOnboarding: async (
       _: unknown,
       { input }: { input: { username: string; name: string; bio?: string; location?: string; tags: string[] } },
-      { user, prisma }: GraphQLContext
+      { user, prisma, clientIp }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
 
@@ -321,7 +321,7 @@ export const profileResolvers = {
       }
 
       // 5. Award XP for completing onboarding
-      await awardXp(user.id, "COMPLETE_PROFILE");
+      await awardXp(user.id, "COMPLETE_PROFILE", undefined, clientIp);
 
       return profile;
     },
@@ -332,7 +332,7 @@ export const profileResolvers = {
     followUser: async (
       _: unknown,
       { userId }: { userId: string },
-      { user, prisma }: GraphQLContext
+      { user, prisma, clientIp }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
       if (user.id === userId) throw new Error("Cannot follow yourself");
@@ -352,7 +352,7 @@ export const profileResolvers = {
       await streamFollowUser(user.id, userId);
 
       // Award XP to follower
-      await awardXp(user.id, "MAKE_CONNECTION");
+      await awardXp(user.id, "MAKE_CONNECTION", undefined, clientIp);
 
       // Check if the target user already follows the current user back (mutual follow)
       const alreadyFollowsBack = await prisma.follow.findUnique({
@@ -365,15 +365,13 @@ export const profileResolvers = {
       });
 
       // Create notification — "followed you back" if they already follow us, else plain "followed you"
-      await prisma.notification.create({
-        data: {
-          recipientId: userId,
-          actorId: user.id,
-          type: "FOLLOW",
-          message: alreadyFollowsBack
-            ? "followed you back"
-            : "started following you",
-        },
+      await createNotification(prisma, {
+        recipientId: userId,
+        actorId: user.id,
+        type: "FOLLOW",
+        message: alreadyFollowsBack
+          ? "followed you back"
+          : "started following you",
       });
 
       return prisma.profile.findUnique({
@@ -425,6 +423,41 @@ export const profileResolvers = {
 
       const cid = await createDMChannel(user.id, otherUserId);
       return cid; // e.g. "messaging:dm-abc-xyz"
+    },
+
+    // ── Award a role to a profile (admin/system use) ──────────────────────
+    awardRole: async (
+      _: unknown,
+      { profileId, roleName }: { profileId: string; roleName: string },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+
+      // Only admins can award roles manually
+      const isAdmin = !!(await prisma.userRole.findFirst({
+        where: { profileId: user.id, role: { name: "Top Contributor" } },
+      }));
+      // Simple guard — extend to a proper admin check if needed
+      if (user.id !== profileId && !isAdmin) {
+        throw new Error("Only admins can award roles to other users");
+      }
+
+      const validRoleNames = Object.values(ROLE_NAMES) as string[];
+      if (!validRoleNames.includes(roleName)) {
+        throw new Error(`Unknown role: ${roleName}`);
+      }
+
+      const result = await awardRole(profileId, roleName as any);
+      if (!result.awarded) {
+        throw new Error(`User already has the role: ${roleName}`);
+      }
+
+      // Return the new UserRole record
+      const role = await prisma.role.findUnique({ where: { name: roleName } });
+      return prisma.userRole.findUnique({
+        where: { profileId_roleId: { profileId, roleId: role!.id } },
+        include: { role: true },
+      });
     },
   },
 

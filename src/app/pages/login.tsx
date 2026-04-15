@@ -142,11 +142,12 @@ export function Login() {
         <div className="hidden md:block space-y-6">
           <div className="flex items-center gap-3">
             <BrandLogo size="lg" />
-            <div>
-              <h1 className="text-4xl font-bold">lokalhost<span style={{ color: "#ff6600" }}>.club</span></h1>
-              <p className="text-muted-foreground">Connect. Build. Ship.</p>
-            </div>
           </div>
+          <p className="text-base font-semibold tracking-widest uppercase mt-1">
+            <span className="text-primary">Connect.</span>
+            {" "}<span className="text-foreground">Build.</span>
+            {" "}<span style={{ color: "#ff6600" }}>Ship.</span>
+          </p>
           <div className="space-y-4">
             <p className="text-lg text-muted-foreground leading-relaxed">
               Join the community of indie developers in the Philippines. Share your projects, 

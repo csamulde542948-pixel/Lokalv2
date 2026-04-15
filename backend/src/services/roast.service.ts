@@ -45,7 +45,6 @@ export interface RoastResult {
   title: string;
   quickRoast: string;   // First paragraph — the hook
   fullRoast: string;    // All 6 paragraphs joined
-  overallScore: number; // 1–5 computed from sentiment
   strengths: string[];  // kept for schema compat — returns empty array
   improvements: string[]; // kept for schema compat — returns empty array
 }
@@ -145,24 +144,10 @@ function parseRoastOutput(raw: string, projectName: string): RoastResult {
   const quickRoast = paragraphs[0] ?? cleaned.slice(0, 300);
   const title = `${projectName} Got Roasted`;
 
-  // Score 1–5: count Filipino + English profanity/insults
-  const brutalWords = [
-    "gago", "bobo", "putangina", "tangina", "walang kwenta",
-    "pointless", "useless", "terrible", "awful", "incompetent",
-    "delusion", "pathetic", "joke", "embarrassing", "scam",
-  ];
-  const lower = cleaned.toLowerCase();
-  const harshCount = brutalWords.reduce(
-    (acc, w) => acc + (lower.split(w).length - 1),
-    0
-  );
-  const overallScore = Math.max(1, Math.min(5, 5 - Math.floor(harshCount / 3)));
-
   return {
     title,
     quickRoast,
     fullRoast,
-    overallScore,
     strengths: [],
     improvements: [],
   };

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router";
+import { toast } from "sonner";
 import { gql } from "@apollo/client/core";
 import { useQuery, useMutation } from "@apollo/client/react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -747,8 +748,19 @@ export function Launchpad() {
       setFormData({ eventType: "BETA_TESTERS", title: "", description: "", deadline: "", link: "", spotsTotal: "" });
       setSelectedProject(null);
       setShowCreateForm(false);
+      toast.success("Launchpad event created! 🚀", { description: "Your event is now live." });
     } catch (e: any) {
-      setCreateError(e.message ?? "Failed to create event");
+      const msg: string = e?.message ?? "";
+      if (msg.toLowerCase().includes("launchpad limit") || msg.toLowerCase().includes("quota")) {
+        toast.error("Launchpad limit reached 🗂", {
+          description: "You've used all your launchpad event slots for your current rank. Level up to unlock more!",
+          duration: 6000,
+          action: { label: "View Ranks", onClick: () => window.location.href = "/rank-role" },
+        });
+      } else {
+        toast.error("Failed to create event", { description: msg || "Something went wrong. Please try again." });
+      }
+      setCreateError(msg || "Failed to create event");
     }
   }, [formData, selectedProject, createEvent]);
 

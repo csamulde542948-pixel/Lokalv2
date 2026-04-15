@@ -32,14 +32,14 @@ CREATE TABLE "ranks" (
 
 -- Seed ranks
 INSERT INTO "ranks" ("name", "description", "minXp", "maxXp", "iconName", "color", "bgColor", "borderColor") VALUES
-  ('Newbie',        'Just getting started',                    0,     499,   'baby',        'text-gray-500',   'bg-gray-100',   'border-gray-300'),
-  ('Junior Dev',    'Learning the ropes',                      500,   1499,  'seedling',    'text-green-500',  'bg-green-50',   'border-green-300'),
-  ('Developer',     'Building real things',                    1500,  3999,  'code',        'text-blue-500',   'bg-blue-50',    'border-blue-300'),
-  ('Senior Dev',    'Shipping consistently',                   4000,  9999,  'laptop',      'text-purple-500', 'bg-purple-50',  'border-purple-300'),
-  ('Tech Lead',     'Leading and mentoring',                   10000, 24999, 'users',       'text-orange-500', 'bg-orange-50',  'border-orange-300'),
-  ('Architect',     'Designing systems',                       25000, 49999, 'building',    'text-red-500',    'bg-red-50',     'border-red-300'),
-  ('Principal',     'Shaping the industry',                    50000, 99999, 'star',        'text-yellow-500', 'bg-yellow-50',  'border-yellow-300'),
-  ('Legend',        'Filipino dev royalty',                    100000, NULL, 'crown',       'text-gold-500',   'bg-amber-50',   'border-amber-400');
+  ('Newbie',        'Just getting started',                    0,     999,   'baby',        'text-gray-500',   'bg-gray-100',   'border-gray-300'),
+  ('Junior Dev',    'Learning the ropes',                      1000,  2499,  'seedling',    'text-green-500',  'bg-green-50',   'border-green-300'),
+  ('Developer',     'Building real things',                    2500,  5999,  'code',        'text-blue-500',   'bg-blue-50',    'border-blue-300'),
+  ('Senior Dev',    'Shipping consistently',                   6000,  14999, 'laptop',      'text-purple-500', 'bg-purple-50',  'border-purple-300'),
+  ('Tech Lead',     'Leading and mentoring',                   15000, 34999, 'users',       'text-orange-500', 'bg-orange-50',  'border-orange-300'),
+  ('Architect',     'Designing systems',                       35000, 74999, 'building',    'text-red-500',    'bg-red-50',     'border-red-300'),
+  ('Principal',     'Shaping the industry',                    75000, 149999,'star',        'text-yellow-500', 'bg-yellow-50',  'border-yellow-300'),
+  ('Legend',        'Filipino dev royalty',                    150000, NULL, 'crown',       'text-gold-500',   'bg-amber-50',   'border-amber-400');
 
 -- ─── XP Activities ───────────────────────────────────────────────────────────
 

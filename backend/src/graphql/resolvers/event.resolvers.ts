@@ -164,7 +164,7 @@ export const eventResolvers = {
     registerForEvent: async (
       _: unknown,
       { eventId }: { eventId: string },
-      { user, prisma }: GraphQLContext
+      { user, prisma, clientIp }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
 
@@ -202,7 +202,7 @@ export const eventResolvers = {
         ).catch(console.error);
       }
 
-      awardXp(user.id, "REGISTER_EVENT").catch(console.error);
+      awardXp(user.id, "REGISTER_EVENT", undefined, clientIp).catch(console.error);
       return updatedEvent;
     },
 

@@ -242,4 +242,52 @@
       background-position: 100% 50%;
     }
   }
+
+  /* ── Roast flame animations ──────────────────────────────────────── */
+  @keyframes flame-flicker {
+    0%, 100% { transform: scaleY(1)    rotate(-3deg); filter: brightness(1); }
+    25%       { transform: scaleY(1.12) rotate(2deg);  filter: brightness(1.15); }
+    50%       { transform: scaleY(0.95) rotate(-2deg); filter: brightness(0.95); }
+    75%       { transform: scaleY(1.08) rotate(3deg);  filter: brightness(1.1); }
+  }
+
+  @keyframes flame-burst {
+    0%   { transform: scale(1)    rotate(0deg);   filter: brightness(1); }
+    20%  { transform: scale(1.35) rotate(-8deg);  filter: brightness(1.4); }
+    40%  { transform: scale(1.2)  rotate(6deg);   filter: brightness(1.25); }
+    60%  { transform: scale(1.28) rotate(-4deg);  filter: brightness(1.3); }
+    80%  { transform: scale(1.15) rotate(3deg);   filter: brightness(1.15); }
+    100% { transform: scale(1)    rotate(0deg);   filter: brightness(1); }
+  }
+
+  @keyframes flame-done-pulse {
+    0%, 100% { transform: scale(1);    filter: brightness(1); }
+    50%       { transform: scale(1.18); filter: brightness(1.2); }
+  }
+
+  .roast-flame-idle {
+    display: inline-block;
+    animation: flame-flicker 2.4s ease-in-out infinite;
+    transform-origin: 50% 90%;
+  }
+
+  .roast-flame-hover {
+    animation: flame-burst 0.55s ease-out forwards !important;
+    transform-origin: 50% 90%;
+  }
+
+  .roast-flame-done {
+    display: inline-block;
+    animation: flame-done-pulse 1.8s ease-in-out infinite;
+    transform-origin: 50% 90%;
+  }
+
+  @keyframes roast-btn-glow {
+    0%, 100% { box-shadow: 0 0 6px 1px rgba(249,115,22,0.18); }
+    50%       { box-shadow: 0 0 13px 4px rgba(249,115,22,0.36); }
+  }
+
+  .roast-btn-glow {
+    animation: roast-btn-glow 2.2s ease-in-out infinite;
+  }
 }
