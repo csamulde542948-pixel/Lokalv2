@@ -248,13 +248,23 @@ async function startServer() {
 
   // CORS: Lock down origins in deployed environments
   const allowedOrigins = IS_PRODUCTION
-    ? [FRONTEND_URL]
+    ? [
+        FRONTEND_URL,
+        "https://lokalhost.club",
+        "https://www.lokalhost.club",
+        "https://lokalv2.vercel.app",
+      ]
     : IS_STAGING
       ? [FRONTEND_URL, "https://studio.apollographql.com"] // Allow Studio in staging for debugging
       : [FRONTEND_URL, "https://studio.apollographql.com"];
   app.use(
     cors({
-      origin: allowedOrigins,
+      origin: (origin, callback) => {
+        // Allow requests with no origin (server-to-server, curl, health checks)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        callback(new Error(`CORS: origin '${origin}' not allowed`));
+      },
       credentials: true,
     })
   );
@@ -315,7 +325,7 @@ async function startServer() {
     // In deployed environments require Origin to match the known frontend URL
     if (IS_DEPLOYED) {
       const source = origin ?? (referer ? new URL(referer).origin : null);
-      if (!source || source !== FRONTEND_URL) {
+      if (!source || !allowedOrigins.includes(source)) {
         return res.status(403).json({ error: "Forbidden: cross-origin request" });
       }
     }
