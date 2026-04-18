@@ -1,29 +1,47 @@
 import { connect, StreamClient } from "getstream";
 import { StreamChat } from "stream-chat";
 
-const apiKey = process.env.GETSTREAM_API_KEY!;
-const apiSecret = process.env.GETSTREAM_API_SECRET!;
+// Read lazily so Railway env vars are always current at call time
+function getApiKey(): string {
+  const key = process.env.GETSTREAM_API_KEY;
+  if (!key) throw new Error("GETSTREAM_API_KEY is not configured");
+  return key;
+}
+function getApiSecret(): string {
+  const secret = process.env.GETSTREAM_API_SECRET;
+  if (!secret) throw new Error("GETSTREAM_API_SECRET is not configured");
+  return secret;
+}
 const appId = process.env.GETSTREAM_APP_ID ?? "1568856";
 
 // ─── Stream Chat (messaging) server client ────────────────────────────────────
 let _chatClient: StreamChat | null = null;
+let _chatClientKey: string | null = null; // track which key the client was built with
 
 function getChatClient(): StreamChat {
-  if (!_chatClient) {
+  const key = getApiKey();
+  const secret = getApiSecret();
+  // Rebuild if the client doesn't exist or was built with a different key
+  if (!_chatClient || _chatClientKey !== key) {
     // Use `new StreamChat` (not getInstance) — the singleton cache can get poisoned
     // if connectUser/disconnectUser was ever called on the same instance, which
     // breaks the token manager and causes "Both secret and user tokens are not set".
-    _chatClient = new StreamChat(apiKey, apiSecret);
+    _chatClient = new StreamChat(key, secret);
+    _chatClientKey = key;
   }
   return _chatClient;
 }
 
 // ─── Stream Feeds (activity / social graph) client ───────────────────────────
 let _feedClient: StreamClient | null = null;
+let _feedClientKey: string | null = null;
 
 function getStreamClient(): StreamClient {
-  if (!_feedClient) {
-    _feedClient = connect(apiKey, apiSecret, appId, { timeout: 10000 });
+  const key = getApiKey();
+  const secret = getApiSecret();
+  if (!_feedClient || _feedClientKey !== key) {
+    _feedClient = connect(key, secret, appId, { timeout: 10000 });
+    _feedClientKey = key;
   }
   return _feedClient;
 }

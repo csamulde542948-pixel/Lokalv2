@@ -135,6 +135,13 @@ export const profileResolvers = {
       { user, prisma }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
+
+      const apiKey = process.env.GETSTREAM_API_KEY;
+      if (!apiKey) {
+        console.error("[streamToken] GETSTREAM_API_KEY is not set on this environment");
+        throw new Error("Chat service is not configured");
+      }
+
       // Upsert user in Stream Chat so connectUser never fails with unknown user
       const profile = await prisma.profile.findUnique({
         where: { id: user.id },
@@ -152,7 +159,7 @@ export const profileResolvers = {
       // Stream Chat API key is a *public* key (not a secret) — safe to return
       // to authenticated clients just like every Stream Chat frontend integration does.
       // The secret (GETSTREAM_API_SECRET) stays server-side only.
-      return { token, apiKey: process.env.GETSTREAM_API_KEY ?? "" };
+      return { token, apiKey };
     },
   },
 
