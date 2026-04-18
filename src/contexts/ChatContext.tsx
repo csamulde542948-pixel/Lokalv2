@@ -230,10 +230,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       console.error("[Chat] streamToken query error:", tokenError.message);
       return;
     }
-    console.log("[Chat] tokenData changed:", tokenData?.streamToken?.apiKey, "user:", user?.id);
-    if (tokenData?.streamToken && user?.id) {
-      connectChat();
-    }
+    if (!tokenData?.streamToken || !user?.id) return;
+    connectChat();
   }, [tokenData?.streamToken?.token, connectChat, user?.id, tokenError]);
 
   // ── Disconnect when user logs out ─────────────────────────────────────────
