@@ -95,6 +95,18 @@ const MARK_NOT_INTERESTED = gql`
   mutation MarkNotInterested($postId: ID!) { markNotInterestedInPost(postId: $postId) }
 `;
 
+const ROAST_REACT_PC = gql`
+  mutation RoastReactShared($postId: ID!) {
+    roastReact(postId: $postId) { id roastReactionCount roastReactedByMe }
+  }
+`;
+const MY_ROAST_TOKENS_PC = gql`
+  query MyRoastTokensShared { myRoastTokens { used allowance remaining resetsAt } }
+`;
+const ROAST_REACTORS_PC = gql`
+  query RoastReactorsShared($postId: ID!) { roastReactors(postId: $postId) { id name username avatarUrl } }
+`;
+
 const GET_POST_COMMENTS = gql`
   query GetPostComments($postId: ID!, $limit: Int, $offset: Int) {
     post(id: $postId) {
@@ -129,6 +141,8 @@ export interface OriginalPost {
   postType?: "post" | "roast";
   tags?: { id: string | number; name: string }[];
   createdAt?: string;
+  roastReactedByMe?: boolean;
+  roastReactionCount?: number;
 }
 
 export interface Post {
@@ -156,6 +170,7 @@ interface PostCardProps {
   isFollowing?: boolean;
   onFollowToggle?: () => void;
   onNotInterested?: (postId: string) => void;
+  onOpenPostModal?: (postId: string) => void;
 }
 
 /* ─── Reactions (Facebook-style + Fire) ────────────────────────────────────── */
@@ -497,8 +512,62 @@ function MediaGrid({ imgs }: { imgs: string[] }) {
 /* ─── SharedPostPreview ──────────────────────────────────────────────────── */
 // Renders the original post as a nested card — roast or standard layout.
 // Pixel-perfect match of the real card inner layouts. Not recursive.
-export function SharedPostPreview({ post }: { post: OriginalPost }) {
+export function SharedPostPreview({ post, onOpenPost }: { post: OriginalPost; onOpenPost?: (postId: string) => void }) {
   const [expanded, setExpanded] = useState(false);
+  const { user } = useAuth();
+
+  // ── 🔥 Roast React state (only active when isRoast) ───────────────
+  const isRoast = (post.postType === "roast" ||
+    (post.tags ?? []).some((t) => t.name === "roast"));
+  const isOwnPost = !!user && !!post.author.id && user.id === post.author.id;
+
+  const [roastReacted,      setRoastReacted]      = useState(post.roastReactedByMe ?? false);
+  const [roastReactCount,   setRoastReactCount]   = useState(post.roastReactionCount ?? 0);
+  const [roastReactError,   setRoastReactError]   = useState<string | null>(null);
+  const [roastReactLoading, setRoastReactLoading] = useState(false);
+  const [flameHovered,      setFlameHovered]      = useState(false);
+  const [showReactors,      setShowReactors]      = useState(false);
+
+  const [doRoastReact] = useMutation(ROAST_REACT_PC);
+  const { data: tokenData, refetch: refetchTokens } = useQuery(MY_ROAST_TOKENS_PC, {
+    skip: !user || !isRoast || isOwnPost,
+    fetchPolicy: "network-only",
+  });
+  const tokensRemaining: number  = (tokenData as any)?.myRoastTokens?.remaining ?? 999;
+  const tokenDataLoaded: boolean = !!(tokenData as any)?.myRoastTokens;
+  const tokenAllowance: number   = (tokenData as any)?.myRoastTokens?.allowance  ?? 1;
+
+  const [fetchReactors, { data: reactorsData, loading: reactorsLoading }] = useLazyQuery(ROAST_REACTORS_PC, {
+    fetchPolicy: "network-only",
+  });
+
+  async function handleRoastReact(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!user || isOwnPost || roastReacted) return;
+    if (tokenDataLoaded && tokensRemaining === 0) { setRoastReactError("No 🔥 tokens left today. Balik bukas! 🕛"); return; }
+    setRoastReactLoading(true);
+    setRoastReactError(null);
+    setRoastReacted(true);
+    setRoastReactCount((n) => n + 1);
+    try {
+      await doRoastReact({ variables: { postId: post.id } });
+      refetchTokens();
+    } catch (err: any) {
+      setRoastReacted(false);
+      setRoastReactCount((n) => Math.max(0, n - 1));
+      const msg: string = err?.message ?? "";
+      if (msg.startsWith("ROAST_TOKEN_EXHAUSTED:")) {
+        const limit = msg.split(":")[1];
+        setRoastReactError(`No 🔥 tokens left today (${limit}/${limit} used). Balik bukas! 🕛`);
+      } else if (msg.includes("already gave")) {
+        setRoastReacted(true); setRoastReactError(null);
+      } else {
+        setRoastReactError("Failed to send 🔥 react. Try again.");
+      }
+    } finally {
+      setRoastReactLoading(false);
+    }
+  }
 
   const imgs = (post.imageUrls && post.imageUrls.length > 0)
     ? post.imageUrls
@@ -510,8 +579,6 @@ export function SharedPostPreview({ post }: { post: OriginalPost }) {
     : "/profile";
 
   const cleanContent = post.content.replace(/\[shared:[^\]]+\]/g, "").trim();
-  const isRoast = post.postType === "roast" ||
-    (post.tags ?? []).some((t) => t.name === "roast");
   const projectName = post.projectName ?? "Unknown Project";
   const avatarFallbackUrl = DEFAULT_AVATAR;
 
@@ -537,12 +604,15 @@ export function SharedPostPreview({ post }: { post: OriginalPost }) {
       ?? avatarFallbackUrl;
 
     return (
-      <Card className="overflow-hidden border border-primary/20 bg-gradient-to-br from-card via-card to-primary/5 shadow-sm rounded-xl gap-0">
+      <Card
+        className={`overflow-hidden border border-primary/20 bg-gradient-to-br from-card via-card to-primary/5 shadow-sm rounded-xl gap-0 ${onOpenPost ? "cursor-pointer hover:border-primary/40 transition-colors" : ""}`}
+        onClick={onOpenPost ? () => onOpenPost(post.id) : undefined}
+      >
         <CardContent className="p-0 [&:last-child]:pb-0">
 
           {/* Author header — matches RoastedProjectCard header exactly */}
           <div className="flex items-center gap-3 px-4 py-3">
-            <Link to={profileHref} className="flex-shrink-0 focus:outline-none">
+            <Link to={profileHref} className="flex-shrink-0 focus:outline-none" onClick={(e) => e.stopPropagation()}>
               <Avatar className="w-10 h-10">
                 <AvatarImage src={authorAvatar} />
                 <AvatarFallback>{post.author.name[0]?.toUpperCase()}</AvatarFallback>
@@ -550,7 +620,7 @@ export function SharedPostPreview({ post }: { post: OriginalPost }) {
             </Link>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <Link to={profileHref} className="font-semibold text-sm hover:underline leading-tight">
+                <Link to={profileHref} className="font-semibold text-sm hover:underline leading-tight" onClick={(e) => e.stopPropagation()}>
                   {post.author.name}
                 </Link>
                 <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px] px-1.5 py-0 h-4 gap-1">
@@ -597,6 +667,7 @@ export function SharedPostPreview({ post }: { post: OriginalPost }) {
                       target="_blank"
                       rel="noopener noreferrer"
                       className="font-bold text-sm truncate hover:underline text-foreground block"
+                      onClick={(e) => e.stopPropagation()}
                     >
                       {projectName}
                     </a>
@@ -608,10 +679,103 @@ export function SharedPostPreview({ post }: { post: OriginalPost }) {
                   )}
                 </div>
 
-                <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px] px-1.5 py-0 h-5 gap-1 flex-shrink-0">
-                  <Flame className="w-2.5 h-2.5" strokeWidth={2.5} />
-                  AI Roast
-                </Badge>
+                {/* 🔥 Roast it! button for shared roast posts */}
+                {user && (
+                  <div className="relative ml-auto flex-shrink-0">
+                    {isOwnPost ? (
+                      <Popover
+                        open={showReactors}
+                        onOpenChange={(open) => {
+                          setShowReactors(open);
+                          if (open && roastReactCount > 0) {
+                            fetchReactors({ variables: { postId: post.id } });
+                          }
+                        }}
+                      >
+                        <PopoverTrigger asChild>
+                          <button
+                            onClick={(e) => e.stopPropagation()}
+                            title={roastReactCount > 0 ? "See who roasted this" : "No roast reacts yet"}
+                            className={`relative flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all duration-200 ${
+                              roastReactCount > 0
+                                ? "bg-orange-500/10 border-orange-500/30 text-orange-400 hover:bg-orange-500/20 hover:border-orange-500/50 cursor-pointer active:scale-95"
+                                : "bg-muted/50 border-border text-muted-foreground opacity-50 cursor-default"
+                            }`}
+                          >
+                            <span className={`text-[13px] leading-none select-none ${roastReactCount > 0 ? "roast-flame-idle" : ""}`}>🔥</span>
+                            <span>{roastReactCount > 0 ? `${roastReactCount} Roasted` : "0 Roasted"}</span>
+                          </button>
+                        </PopoverTrigger>
+                        {roastReactCount > 0 && (
+                          <PopoverContent align="end" className="w-56 p-2" onClick={(e) => e.stopPropagation()}>
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2 px-1">🔥 Roasted by</p>
+                            {reactorsLoading ? (
+                              <p className="text-xs text-muted-foreground text-center py-2">Loading…</p>
+                            ) : (
+                              <ul className="space-y-1 max-h-48 overflow-y-auto">
+                                {((reactorsData as any)?.roastReactors ?? []).map((r: any) => (
+                                  <li key={r.id}>
+                                    <Link
+                                      to={`/profile/${r.username}`}
+                                      className="flex items-center gap-2 px-1 py-1 rounded hover:bg-muted/50 transition-colors"
+                                      onClick={(e) => { e.stopPropagation(); setShowReactors(false); }}
+                                    >
+                                      <img src={avatarSrc(r.avatarUrl)} alt={r.name} className="w-6 h-6 rounded-full object-cover flex-shrink-0" />
+                                      <div className="min-w-0">
+                                        <p className="text-xs font-medium truncate leading-tight">{r.name}</p>
+                                        <p className="text-[10px] text-muted-foreground truncate leading-tight">@{r.username}</p>
+                                      </div>
+                                    </Link>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </PopoverContent>
+                        )}
+                      </Popover>
+                    ) : (
+                      <>
+                        <button
+                          onClick={handleRoastReact}
+                          onMouseEnter={() => setFlameHovered(true)}
+                          onMouseLeave={() => setFlameHovered(false)}
+                          disabled={roastReacted || roastReactLoading || (tokenDataLoaded && tokensRemaining === 0)}
+                          title={
+                            roastReacted ? "Already roasted!"
+                              : tokenDataLoaded && tokensRemaining === 0 ? `No tokens left — resets midnight Manila 🕛`
+                              : tokenDataLoaded ? `${tokensRemaining}/${tokenAllowance} token${tokenAllowance === 1 ? "" : "s"} left today`
+                              : "Roast it!"
+                          }
+                          className={`relative flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all duration-200 disabled:cursor-not-allowed ${
+                            roastReacted
+                              ? "bg-orange-500/15 border-orange-500/40 text-orange-400 opacity-80 shadow-[0_0_8px_2px_rgba(249,115,22,0.25)]"
+                              : (tokenDataLoaded && tokensRemaining === 0)
+                              ? "bg-muted/50 border-border text-muted-foreground opacity-50"
+                              : "roast-btn-glow bg-primary/10 border-primary/30 text-primary hover:bg-orange-500/15 hover:border-orange-500/50 hover:text-orange-400 hover:shadow-[0_0_14px_4px_rgba(249,115,22,0.38)] active:scale-95"
+                          }`}
+                        >
+                          <span className={`text-[13px] leading-none select-none ${
+                            roastReacted ? "roast-flame-done"
+                              : flameHovered && (!tokenDataLoaded || tokensRemaining > 0) ? "roast-flame-hover"
+                              : (!tokenDataLoaded || tokensRemaining > 0) ? "roast-flame-idle"
+                              : ""
+                          }`}>🔥</span>
+                          <span>{roastReactLoading ? "…" : roastReacted ? "Roasted!" : "Roast it!"}</span>
+                          {!roastReacted && tokenDataLoaded && tokensRemaining > 0 && (
+                            <span className="text-[9px] font-mono bg-orange-500/20 text-orange-400 px-1 rounded leading-none">
+                              {tokensRemaining}/{tokenAllowance}
+                            </span>
+                          )}
+                        </button>
+                        {roastReactError && (
+                          <p className="absolute top-full mt-1 right-0 text-[9px] text-destructive font-mono leading-tight pointer-events-none whitespace-nowrap">
+                            {roastReactError}
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -632,7 +796,7 @@ export function SharedPostPreview({ post }: { post: OriginalPost }) {
               </p>
               {needsReadMore && (
                 <button
-                  onClick={() => setExpanded((v) => !v)}
+                  onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
                   className="text-xs font-semibold text-primary hover:underline mt-1 block"
                 >
                   {expanded ? "Show less" : "Read more"}
@@ -650,12 +814,15 @@ export function SharedPostPreview({ post }: { post: OriginalPost }) {
   const detectedUrl = imgs.length === 0 ? extractFirstUrl(cleanContent) : null;
 
   return (
-    <Card className="overflow-hidden border bg-card shadow-sm rounded-xl gap-0">
+    <Card
+      className={`overflow-hidden border bg-card shadow-sm rounded-xl gap-0 ${onOpenPost ? "cursor-pointer hover:border-primary/30 transition-colors" : ""}`}
+      onClick={onOpenPost ? () => onOpenPost(post.id) : undefined}
+    >
       <CardContent className="p-0 [&:last-child]:pb-0">
 
         {/* Header — matches PostCard header exactly */}
         <div className="flex items-center gap-3 px-4 py-3">
-          <Link to={profileHref} className="rounded-full flex-shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+          <Link to={profileHref} className="rounded-full flex-shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" onClick={(e) => e.stopPropagation()}>
             <Avatar className="w-10 h-10">
               <AvatarImage src={post.author.avatarUrl ?? avatarFallbackUrl} />
               <AvatarFallback>{post.author.name?.[0]?.toUpperCase()}</AvatarFallback>
@@ -1498,6 +1665,7 @@ export function PostCard({
   isFollowing = false,
   onFollowToggle,
   onNotInterested,
+  onOpenPostModal,
 }: PostCardProps) {
   const { user } = useAuth();
   const { data: meData } = useQuery(GET_ME_AVATAR, {
@@ -2020,7 +2188,7 @@ export function PostCard({
             })()}
             {/* Nested original post preview (Facebook-style share) */}
             {post.originalPost && (
-              <SharedPostPreview post={post.originalPost} />
+              <SharedPostPreview post={post.originalPost} onOpenPost={onOpenPostModal} />
             )}
           </div>
 

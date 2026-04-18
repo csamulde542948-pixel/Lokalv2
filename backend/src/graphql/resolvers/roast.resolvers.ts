@@ -46,6 +46,16 @@ export const roastResolvers = {
       if (!user) throw new Error("Unauthorized");
       return getRoastTokenStatus(user.id, prisma);
     },
+
+    roastReactors: async (_: unknown, { postId }: { postId: string }, { user, prisma }: GraphQLContext) => {
+      if (!user) throw new Error("Unauthorized");
+      const reactions = await prisma.roastReaction.findMany({
+        where: { postId },
+        orderBy: { createdAt: "desc" },
+        include: { reactor: true },
+      });
+      return reactions.map((r: any) => r.reactor);
+    },
   },
 
   Mutation: {

@@ -50,6 +50,7 @@ export interface ScoreBreakdown {
   velocityBoost: number;
   semanticBoost: number;
   dwellBoost: number;
+  freshnessBoost: number;
   notInterestedPenalty: number;
 }
 
@@ -72,6 +73,10 @@ export interface FeedWeightConfig {
   // Session-aware semantic boost
   lowCtrSemanticMultiplier: number; // default 1.5 — extra semantic weight when session CTR < 10%
   lowCtrThreshold: number;          // default 0.10
+  // Freshness boost — temporary lift for new posts so they reach the top of the feed
+  freshnessBoostUnderOneHour: number;    // default 4.0 — < 1h old
+  freshnessBoostUnderThreeHours: number; // default 2.5 — 1–3h old
+  freshnessBoostUnderSixHours: number;   // default 1.5 — 3–6h old
 }
 
 export const DEFAULT_WEIGHTS: FeedWeightConfig = {
@@ -87,6 +92,9 @@ export const DEFAULT_WEIGHTS: FeedWeightConfig = {
   decayLambda: 0.029,
   lowCtrSemanticMultiplier: 1.5,
   lowCtrThreshold: 0.10,
+  freshnessBoostUnderOneHour: 4.0,
+  freshnessBoostUnderThreeHours: 2.5,
+  freshnessBoostUnderSixHours: 1.5,
 };
 
 // ─── In-memory config cache with TTL ────────────────────────
@@ -143,9 +151,12 @@ export async function loadWeightConfig(prisma: any): Promise<FeedWeightConfig> {
       decayLambda:               safeWeight(configMap, "decayLambda",               DEFAULT_WEIGHTS.decayLambda,               0),
       lowCtrSemanticMultiplier:  safeWeight(configMap, "lowCtrSemanticMultiplier",   DEFAULT_WEIGHTS.lowCtrSemanticMultiplier,  0.1),
       lowCtrThreshold:           safeWeight(configMap, "lowCtrThreshold",            DEFAULT_WEIGHTS.lowCtrThreshold,           0),
+      freshnessBoostUnderOneHour:    safeWeight(configMap, "freshnessBoostUnderOneHour",    DEFAULT_WEIGHTS.freshnessBoostUnderOneHour,    1.0),
+      freshnessBoostUnderThreeHours: safeWeight(configMap, "freshnessBoostUnderThreeHours", DEFAULT_WEIGHTS.freshnessBoostUnderThreeHours, 1.0),
+      freshnessBoostUnderSixHours:   safeWeight(configMap, "freshnessBoostUnderSixHours",   DEFAULT_WEIGHTS.freshnessBoostUnderSixHours,   1.0),
     };
     cacheExpiry = Date.now() + CACHE_TTL_MS;
-    return cachedWeights;
+    return cachedWeights!;
   } catch (err) {
     console.error("[feedRanking] loadWeightConfig error, using defaults:", err);
     return DEFAULT_WEIGHTS;
@@ -277,6 +288,22 @@ export function scorePost(
   const authorAffinityBoost = clamp(1.0 + Math.max(signals.authorAffinityScore, 0)); // 1.0–2.0 (already sigmoid-normalized)
   const velocityBoost = clamp(engagementVelocityMultiplier(signals));
 
+  // Freshness boost — gives brand-new posts a temporary score lift so they can
+  // compete with older posts that already have accumulated engagement.
+  // < 1 hour  → 4.0×  (just posted: push to near top of feed)
+  // 1–3 hours → 2.5×  (still very recent)
+  // 3–6 hours → 1.5×  (a few hours old: mild boost)
+  // 6+ hours  → 1.0×  (rely on real engagement signals from here on)
+  const ageInHoursForFreshness = Math.max(
+    (Date.now() - signals.createdAt.getTime()) / (1000 * 60 * 60),
+    0
+  );
+  let rawFreshness = 1.0;
+  if (ageInHoursForFreshness < 1) rawFreshness = weights.freshnessBoostUnderOneHour;
+  else if (ageInHoursForFreshness < 3) rawFreshness = weights.freshnessBoostUnderThreeHours;
+  else if (ageInHoursForFreshness < 6) rawFreshness = weights.freshnessBoostUnderSixHours;
+  const freshnessBoost = clamp(rawFreshness);
+
   // Negative signal: harshly penalize content user marked "not interested"
   // Floor at 0.01 — even "not interested" posts get a non-zero score so they
   // don't cause NaN propagation if anything divides by finalScore downstream.
@@ -306,7 +333,8 @@ export function scorePost(
     * velocityBoost
     * notInterestedPenalty
     * semanticBoost
-    * dwellBoost;
+    * dwellBoost
+    * freshnessBoost;
 
   return {
     finalScore,
@@ -321,6 +349,7 @@ export function scorePost(
     velocityBoost,
     semanticBoost,
     dwellBoost,
+    freshnessBoost,
     notInterestedPenalty,
   };
 }

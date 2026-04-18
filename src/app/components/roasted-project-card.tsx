@@ -75,6 +75,14 @@ const MY_ROAST_TOKENS = gql`
   }
 `;
 
+const ROAST_REACTORS_Q = gql`
+  query RoastReactorsCard($postId: ID!) {
+    roastReactors(postId: $postId) {
+      id name username avatarUrl
+    }
+  }
+`;
+
 // ─── Public Post shape (what the feed gives us) ───────────────────────────────
 export interface FeedPost {
   id: string;
@@ -198,6 +206,11 @@ export function RoastedProjectCard({ post, onLike, isFollowing: isFollowingProp 
   const [roastReactError,   setRoastReactError]   = useState<string | null>(null);
   const [roastReactLoading, setRoastReactLoading] = useState(false);
   const [flameHovered,      setFlameHovered]      = useState(false);
+  const [showReactors,      setShowReactors]      = useState(false);
+
+  const [fetchReactors, { data: reactorsData, loading: reactorsLoading }] = useLazyQuery(ROAST_REACTORS_Q, {
+    fetchPolicy: "network-only",
+  });
 
   const { data: tokenData, refetch: refetchTokens } = useQuery(MY_ROAST_TOKENS, {
     skip: !user || !isRoastPost,
@@ -672,59 +685,116 @@ export function RoastedProjectCard({ post, onLike, isFollowing: isFollowingProp 
               {/* 🔥 Roast it! button — visible to all logged-in users; disabled for own post */}
               {user && (
                 <div className="relative ml-auto flex-shrink-0">
-                  <button
-                    onClick={handleRoastReact}
-                    onMouseEnter={() => setFlameHovered(true)}
-                    onMouseLeave={() => setFlameHovered(false)}
-                    disabled={isOwnPost || roastReacted || roastReactLoading || (tokenDataLoaded && tokensRemaining === 0)}
-                    title={
-                      isOwnPost
-                        ? "This is your roast"
-                        : roastReacted
-                        ? "Already roasted!"
-                        : tokenDataLoaded && tokensRemaining === 0
-                        ? `No tokens left — resets midnight Manila 🕛`
-                        : tokenDataLoaded
-                        ? `${tokensRemaining}/${tokenAllowance} token${tokenAllowance === 1 ? "" : "s"} left today`
-                        : "Roast it!"
-                    }
-                    className={`relative flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all duration-200 disabled:cursor-not-allowed ${
-                      roastReacted
-                        ? "bg-orange-500/15 border-orange-500/40 text-orange-400 opacity-80 shadow-[0_0_8px_2px_rgba(249,115,22,0.25)]"
-                        : isOwnPost || (tokenDataLoaded && tokensRemaining === 0)
-                        ? "bg-muted/50 border-border text-muted-foreground opacity-50"
-                        : "roast-btn-glow bg-primary/10 border-primary/30 text-primary hover:bg-orange-500/15 hover:border-orange-500/50 hover:text-orange-400 hover:shadow-[0_0_14px_4px_rgba(249,115,22,0.38)] active:scale-95"
-                    }`}
-                  >
-                    {/* Animated flame emoji */}
-                    <span
-                      className={`text-[13px] leading-none select-none ${
-                        roastReacted
-                          ? "roast-flame-done"
-                          : flameHovered && !isOwnPost && (!tokenDataLoaded || tokensRemaining > 0)
-                          ? "roast-flame-hover"
-                          : !isOwnPost && (!tokenDataLoaded || tokensRemaining > 0)
-                          ? "roast-flame-idle"
-                          : ""
-                      }`}
+                  {isOwnPost ? (
+                    /* Own post: show clickable "🔥 N Roasted" that opens reactor list */
+                    <Popover
+                      open={showReactors}
+                      onOpenChange={(open) => {
+                        setShowReactors(open);
+                        if (open && roastReactCount > 0) {
+                          fetchReactors({ variables: { postId: p.id } });
+                        }
+                      }}
                     >
-                      🔥
-                    </span>
-                    <span>
-                      {roastReactLoading ? "…" : roastReacted ? "Roasted!" : "Roast it!"}
-                    </span>
-                    {/* Token counter pill */}
-                    {!roastReacted && (tokenData as any) && tokensRemaining > 0 && (
-                      <span className="text-[9px] font-mono bg-orange-500/20 text-orange-400 px-1 rounded leading-none">
-                        {tokensRemaining}/{tokenAllowance}
-                      </span>
-                    )}
-                  </button>
-                  {/* Inline error */}
-                  {roastReactError && (
-                    <p className="absolute top-full mt-1 left-0 right-0 text-center text-[9px] text-destructive font-mono leading-tight pointer-events-none whitespace-nowrap">
-                      {roastReactError}
-                    </p>
+                      <PopoverTrigger asChild>
+                        <button
+                          title={roastReactCount > 0 ? "See who roasted this" : "No roast reacts yet"}
+                          className={`relative flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all duration-200 ${
+                            roastReactCount > 0
+                              ? "bg-orange-500/10 border-orange-500/30 text-orange-400 hover:bg-orange-500/20 hover:border-orange-500/50 cursor-pointer active:scale-95"
+                              : "bg-muted/50 border-border text-muted-foreground opacity-50 cursor-default"
+                          }`}
+                        >
+                          <span className={`text-[13px] leading-none select-none ${roastReactCount > 0 ? "roast-flame-idle" : ""}`}>🔥</span>
+                          <span>{roastReactCount > 0 ? `${roastReactCount} Roasted` : "0 Roasted"}</span>
+                        </button>
+                      </PopoverTrigger>
+                      {roastReactCount > 0 && (
+                        <PopoverContent align="end" className="w-56 p-2">
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2 px-1">🔥 Roasted by</p>
+                          {reactorsLoading ? (
+                            <p className="text-xs text-muted-foreground text-center py-2">Loading…</p>
+                          ) : (
+                            <ul className="space-y-1 max-h-48 overflow-y-auto">
+                              {((reactorsData as any)?.roastReactors ?? []).map((r: any) => (
+                                <li key={r.id}>
+                                  <a
+                                    href={`/profile/${r.username}`}
+                                    className="flex items-center gap-2 px-1 py-1 rounded hover:bg-muted/50 transition-colors"
+                                    onClick={() => setShowReactors(false)}
+                                  >
+                                    <img
+                                      src={avatarSrc(r.avatarUrl)}
+                                      alt={r.name}
+                                      className="w-6 h-6 rounded-full object-cover flex-shrink-0"
+                                    />
+                                    <div className="min-w-0">
+                                      <p className="text-xs font-medium truncate leading-tight">{r.name}</p>
+                                      <p className="text-[10px] text-muted-foreground truncate leading-tight">@{r.username}</p>
+                                    </div>
+                                  </a>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </PopoverContent>
+                      )}
+                    </Popover>
+                  ) : (
+                    <>
+                      <button
+                        onClick={handleRoastReact}
+                        onMouseEnter={() => setFlameHovered(true)}
+                        onMouseLeave={() => setFlameHovered(false)}
+                        disabled={roastReacted || roastReactLoading || (tokenDataLoaded && tokensRemaining === 0)}
+                        title={
+                          roastReacted
+                            ? "Already roasted!"
+                            : tokenDataLoaded && tokensRemaining === 0
+                            ? `No tokens left — resets midnight Manila 🕛`
+                            : tokenDataLoaded
+                            ? `${tokensRemaining}/${tokenAllowance} token${tokenAllowance === 1 ? "" : "s"} left today`
+                            : "Roast it!"
+                        }
+                        className={`relative flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all duration-200 disabled:cursor-not-allowed ${
+                          roastReacted
+                            ? "bg-orange-500/15 border-orange-500/40 text-orange-400 opacity-80 shadow-[0_0_8px_2px_rgba(249,115,22,0.25)]"
+                            : (tokenDataLoaded && tokensRemaining === 0)
+                            ? "bg-muted/50 border-border text-muted-foreground opacity-50"
+                            : "roast-btn-glow bg-primary/10 border-primary/30 text-primary hover:bg-orange-500/15 hover:border-orange-500/50 hover:text-orange-400 hover:shadow-[0_0_14px_4px_rgba(249,115,22,0.38)] active:scale-95"
+                        }`}
+                      >
+                        {/* Animated flame emoji */}
+                        <span
+                          className={`text-[13px] leading-none select-none ${
+                            roastReacted
+                              ? "roast-flame-done"
+                              : flameHovered && (!tokenDataLoaded || tokensRemaining > 0)
+                              ? "roast-flame-hover"
+                              : (!tokenDataLoaded || tokensRemaining > 0)
+                              ? "roast-flame-idle"
+                              : ""
+                          }`}
+                        >
+                          🔥
+                        </span>
+                        <span>
+                          {roastReactLoading ? "…" : roastReacted ? "Roasted!" : "Roast it!"}
+                        </span>
+                        {/* Token counter pill */}
+                        {!roastReacted && (tokenData as any) && tokensRemaining > 0 && (
+                          <span className="text-[9px] font-mono bg-orange-500/20 text-orange-400 px-1 rounded leading-none">
+                            {tokensRemaining}/{tokenAllowance}
+                          </span>
+                        )}
+                      </button>
+                      {/* Inline error */}
+                      {roastReactError && (
+                        <p className="absolute top-full mt-1 left-0 right-0 text-center text-[9px] text-destructive font-mono leading-tight pointer-events-none whitespace-nowrap">
+                          {roastReactError}
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               )}

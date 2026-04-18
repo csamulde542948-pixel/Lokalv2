@@ -1,0 +1,22 @@
+# ============================================================
+# Railway — STAGING service configuration
+# ============================================================
+# This file is used by the Railway staging service.
+# The staging service should point to the `staging` git branch.
+# ============================================================
+
+[build]
+builder = "nixpacks"
+buildCommand = "cd backend && npm install && npm run build"
+
+[deploy]
+startCommand = "node backend/dist/index.js"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+[nixpacks]
+installCmd = "cd backend && npm install"
+buildCmd = "cd backend && npm run build"
+startCmd = "node backend/dist/index.js"

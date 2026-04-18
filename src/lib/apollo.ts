@@ -3,9 +3,10 @@ import { from } from "@apollo/client/link";
 import { createHttpLink } from "@apollo/client/link/http";
 import { setContext } from "@apollo/client/link/context";
 import { supabase } from "./supabase";
+import { GRAPHQL_URL } from "./env";
 
 const httpLink = createHttpLink({
-  uri: import.meta.env.VITE_GRAPHQL_URL ?? "http://localhost:4000/graphql",
+  uri: GRAPHQL_URL,
 });
 
 // ── S3 #9: Cache Supabase JWT in memory to avoid localStorage read per request ──

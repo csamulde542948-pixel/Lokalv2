@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "dev": "vite"
+    "build:staging": "vite build --mode staging",
+    "build:production": "vite build --mode production",
+    "dev": "vite",
+    "preview": "vite preview",
+    "preview:staging": "vite preview --mode staging"
   },
   "dependencies": {
     "@apollo/client": "^4.1.6",

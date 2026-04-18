@@ -7,11 +7,16 @@ node_modules/
 dist/
 build/
 
-# Environment files — never commit secrets
+# Environment files
+# ─ .env.local        → your personal local secrets (never commit)
+# ─ .env.*.local      → any local override of any mode (never commit)
+# ─ .env              → raw .env with real secrets (never commit)
+# ─ .env.staging      → COMMITTED — template with placeholder values only
+# ─ .env.production   → COMMITTED — template with placeholder values only
+# ─ .env.example      → COMMITTED — documented reference
 .env
 .env.local
 .env.*.local
-.env.production
 
 # Logs
 logs/

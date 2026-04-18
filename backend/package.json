@@ -7,8 +7,12 @@
     "dev": "tsx watch src/index.ts",
     "build": "prisma generate && tsc",
     "start": "node dist/index.js",
+    "start:staging": "NODE_ENV=staging node dist/index.js",
+    "start:production": "NODE_ENV=production node dist/index.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate:staging": "dotenv -e .env.staging -- prisma migrate deploy",
+    "prisma:migrate:production": "dotenv -e .env.production -- prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:push": "prisma db push"
   },

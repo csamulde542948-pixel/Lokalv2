@@ -724,6 +724,8 @@ export const typeDefs = gql`
     roast(id: ID!): Roast
     # Daily 🔥 Roast Token balance for the current user (requires auth)
     myRoastTokens: RoastTokenStatus!
+    # List of profiles who gave a 🔥 Roast React to a post (post author only)
+    roastReactors(postId: ID!): [Profile!]!
 
     # Jobs
     jobs(

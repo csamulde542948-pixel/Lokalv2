@@ -14,6 +14,7 @@ import { FeaturedProjectCard, FeaturedProject } from "../components/featured-pro
 import { Separator } from "../components/ui/separator";
 import { Skeleton } from "../components/ui/skeleton";
 import { avatarSrc } from "../../lib/defaults";
+import { PostModal } from "../components/post-modal";
 
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
 
@@ -55,6 +56,8 @@ const GET_FEED = gql`
           imageUrls
           projectName
           postType
+          roastReactedByMe
+          roastReactionCount
           tags { id name }
           createdAt
           author {
@@ -560,6 +563,8 @@ function adaptPost(p: any) {
           postType: (p.originalPost.postType ?? "post") as "post" | "roast",
           tags: p.originalPost.tags ?? [],
           createdAt: p.originalPost.createdAt,
+          roastReactedByMe: p.originalPost.roastReactedByMe ?? false,
+          roastReactionCount: p.originalPost.roastReactionCount ?? 0,
           author: {
             id: p.originalPost.author?.id,
             name: p.originalPost.author?.displayName ?? p.originalPost.author?.username ?? p.originalPost.author?.name ?? "Unknown",
@@ -579,6 +584,8 @@ export function Feed() {
   const [followedUsers, setFollowedUsers] = useState<Set<string>>(new Set());
   // Optimistic local posts prepended before the server list
   const [localPosts, setLocalPosts] = useState<ReturnType<typeof adaptPost>[]>([]);
+  // Modal for clicking original post inside shared post card
+  const [openModalPostId, setOpenModalPostId] = useState<string | null>(null);
 
   const seenIdsRef = useRef<Set<string>>(new Set());
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -888,6 +895,7 @@ export function Feed() {
                               onNotInterested={() => {
                                 notInterestedMutation({ variables: { postId: item.post.id } }).catch(console.error);
                               }}
+                              onOpenPostModal={setOpenModalPostId}
                             />
                           )}
                         </PostViewTracker>
@@ -929,6 +937,14 @@ export function Feed() {
 
       {/* Right Sidebar — fixed, non-scrollable */}
       <RightSidebar category="home" className="hidden lg:block fixed top-14 right-0 w-80 h-[calc(100vh-3.5rem)] overflow-hidden" />
+
+      {/* Modal for viewing original post from shared post card */}
+      {openModalPostId && (
+        <PostModal
+          postId={openModalPostId}
+          onClose={() => setOpenModalPostId(null)}
+        />
+      )}
     </div>
   );
 }

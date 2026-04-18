@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+
+# Private / app-only routes — do not index
+Disallow: /feed
+Disallow: /settings
+Disallow: /messages
+Disallow: /analytics
+Disallow: /auth-callback
+Disallow: /launchpad/manage
+
+Sitemap: https://app.lokalhost.club/sitemap.xml

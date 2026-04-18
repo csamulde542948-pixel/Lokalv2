@@ -1,20 +1,19 @@
 /**
  * Staging Environment Banner
  *
- * Shows a small fixed banner at the bottom of the screen when the app is
- * running in a staging environment (VITE_APP_ENV=staging).
+ * Shows a fixed banner at the top of the screen when VITE_APP_ENV=staging.
  * Hidden in production and development.
  */
-export function StagingBanner() {
-  const appEnv = import.meta.env.VITE_APP_ENV;
+import { IS_STAGING } from "../../lib/env";
 
-  if (appEnv !== "staging") return null;
+export function StagingBanner() {
+  if (!IS_STAGING) return null;
 
   return (
     <div
       style={{
         position: "fixed",
-        bottom: 0,
+        top: 0,
         left: 0,
         right: 0,
         zIndex: 9999,
@@ -29,7 +28,7 @@ export function StagingBanner() {
         userSelect: "none",
       }}
     >
-      ⚠️ STAGING ENVIRONMENT — Data here is not real production data
+      ⚠️ STAGING — Not production data. Do not share these URLs.
     </div>
   );
 }
