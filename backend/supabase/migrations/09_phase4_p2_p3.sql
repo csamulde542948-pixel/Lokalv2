@@ -43,6 +43,8 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- P2 #8: Index for reaction-weighted aggregation query
+-- Ensure reaction column exists first
+ALTER TABLE post_likes ADD COLUMN IF NOT EXISTS reaction VARCHAR(20) NOT NULL DEFAULT 'Like';
 CREATE INDEX IF NOT EXISTS idx_post_likes_reaction
   ON post_likes ("postId", reaction);
 

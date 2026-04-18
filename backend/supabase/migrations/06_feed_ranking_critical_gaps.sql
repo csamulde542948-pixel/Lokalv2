@@ -13,7 +13,7 @@ WHERE "feedVariant" IS NOT NULL;
 
 -- 3. Create helper function for fetching post embeddings (used by Edge Function)
 CREATE OR REPLACE FUNCTION get_post_embeddings(post_ids TEXT[])
-RETURNS TABLE(id TEXT, embedding VECTOR(1536))
+RETURNS TABLE(id TEXT, embedding extensions.vector(1536))
 LANGUAGE sql STABLE
 AS $$
   SELECT p.id::TEXT, p."contentEmbedding" AS embedding
@@ -63,7 +63,7 @@ $$;
 
 -- 6. Composite index on post_views for efficient avg dwell aggregation
 CREATE INDEX IF NOT EXISTS idx_post_views_postid_dwell
-ON post_views ("postId", "dwellMs");
+ON post_views (post_id, dwell_ms);
 
 -- 7. Index on user_tag_affinities for recency-aware decay queries
 CREATE INDEX IF NOT EXISTS idx_user_tag_affinities_updated

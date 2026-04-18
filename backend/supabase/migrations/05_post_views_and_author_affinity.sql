@@ -13,8 +13,8 @@ CREATE TABLE IF NOT EXISTS post_views (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_post_views_viewer_created ON post_views (viewer_id, created_at DESC);
-CREATE INDEX idx_post_views_post ON post_views (post_id);
+CREATE INDEX IF NOT EXISTS idx_post_views_viewer_created ON post_views (viewer_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_post_views_post ON post_views (post_id);
 
 -- Per-user affinity score for each author (interaction history between user pairs)
 CREATE TABLE IF NOT EXISTS user_author_affinities (
@@ -30,28 +30,32 @@ CREATE TABLE IF NOT EXISTS user_author_affinities (
   UNIQUE (user_id, author_id)
 );
 
-CREATE INDEX idx_user_author_aff_user_score ON user_author_affinities (user_id, score DESC);
+CREATE INDEX IF NOT EXISTS idx_user_author_aff_user_score ON user_author_affinities (user_id, score DESC);
 
 -- RLS policies
 ALTER TABLE post_views ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_author_affinities ENABLE ROW LEVEL SECURITY;
 
 -- Users can read their own views
+DROP POLICY IF EXISTS "Users can read own post views" ON post_views;
 CREATE POLICY "Users can read own post views"
   ON post_views FOR SELECT
   USING (viewer_id = auth.uid());
 
 -- Service role can insert/update
+DROP POLICY IF EXISTS "Service can manage post views" ON post_views;
 CREATE POLICY "Service can manage post views"
   ON post_views FOR ALL
   USING (true)
   WITH CHECK (true);
 
 -- Users can read their own affinities
+DROP POLICY IF EXISTS "Users can read own author affinities" ON user_author_affinities;
 CREATE POLICY "Users can read own author affinities"
   ON user_author_affinities FOR SELECT
   USING (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "Service can manage author affinities" ON user_author_affinities;
 CREATE POLICY "Service can manage author affinities"
   ON user_author_affinities FOR ALL
   USING (true)

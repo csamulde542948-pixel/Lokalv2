@@ -12,10 +12,23 @@ const REQUIRED_ENV: string[] = [
   "DATABASE_URL",
   "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
-  "GETSTREAM_API_KEY",
-  "GETSTREAM_API_SECRET",
   "FRONTEND_URL",
 ];
+
+// Warn (but don't crash) for optional service keys — chat/AI features will be disabled
+const OPTIONAL_ENV: string[] = [
+  "GETSTREAM_API_KEY",
+  "GETSTREAM_API_SECRET",
+  "OPENROUTER_API_KEY",
+  "JINA_API_KEY",
+  "RESEND_API_KEY",
+];
+const missingOptional = OPTIONAL_ENV.filter((key) => !process.env[key]);
+if (missingOptional.length > 0) {
+  console.warn(
+    `[env] WARNING: Optional environment variables not set (features may be degraded):\n  ${missingOptional.join("\n  ")}`
+  );
+}
 
 const missing = REQUIRED_ENV.filter((key) => !process.env[key]);
 if (missing.length > 0) {

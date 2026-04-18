@@ -117,7 +117,7 @@ CREATE TABLE "profiles" (
   "streamUserId" VARCHAR(100) UNIQUE,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT now(),
   "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT now(),
-  "interestEmbedding" vector(1536),
+  "interestEmbedding" extensions.vector(1536),
   CONSTRAINT "profiles_rankId_fkey" FOREIGN KEY ("rankId") REFERENCES "ranks"("id") ON DELETE RESTRICT
 );
 
@@ -177,7 +177,7 @@ CREATE TABLE "posts" (
   "sharesCount" INTEGER NOT NULL DEFAULT 0,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT now(),
   "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT now(),
-  "contentEmbedding" vector(1536),
+  "contentEmbedding" extensions.vector(1536),
   CONSTRAINT "posts_authorId_fkey" FOREIGN KEY ("authorId") REFERENCES "profiles"("id") ON DELETE CASCADE
 );
 
