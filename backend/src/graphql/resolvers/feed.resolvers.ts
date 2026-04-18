@@ -207,7 +207,7 @@ export const feedResolvers = {
       }
 
       if (freshPostIds.length === 0) {
-        return exploreFeed(safeLimit, offset, prisma);
+        return exploreFeedAsConnection(safeLimit, offset, prisma);
       }
 
       // 2. Fetch full post data + signals in parallel
