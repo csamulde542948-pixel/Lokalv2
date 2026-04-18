@@ -234,6 +234,8 @@ async function startServer() {
           "Unauthorized", "Forbidden", "Not found",
           "Forbidden: admin role required",
           "Cannot follow yourself",
+          "Chat service is not configured",
+          "Chat token generation failed",
         ];
         const message = safeMessages.includes(formattedError.message ?? "")
           ? formattedError.message

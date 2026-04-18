@@ -142,24 +142,35 @@ export const profileResolvers = {
         throw new Error("Chat service is not configured");
       }
 
-      // Upsert user in Stream Chat so connectUser never fails with unknown user
-      const profile = await prisma.profile.findUnique({
-        where: { id: user.id },
-        select: { id: true, name: true, username: true, avatarUrl: true },
-      });
-      if (profile) {
-        await upsertChatUser({
-          id: profile.id,
-          name: profile.name,
-          username: profile.username ?? undefined,
-          imageUrl: profile.avatarUrl,
-        }).catch((err: unknown) => console.warn("[stream] upsertChatUser failed:", err));
+      try {
+        // Upsert user in Stream Chat so connectUser never fails with unknown user
+        const profile = await prisma.profile.findUnique({
+          where: { id: user.id },
+          select: { id: true, name: true, username: true, avatarUrl: true },
+        });
+
+        if (profile) {
+          await upsertChatUser({
+            id: profile.id,
+            name: profile.name,
+            username: profile.username ?? undefined,
+            imageUrl: profile.avatarUrl,
+          }).catch((err: unknown) => {
+            // Non-fatal — log but don't block token generation
+            console.warn("[streamToken] upsertChatUser failed (non-fatal):", (err as any)?.message ?? err);
+          });
+        }
+
+        const token = generateStreamToken(user.id);
+        // Stream Chat API key is a *public* key (not a secret) — safe to return
+        // to authenticated clients just like every Stream Chat frontend integration does.
+        // The secret (GETSTREAM_API_SECRET) stays server-side only.
+        return { token, apiKey };
+      } catch (err: unknown) {
+        const msg = (err as any)?.message ?? String(err);
+        console.error("[streamToken] resolver threw:", msg, err);
+        throw new Error("Chat token generation failed");
       }
-      const token = generateStreamToken(user.id);
-      // Stream Chat API key is a *public* key (not a secret) — safe to return
-      // to authenticated clients just like every Stream Chat frontend integration does.
-      // The secret (GETSTREAM_API_SECRET) stays server-side only.
-      return { token, apiKey };
     },
   },
 
