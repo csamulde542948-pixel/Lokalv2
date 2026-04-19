@@ -1752,6 +1752,7 @@ export function PostCard({
   const [deletePostMutation]    = useMutation(DELETE_POST);
   const [notInterestedMutation]  = useMutation(MARK_NOT_INTERESTED);
   const [hidden, setHidden]      = useState(false);
+  const [contentExpanded, setContentExpanded] = useState(false);
 
   useEffect(() => {
     setLocalLiked(post.likedByMe ?? false);
@@ -2182,9 +2183,25 @@ export function PostCard({
             {/* Strip any legacy [shared:...] markers from the visible text */}
             {(() => {
               const clean = post.content.replace(/\[shared:[^\]]+\]/g, "").trim();
-              return clean ? (
-                <p className="whitespace-pre-wrap text-sm leading-relaxed break-words">{clean}</p>
-              ) : null;
+              if (!clean) return null;
+              const COLLAPSE_LIMIT = 300;
+              const needsReadMore = clean.length > COLLAPSE_LIMIT;
+              const displayText = needsReadMore && !contentExpanded
+                ? clean.slice(0, COLLAPSE_LIMIT).trimEnd() + "…"
+                : clean;
+              return (
+                <div>
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed break-words">{displayText}</p>
+                  {needsReadMore && (
+                    <button
+                      onClick={() => setContentExpanded((v) => !v)}
+                      className="text-xs font-semibold text-primary hover:underline mt-1 block"
+                    >
+                      {contentExpanded ? "See less" : "Read more"}
+                    </button>
+                  )}
+                </div>
+              );
             })()}
             {/* Nested original post preview (Facebook-style share) */}
             {post.originalPost && (

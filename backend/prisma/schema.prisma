@@ -914,14 +914,14 @@ model PostView {
 // Per-user affinity score for each author — tracks interaction history between user pairs
 model UserAuthorAffinity {
   id           String   @id @default(cuid())
-  userId       String   @db.Uuid   // the viewer
-  authorId     String   @db.Uuid   // the content creator
-  likeCount    Int      @default(0)
-  commentCount Int      @default(0)
-  shareCount   Int      @default(0)
-  viewCount    Int      @default(0)
+  userId       String   @map("user_id")    @db.Uuid   // the viewer
+  authorId     String   @map("author_id")  @db.Uuid   // the content creator
+  likeCount    Int      @map("like_count")    @default(0)
+  commentCount Int      @map("comment_count") @default(0)
+  shareCount   Int      @map("share_count")   @default(0)
+  viewCount    Int      @map("view_count")    @default(0)
   score        Float    @default(0) // composite score, recomputed on each update
-  updatedAt    DateTime @updatedAt
+  updatedAt    DateTime @map("updated_at") @updatedAt
 
   user         Profile  @relation("AffinityFrom", fields: [userId], references: [id], onDelete: Cascade)
   author       Profile  @relation("AffinityTo", fields: [authorId], references: [id], onDelete: Cascade)

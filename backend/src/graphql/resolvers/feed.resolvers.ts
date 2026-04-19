@@ -249,6 +249,9 @@ export const feedResolvers = {
             authorId: { in: authorIds },
           },
           select: { authorId: true, score: true },
+        }).catch((err: any) => {
+          console.error("[feed] userAuthorAffinity.findMany error (non-fatal):", err?.message ?? err);
+          return [] as { authorId: string; score: number }[];
         }),
         // Semantic relevance: cosine similarity between user's interestEmbedding and post contentEmbeddings
         // Uses pgvector <=> operator (cosine distance). Returns 1 - distance = similarity.
@@ -1885,55 +1888,56 @@ async function updateAuthorAffinity(
 
   // Critical #4: replaced $executeRawUnsafe (string-interpolated SQL) with
   // separate $executeRaw tagged-template calls — no interpolation, fully parameterised.
+  // NOTE: DB columns are snake_case (user_id, author_id, like_count, etc.)
   try {
     if (field === "likeCount") {
       await prisma.$executeRaw`
-        INSERT INTO user_author_affinities (id, "userId", "authorId", "likeCount", "commentCount", "shareCount", "viewCount", score, "updatedAt")
+        INSERT INTO user_author_affinities (id, user_id, author_id, like_count, comment_count, share_count, view_count, score, updated_at)
         VALUES (gen_random_uuid()::text, ${userId}::uuid, ${authorId}::uuid, 1, 0, 0, 0, ${weights.likeCount}, NOW())
-        ON CONFLICT ("userId", "authorId") DO UPDATE SET
-          "likeCount"  = user_author_affinities."likeCount" + 1,
-          score = (user_author_affinities."likeCount" + 1) * 1.5
-               + user_author_affinities."commentCount" * 3.0
-               + user_author_affinities."shareCount"   * 5.0
-               + user_author_affinities."viewCount"    * 0.2,
-          "updatedAt" = NOW()
+        ON CONFLICT (user_id, author_id) DO UPDATE SET
+          like_count = user_author_affinities.like_count + 1,
+          score = (user_author_affinities.like_count + 1) * 1.5
+               + user_author_affinities.comment_count * 3.0
+               + user_author_affinities.share_count   * 5.0
+               + user_author_affinities.view_count    * 0.2,
+          updated_at = NOW()
       `;
     } else if (field === "commentCount") {
       await prisma.$executeRaw`
-        INSERT INTO user_author_affinities (id, "userId", "authorId", "likeCount", "commentCount", "shareCount", "viewCount", score, "updatedAt")
+        INSERT INTO user_author_affinities (id, user_id, author_id, like_count, comment_count, share_count, view_count, score, updated_at)
         VALUES (gen_random_uuid()::text, ${userId}::uuid, ${authorId}::uuid, 0, 1, 0, 0, ${weights.commentCount}, NOW())
-        ON CONFLICT ("userId", "authorId") DO UPDATE SET
-          "commentCount" = user_author_affinities."commentCount" + 1,
-          score = user_author_affinities."likeCount" * 1.5
-               + (user_author_affinities."commentCount" + 1) * 3.0
-               + user_author_affinities."shareCount"   * 5.0
-               + user_author_affinities."viewCount"    * 0.2,
-          "updatedAt" = NOW()
+        ON CONFLICT (user_id, author_id) DO UPDATE SET
+          comment_count = user_author_affinities.comment_count + 1,
+          score = user_author_affinities.like_count * 1.5
+               + (user_author_affinities.comment_count + 1) * 3.0
+               + user_author_affinities.share_count   * 5.0
+               + user_author_affinities.view_count    * 0.2,
+          updated_at = NOW()
       `;
     } else if (field === "shareCount") {
       await prisma.$executeRaw`
-        INSERT INTO user_author_affinities (id, "userId", "authorId", "likeCount", "commentCount", "shareCount", "viewCount", score, "updatedAt")
+        INSERT INTO user_author_affinities (id, user_id, author_id, like_count, comment_count, share_count, view_count, score, updated_at)
         VALUES (gen_random_uuid()::text, ${userId}::uuid, ${authorId}::uuid, 0, 0, 1, 0, ${weights.shareCount}, NOW())
-        ON CONFLICT ("userId", "authorId") DO UPDATE SET
-          "shareCount" = user_author_affinities."shareCount" + 1,
-          score = user_author_affinities."likeCount"    * 1.5
-               + user_author_affinities."commentCount"  * 3.0
-               + (user_author_affinities."shareCount" + 1) * 5.0
-               + user_author_affinities."viewCount"    * 0.2,
-          "updatedAt" = NOW()
+        ON CONFLICT (user_id, author_id) DO UPDATE SET
+          share_count = user_author_affinities.share_count + 1,
+          score = user_author_affinities.like_count    * 1.5
+               + user_author_affinities.comment_count  * 3.0
+               + (user_author_affinities.share_count + 1) * 5.0
+               + user_author_affinities.view_count    * 0.2,
+          updated_at = NOW()
       `;
     } else {
       // viewCount
       await prisma.$executeRaw`
-        INSERT INTO user_author_affinities (id, "userId", "authorId", "likeCount", "commentCount", "shareCount", "viewCount", score, "updatedAt")
+        INSERT INTO user_author_affinities (id, user_id, author_id, like_count, comment_count, share_count, view_count, score, updated_at)
         VALUES (gen_random_uuid()::text, ${userId}::uuid, ${authorId}::uuid, 0, 0, 0, 1, ${weights.viewCount}, NOW())
-        ON CONFLICT ("userId", "authorId") DO UPDATE SET
-          "viewCount" = user_author_affinities."viewCount" + 1,
-          score = user_author_affinities."likeCount"   * 1.5
-               + user_author_affinities."commentCount" * 3.0
-               + user_author_affinities."shareCount"   * 5.0
-               + (user_author_affinities."viewCount" + 1) * 0.2,
-          "updatedAt" = NOW()
+        ON CONFLICT (user_id, author_id) DO UPDATE SET
+          view_count = user_author_affinities.view_count + 1,
+          score = user_author_affinities.like_count   * 1.5
+               + user_author_affinities.comment_count * 3.0
+               + user_author_affinities.share_count   * 5.0
+               + (user_author_affinities.view_count + 1) * 0.2,
+          updated_at = NOW()
       `;
     }
   } catch (err) {
