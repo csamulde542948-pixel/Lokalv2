@@ -274,13 +274,13 @@ export const feedResolvers = {
         // Average dwell time per post from PostView table
         (async () => {
           try {
-            const result: { postId: string; avgDwell: number }[] = await prisma.$queryRawUnsafe(`
-              SELECT "postId", AVG("dwellMs")::float AS "avgDwell"
+            const result: { post_id: string; avgDwell: number }[] = await prisma.$queryRawUnsafe(`
+              SELECT post_id, AVG(dwell_ms)::float AS "avgDwell"
               FROM post_views
-              WHERE "postId" = ANY($1::text[])
-              GROUP BY "postId"
+              WHERE post_id = ANY($1::text[])
+              GROUP BY post_id
             `, freshPostIds);
-            return result;
+            return result.map((r: any) => ({ postId: r.post_id, avgDwell: r.avgDwell }));
           } catch {
             return [];
           }

@@ -891,16 +891,16 @@ model UserTagAffinity {
 // Tracks every post view with dwell time — the most important ranking signal
 model PostView {
   id          String   @id @default(cuid())
-  postId      String
-  viewerId    String   @db.Uuid
-  dwellMs     Int      // milliseconds the post was in viewport
+  postId      String   @map("post_id")
+  viewerId    String   @map("viewer_id") @db.Uuid
+  dwellMs     Int      @map("dwell_ms")  // milliseconds the post was in viewport
   source      String   @default("feed") @db.VarChar(30) // "feed" | "explore" | "profile" | "direct"
   feedVariant String?  @db.VarChar(20) // "ranked" | "chronological" — A/B testing
   position    Int?     // rank position in the feed (0-indexed) — for CTR analysis
   engaged     Boolean  @default(false) // did the user like/comment/share after viewing?
   engagementWeight Float?  // P3 #13: position-based weight (1.0–2.0x) for engagement quality
   sessionId   String?  @db.VarChar(60) // links to FeedSession for session-level analysis
-  createdAt   DateTime @default(now())
+  createdAt   DateTime @default(now()) @map("created_at")
 
   post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
   viewer    Profile  @relation("PostViews", fields: [viewerId], references: [id], onDelete: Cascade)
