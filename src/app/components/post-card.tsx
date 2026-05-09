@@ -14,7 +14,7 @@ import {
   UserPlus, UserCheck, Bookmark, BookmarkCheck,
   Send, Trash2, Image as ImageIcon,
   Video, X as XIcon, ChevronLeft, ChevronRight,
-  Pencil, History, AtSign, Flame, EyeOff,
+  Pencil, History, AtSign, Flame, EyeOff, Pin, PinOff, BadgeCheck,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import {
@@ -22,6 +22,20 @@ import {
 } from "./ui/dropdown-menu";
 import { useAuth } from "../../contexts/AuthContext";
 import { SharePostDialog } from "./share-post-dialog";
+
+/* ─── Verified Badge ──────────────────────────────────────────────────────── */
+/**
+ * Facebook-style blue verified checkmark shown next to the Lokalhost account name.
+ * isVerified comes from profiles.isVerified in the DB.
+ */
+export function VerifiedBadge({ className = "" }: { className?: string }) {
+  return (
+    <BadgeCheck
+      className={`w-4 h-4 fill-[#1877F2] text-white flex-shrink-0 ${className}`}
+      aria-label="Verified account"
+    />
+  );
+}
 
 
 /* ─── GraphQL ─────────────────────────────────────────────────────────────── */
@@ -133,7 +147,7 @@ const GET_POST_COMMENTS = gql`
 /* ─── Types ───────────────────────────────────────────────────────────────── */
 export interface OriginalPost {
   id: string;
-  author: { id?: string; name: string; username: string; avatarUrl?: string; rank?: { name: string } | null };
+  author: { id?: string; name: string; username: string; avatarUrl?: string; isVerified?: boolean; rank?: { name: string } | null };
   content: string;
   imageUrl?: string;
   imageUrls?: string[];
@@ -147,7 +161,7 @@ export interface OriginalPost {
 
 export interface Post {
   id: string;
-  author: { id?: string; name: string; avatar: string; username: string; rank?: { name: string } | null };
+  author: { id?: string; name: string; avatar: string; username: string; isVerified?: boolean; rank?: { name: string } | null };
   content: string;
   image?: string;
   images?: string[];
@@ -161,6 +175,7 @@ export interface Post {
   tags?: { id: string | number; name: string }[];
   initialComments?: CommentData[];
   originalPost?: OriginalPost | null;
+  isPinnedToFeed?: boolean;
 }
 
 interface PostCardProps {
@@ -171,6 +186,7 @@ interface PostCardProps {
   onFollowToggle?: () => void;
   onNotInterested?: (postId: string) => void;
   onOpenPostModal?: (postId: string) => void;
+  onPinToggle?: () => void;
 }
 
 /* ─── Reactions (Facebook-style + Fire) ────────────────────────────────────── */
@@ -623,6 +639,7 @@ export function SharedPostPreview({ post, onOpenPost }: { post: OriginalPost; on
                 <Link to={profileHref} className="font-semibold text-sm hover:underline leading-tight" onClick={(e) => e.stopPropagation()}>
                   {post.author.name}
                 </Link>
+                {post.author.isVerified && <VerifiedBadge />}
                 <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px] px-1.5 py-0 h-4 gap-1">
                   <Flame className="w-2.5 h-2.5" strokeWidth={2.5} />
                   Got Roasted
@@ -829,10 +846,11 @@ export function SharedPostPreview({ post, onOpenPost }: { post: OriginalPost; on
             </Avatar>
           </Link>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <Link to={profileHref} className="font-semibold text-sm hover:underline leading-tight">
                 {post.author.name}
               </Link>
+              {post.author.isVerified && <VerifiedBadge />}
               {post.projectName && (
                 <Badge variant="secondary" className="text-xs rounded-md font-normal px-2 py-0 h-4">
                   {post.projectName}
@@ -1666,6 +1684,7 @@ export function PostCard({
   onFollowToggle,
   onNotInterested,
   onOpenPostModal,
+  onPinToggle,
 }: PostCardProps) {
   const { user } = useAuth();
   const { data: meData } = useQuery(GET_ME_AVATAR, {
@@ -2089,11 +2108,18 @@ export function PostCard({
   }
 
   return (
-      <Card className="overflow-hidden border bg-card shadow-sm rounded-xl gap-0">
+      <Card className={`overflow-hidden border bg-card shadow-sm rounded-xl gap-0 relative ${post.isPinnedToFeed ? "pt-6" : ""}`}>
         <CardContent className="p-0 [&:last-child]:pb-0">
 
           {/* ── Header ──────────────────────────────────────────────────── */}
           <div className="flex items-center gap-3 px-4 py-3">
+            {/* Pinned indicator banner */}
+            {post.isPinnedToFeed && (
+              <div className="absolute top-0 left-0 right-0 flex items-center gap-1.5 px-4 py-1 bg-primary/10 border-b border-primary/20 text-[11px] font-medium text-primary rounded-t-xl">
+                <Pin className="w-3 h-3" strokeWidth={2.5} />
+                Pinned by Lokalhost
+              </div>
+            )}
             <Link to={post.author.username ? `/profile/${post.author.username.replace(/^@/, "")}` : "/profile"} className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary flex-shrink-0">
               <Avatar className="w-10 h-10">
                 <AvatarImage src={avatarSrc(post.author.avatar)} />
@@ -2102,13 +2128,14 @@ export function PostCard({
             </Link>
 
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <Link
                   to={post.author.username ? `/profile/${post.author.username.replace(/^@/, "")}` : "/profile"}
                   className="font-semibold text-sm hover:underline cursor-pointer leading-tight"
                 >
                   {post.author.name}
                 </Link>
+                {post.author.isVerified && <VerifiedBadge />}
                 {post.projectName && (
                   <Badge variant="secondary" className="text-xs rounded-md font-normal px-2 py-0 h-4">
                     {post.projectName}
@@ -2171,6 +2198,18 @@ export function PostCard({
                       className="gap-2 cursor-pointer"
                     >
                       <EyeOff className="w-4 h-4" />Not interested
+                    </DropdownMenuItem>
+                  )}
+                  {onPinToggle && (
+                    <DropdownMenuItem
+                      onClick={onPinToggle}
+                      className="gap-2 cursor-pointer"
+                    >
+                      {post.isPinnedToFeed ? (
+                        <><PinOff className="w-4 h-4" />Unpin from feed</>
+                      ) : (
+                        <><Pin className="w-4 h-4" />Pin to feed</>
+                      )}
                     </DropdownMenuItem>
                   )}
                 </DropdownMenuContent>

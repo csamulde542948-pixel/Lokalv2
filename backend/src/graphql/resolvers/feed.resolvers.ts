@@ -582,6 +582,32 @@ export const feedResolvers = {
     },
 
     /**
+     * pinnedPost — returns the one globally-pinned post, or null if none.
+     * Shown at the very top of the feed for all users.
+     */
+    pinnedPost: async (
+      _: unknown,
+      __: unknown,
+      { prisma }: GraphQLContext
+    ) => {
+      const rows: any[] = await prisma.$queryRaw`
+        SELECT p.*, row_to_json(a.*) AS author_json
+        FROM posts p
+        JOIN profiles a ON a.id = p."authorId"
+        WHERE p."isPinnedToFeed" = true
+        LIMIT 1
+      `;
+      if (!rows.length) return null;
+
+      // Load full post via Prisma so all relations resolve normally
+      const postId: string = rows[0].id;
+      return prisma.post.findUnique({
+        where: { id: postId },
+        include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
+      });
+    },
+
+    /**
      * Feed metrics — A/B comparison stats for admin dashboards.
      * Compares ranked vs chronological feed variants over the given time window.
      */
@@ -1489,9 +1515,58 @@ export const feedResolvers = {
 
       return result.count;
     },
+
+    /**
+     * pinPost — pin a post to the top of the global feed for ALL users.
+     * Only the Lokalhost brand account (hello@lokalhost.club) can call this.
+     * Enforces a single pinned post at a time by clearing any existing pin first.
+     */
+    pinPost: async (
+      _: unknown,
+      { postId }: { postId: string },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+      await assertLokalHostAccount(prisma, user.id);
+
+      // Unpin any currently-pinned post first (raw SQL to avoid stale Prisma client types)
+      await prisma.$executeRawUnsafe(`UPDATE posts SET "isPinnedToFeed" = false WHERE "isPinnedToFeed" = true`);
+
+      await prisma.$executeRawUnsafe(`UPDATE posts SET "isPinnedToFeed" = true WHERE id = $1`, postId);
+
+      const pinned = await prisma.post.findUniqueOrThrow({
+        where: { id: postId },
+        include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
+      });
+
+      return pinned;
+    },
+
+    /**
+     * unpinPost — remove the global pin from a post.
+     * Only the Lokalhost brand account can call this.
+     */
+    unpinPost: async (
+      _: unknown,
+      { postId }: { postId: string },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+      await assertLokalHostAccount(prisma, user.id);
+
+      await prisma.$executeRawUnsafe(`UPDATE posts SET "isPinnedToFeed" = false WHERE id = $1`, postId);
+
+      const unpinned = await prisma.post.findUniqueOrThrow({
+        where: { id: postId },
+        include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
+      });
+
+      return unpinned;
+    },
   },
 
   Post: {
+    isPinnedToFeed: (parent: any) => parent.isPinnedToFeed ?? false,
     imageUrls: (parent: any) => {
       // Return stored array, falling back to wrapping imageUrl for old posts
       if (parent.imageUrls && parent.imageUrls.length > 0) return parent.imageUrls;
@@ -1962,6 +2037,21 @@ async function assertAdminRole(prisma: any, userId: string): Promise<void> {
   });
   if (!adminRole) {
     throw new Error("Forbidden: admin role required");
+  }
+}
+
+/**
+ * assertLokalHostAccount — ensures the requesting user is the Lokalhost brand
+ * account (hello@lokalhost.club). Used to guard pin/unpin mutations.
+ */
+async function assertLokalHostAccount(prisma: any, userId: string): Promise<void> {
+  const LOKALHOST_EMAIL = "hello@lokalhost.club";
+  const profile = await prisma.profile.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+  if (profile?.email !== LOKALHOST_EMAIL) {
+    throw new Error("Forbidden: only the Lokalhost account can pin/unpin posts");
   }
 }
 

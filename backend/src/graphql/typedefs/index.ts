@@ -205,6 +205,8 @@ export const typeDefs = gql`
     originalPost: Post
     # Feed ranking score — only present in ranked feed responses
     rankScore: Float
+    # Pinned to the top of the global feed by the Lokalhost admin account
+    isPinnedToFeed: Boolean!
   }
 
   type PostCommentEdit {
@@ -699,6 +701,9 @@ export const typeDefs = gql`
     feed(first: Int, after: String, limit: Int, offset: Int, seenIds: [ID!], feedVariant: String, sessionId: String): FeedConnection!
     exploreFeed(limit: Int, offset: Int): FeedResult!
 
+    # Globally pinned post (Lokalhost admin only) — shown at top of feed for all users
+    pinnedPost: Post
+
     # Feed metrics (Phase 3: A/B comparison dashboard)
     feedMetrics(days: Int): FeedMetrics!
 
@@ -915,6 +920,10 @@ export const typeDefs = gql`
 
     # Admin: Cleanup old feed_score_logs (P2 #6)
     cleanupOldScoreLogs(olderThanDays: Int!): Int!
+
+    # Admin (Lokalhost only): Pin/unpin a post to the top of the global feed
+    pinPost(postId: ID!): Post!
+    unpinPost(postId: ID!): Post!
 
     # Chat
     startDM(otherUserId: ID!): String!

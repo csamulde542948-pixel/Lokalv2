@@ -4,7 +4,7 @@ import { gql } from "@apollo/client/core";
 import { useQuery, useMutation } from "@apollo/client/react";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { CreatePost } from "../components/create-post";
-import { PostCard } from "../components/post-card";
+import { PostCard, VerifiedBadge } from "../components/post-card";
 // import { RoastedPostCard } from "../components/roasted-post-card";
 import { RoastedProjectCard, FeedPost } from "../components/roasted-project-card";
 import { LeftSidebar } from "../components/left-sidebar";
@@ -15,6 +15,8 @@ import { Separator } from "../components/ui/separator";
 import { Skeleton } from "../components/ui/skeleton";
 import { avatarSrc } from "../../lib/defaults";
 import { PostModal } from "../components/post-modal";
+import { Pin, PinOff } from "lucide-react";
+import { useAuth } from "../../contexts/AuthContext";
 
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
 
@@ -42,6 +44,7 @@ const GET_FEED = gql`
           displayName
           username
           avatarUrl
+          isVerified
           isFollowedByMe
           rank { name }
         }
@@ -66,9 +69,11 @@ const GET_FEED = gql`
             displayName
             username
             avatarUrl
+            isVerified
             rank { name }
           }
         }
+        isPinnedToFeed
         commentsPreview(limit: 3) {
           id
           content
@@ -189,6 +194,30 @@ const UNFOLLOW_USER_MUTATION = gql`
 const MARK_NOT_INTERESTED = gql`
   mutation MarkNotInterested($postId: ID!) {
     markNotInterestedInPost(postId: $postId)
+  }
+`;
+
+const GET_PINNED_POST = gql`
+  query GetPinnedPost {
+    pinnedPost {
+      id content imageUrl imageUrls projectName postType
+      likesCount commentsCount sharesCount likedByMe myReaction
+      roastReactionCount roastReactedByMe isPinnedToFeed createdAt
+      author { id name displayName username avatarUrl isVerified rank { name } }
+      tags { id name }
+    }
+  }
+`;
+
+const PIN_POST = gql`
+  mutation PinPost($postId: ID!) {
+    pinPost(postId: $postId) { id isPinnedToFeed }
+  }
+`;
+
+const UNPIN_POST = gql`
+  mutation UnpinPost($postId: ID!) {
+    unpinPost(postId: $postId) { id isPinnedToFeed }
   }
 `;
 
@@ -537,6 +566,7 @@ function adaptPost(p: any) {
       avatar: avatarSrc(p.author.avatarUrl),
       username: `@${p.author.username}`,
       rank: p.author.rank ?? null,
+      isVerified: p.author.isVerified ?? false,
     },
     content: p.content,
     image: p.imageUrl,
@@ -553,6 +583,7 @@ function adaptPost(p: any) {
     initialComments: (p.commentsPreview ?? p.comments ?? []).map(adaptComment),
     roastReactedByMe:    p.roastReactedByMe    ?? false,
     roastReactionCount:  p.roastReactionCount  ?? 0,
+    isPinnedToFeed: p.isPinnedToFeed ?? false,
     originalPost: p.originalPost
       ? {
           id: p.originalPost.id,
@@ -605,6 +636,13 @@ export function Feed() {
   const [notInterestedMutation] = useMutation(MARK_NOT_INTERESTED);
   const [followUserMutation] = useMutation(FOLLOW_USER_MUTATION);
   const [unfollowUserMutation] = useMutation(UNFOLLOW_USER_MUTATION);
+
+  const { user: authUser } = useAuth();
+  const { data: pinnedPostData, refetch: refetchPinned } = useQuery(GET_PINNED_POST, { fetchPolicy: "cache-and-network" });
+  const [pinPostMutation] = useMutation(PIN_POST, { onCompleted: () => refetchPinned() });
+  const [unpinPostMutation] = useMutation(UNPIN_POST, { onCompleted: () => refetchPinned() });
+
+  const pinnedPost = pinnedPostData?.pinnedPost ? adaptPost(pinnedPostData.pinnedPost) : null;
 
   const recordView = useCallback((postId: string, dwellMs: number, position?: number) => {
     seenIdsRef.current.add(postId);
@@ -815,6 +853,30 @@ export function Feed() {
 
           <Separator />
 
+          {/* Pinned Post (always at top, visible to all) */}
+          {pinnedPost && (
+            <div className="relative">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium mb-1 px-1">
+                <Pin className="w-3 h-3" />
+                <span>Pinned by Lokalhost</span>
+              </div>
+              <PostCard
+                post={pinnedPost}
+                onLike={(wantsLike, reaction) => handleLike(pinnedPost.id, wantsLike, reaction)}
+                onDelete={() => refetchPinned()}
+                isFollowing={false}
+                onFollowToggle={() => {}}
+                onNotInterested={() => {}}
+                onOpenPostModal={setOpenModalPostId}
+                onPinToggle={
+                  authUser?.email === "hello@lokalhost.club"
+                    ? () => unpinPostMutation({ variables: { postId: pinnedPost.id } })
+                    : undefined
+                }
+              />
+            </div>
+          )}
+
           {/* Error banner with retry */}
           {feedError && !feedLoading && (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive font-mono">
@@ -896,6 +958,11 @@ export function Feed() {
                                 notInterestedMutation({ variables: { postId: item.post.id } }).catch(console.error);
                               }}
                               onOpenPostModal={setOpenModalPostId}
+                              onPinToggle={
+                                authUser?.email === "hello@lokalhost.club"
+                                  ? () => pinPostMutation({ variables: { postId: item.post.id } })
+                                  : undefined
+                              }
                             />
                           )}
                         </PostViewTracker>

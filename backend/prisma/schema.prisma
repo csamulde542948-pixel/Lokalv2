@@ -313,6 +313,9 @@ model Post {
   // Feed ranking — cached latest score (P3 #16)
   rankScore     Float?
 
+  // Global pinned post — only one can be true at a time (enforced by DB partial unique index)
+  isPinnedToFeed Boolean @default(false)
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
