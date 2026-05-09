@@ -222,7 +222,7 @@ Return ONLY valid JSON following the schema. No markdown.`;
         "X-Title": "Lokal Project Scraper",
       },
       body: JSON.stringify({
-        model: "deepseek/deepseek-v3.2:nitro",
+        model: "deepseek/deepseek-v4-pro:nitro",
         messages: [
           { role: "system", content: CLASSIFICATION_PROMPT },
           { role: "user", content: userPrompt },

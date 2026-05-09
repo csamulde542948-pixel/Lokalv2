@@ -1,10 +1,10 @@
 /**
- * Roast Engine — Jina Reader + DeepSeek V3.2 Nitro via OpenRouter
+ * Roast Engine — Jina Reader + DeepSeek V4 Pro Nitro via OpenRouter
  *
  * Flow:
  *   1. Scrape the target URL with Jina Reader (r.jina.ai)
  *   2. Build a prompt with the scraped content + system prompt
- *   3. Call DeepSeek V3.2 Nitro via OpenRouter (fastest routing, no queue)
+ *   3. Call DeepSeek V4 Pro Nitro via OpenRouter (fastest routing, no queue)
  *   4. Return the raw 6-paragraph Taglish roast
  */
 
@@ -103,7 +103,7 @@ Write 6 paragraphs. Follow the system prompt exactly. No labels, no headers. End
       "X-Title": "Lokal Roast Engine",
     },
     body: JSON.stringify({
-      model: "deepseek/deepseek-v3.2:nitro",
+      model: "deepseek/deepseek-v4-pro:nitro",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userPrompt },

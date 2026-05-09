@@ -60,7 +60,7 @@ export const roastResolvers = {
 
   Mutation: {
     /**
-     * generateRoast — scrape URL with Jina Reader, send to DeepSeek v3 via
+     * generateRoast — scrape URL with Jina Reader, send to DeepSeek V4 Pro Nitro via
      * OpenRouter, return structured preview.
      *
      * Auth is NOT required to generate a roast — users can try the feature
