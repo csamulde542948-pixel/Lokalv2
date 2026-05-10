@@ -1,20 +1,139 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { gql } from "@apollo/client/core";
 import { useQuery } from "@apollo/client/react";
 import { useNavigate, useSearchParams, Link } from "react-router";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
-import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
-import { Label } from "../components/ui/label";
-import {
-  Flame,
-  Link2,
-  AlertTriangle,
-  Laugh,
-} from "lucide-react";
+import { Flame } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Checkbox } from "../components/ui/checkbox";
 import { useAuth } from "../../contexts/AuthContext";
+
+// ─── ASCII Fire Animation ─────────────────────────────────────────────────────
+// Renders directly onto a <canvas> — no React state, no flicker.
+
+const FIRE_CHARS = [" ", ".", ":", "^", "*", "x", "X", "$", "#", "M"];
+const FIRE_COLORS = [
+  "transparent",
+  "#1a0000",
+  "#3d0000",
+  "#7a1000",
+  "#b02000",
+  "#d44000",
+  "#e86010",
+  "#f09030",
+  "#f8c050",
+  "#fff8a0",
+];
+
+const CELL_PX = 7;   // pixel size of each character cell — smaller = denser / HD feel
+
+function AsciiFireAnimation() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animId: number;
+
+    const resize = () => {
+      canvas.width  = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+    };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas);
+
+    const tick = () => {
+      const W = canvas.width;
+      const H = canvas.height;
+      const COLS = Math.ceil(W / CELL_PX);
+      const ROWS = Math.ceil(H / CELL_PX);
+
+      // Lazy-init or resize the grid
+      if (
+        !(tick as any).grid ||
+        (tick as any).cols !== COLS ||
+        (tick as any).rows !== ROWS
+      ) {
+        (tick as any).grid = Array.from({ length: ROWS }, () => new Uint8Array(COLS));
+        (tick as any).cols = COLS;
+        (tick as any).rows = ROWS;
+      }
+
+      const grid: Uint8Array[] = (tick as any).grid;
+
+      // Seed bottom four rows with heat — more rows = taller flames
+      for (let x = 0; x < COLS; x++) {
+        grid[ROWS - 1][x] = Math.random() < 0.92
+          ? Math.floor(Math.random() * 2) + 8   // 8–9 (hottest)
+          : Math.floor(Math.random() * 2);
+        if (ROWS > 1)
+          grid[ROWS - 2][x] = Math.random() < 0.85
+            ? Math.floor(Math.random() * 2) + 7
+            : 0;
+        if (ROWS > 2)
+          grid[ROWS - 3][x] = Math.random() < 0.70
+            ? Math.floor(Math.random() * 2) + 6
+            : 0;
+        if (ROWS > 3)
+          grid[ROWS - 4][x] = Math.random() < 0.55
+            ? Math.floor(Math.random() * 2) + 5
+            : 0;
+      }
+
+      // Propagate upward — lower decay lets heat climb higher
+      for (let y = 0; y < ROWS - 4; y++) {
+        for (let x = 0; x < COLS; x++) {
+          const below = grid[y + 1][x];
+          const left  = grid[y + 1][(x - 1 + COLS) % COLS];
+          const right = grid[y + 1][(x + 1) % COLS];
+          const avg   = (below + left + right) / 3;
+          const decay = Math.random() * 0.45;
+          grid[y][x] = Math.max(0, Math.round(avg - decay));
+        }
+      }
+
+      // Draw
+      ctx.clearRect(0, 0, W, H);
+      ctx.font = `bold ${CELL_PX}px monospace`;
+      ctx.textBaseline = "top";
+
+      for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+          const val = grid[y][x];
+          if (val === 0) continue;
+          ctx.fillStyle = FIRE_COLORS[Math.min(val, FIRE_COLORS.length - 1)];
+          ctx.fillText(
+            FIRE_CHARS[Math.min(val, FIRE_CHARS.length - 1)],
+            x * CELL_PX,
+            y * CELL_PX,
+          );
+        }
+      }
+
+      animId = requestAnimationFrame(tick);
+    };
+
+    animId = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(animId);
+      ro.disconnect();
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="absolute inset-0 pointer-events-none z-[1]"
+      style={{ width: "100%", height: "100%" }}
+      aria-hidden
+    />
+  );
+}
 
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
 
@@ -51,23 +170,23 @@ interface RecentRoast {
 function RoastMarqueeCard({ roast }: { roast: RecentRoast }) {
   const displayUrl = roast.projectUrl.replace(/^https?:\/\//, '');
   return (
-    <div className="flex-shrink-0 w-[280px] rounded-lg border border-border/60 overflow-hidden transition-all hover:scale-[1.02] hover:border-primary/30">
-      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/40 bg-muted/30">
-        <span className="text-primary font-mono font-bold text-[10px]">&gt;_</span>
-        <span className="text-[9px] font-mono text-muted-foreground truncate">{displayUrl} has been roasted</span>
+    <div className="flex-shrink-0 w-[260px] rounded-none border border-border/50 overflow-hidden bg-card/80 hover:border-orange-500/30 transition-colors">
+      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/40 bg-muted/20">
+        <span className="text-orange-500 font-mono font-bold text-[10px]">&gt;_</span>
+        <span className="text-[9px] font-mono text-muted-foreground truncate">{displayUrl} roasted</span>
       </div>
-      <div className="bg-card p-3 font-mono">
+      <div className="p-3 font-mono">
         <a
           href={roast.projectUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="font-semibold text-xs text-primary hover:underline truncate block mb-1.5"
+          className="font-semibold text-xs text-orange-400 hover:text-orange-300 truncate block mb-1.5"
         >
           {roast.projectName}
         </a>
         {roast.quickRoast && (
           <p className="text-xs text-muted-foreground leading-snug line-clamp-2">
-            <span className="text-primary/70">$ </span>{roast.quickRoast}
+            <span className="text-orange-500/50">$ </span>{roast.quickRoast}
           </p>
         )}
       </div>
@@ -90,18 +209,132 @@ const STATIC_ROASTS = [
 
 function StaticMarqueeCard({ name, snippet }: typeof STATIC_ROASTS[0]) {
   return (
-    <div className="flex-shrink-0 w-[280px] rounded-lg border border-border/60 overflow-hidden transition-all hover:scale-[1.02] hover:border-primary/30">
-      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/40 bg-muted/30">
-        <span className="text-primary font-mono font-bold text-[10px]">&gt;_</span>
-        <span className="text-[9px] font-mono text-muted-foreground truncate">{name.toLowerCase().replace(/\s+/g, '')} has been roasted</span>
+    <div className="flex-shrink-0 w-[260px] rounded-none border border-border/50 overflow-hidden bg-card/80 hover:border-orange-500/30 transition-colors">
+      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/40 bg-muted/20">
+        <span className="text-orange-500 font-mono font-bold text-[10px]">&gt;_</span>
+        <span className="text-[9px] font-mono text-muted-foreground truncate">{name.toLowerCase().replace(/\s+/g, '')} roasted</span>
       </div>
-      <div className="bg-card p-3 font-mono">
-        <span className="font-semibold text-xs text-primary truncate block mb-1.5">{name}</span>
+      <div className="p-3 font-mono">
+        <span className="font-semibold text-xs text-orange-400 truncate block mb-1.5">{name}</span>
         <p className="text-xs text-muted-foreground leading-snug line-clamp-2">
-          <span className="text-primary/70">$ </span>{snippet}
+          <span className="text-orange-500/50">$ </span>{snippet}
         </p>
       </div>
     </div>
+  );
+}
+
+// ─── Animated Scramble Headline ──────────────────────────────────────────────
+
+const HEADLINE_SETS: [string, string, string?][] = [
+  ["MUKHANG SILICON VALLEY.", "PERO GALAWANG RECTO FREELANCER.", "LET'S ROAST IT."],
+  ["PASTE MOYUNG WEBSITE MO.", "SIRAIN NAMIN YUNG EGO MO."],
+  ["MUKHANG MAY VISION.", "PERO WALANG DIREKSYON."],
+  ["MAS MALINIS PA YUNG UI", "KESA SA BUSINESS MODEL MO."],
+  ["MUKHANG PINAGISIPAN.", "PERO HINDI SOBRA."],
+];
+
+const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ@#$%&*!?";
+
+function useScramble(target: string, trigger: number) {
+  const [display, setDisplay] = useState(target);
+  const rafRef = useRef<number>(0);
+  const frameCountRef = useRef(0);
+
+  useEffect(() => {
+    let iter = 0;
+    frameCountRef.current = 0;
+    // More iters = slower reveal; throttle = frames to skip between updates
+    const totalIters = Math.max(target.replace(/ /g, "").length * 2, 24);
+    const throttle = 2; // only update every N animation frames
+
+    const animate = () => {
+      frameCountRef.current++;
+      if (frameCountRef.current % throttle === 0) {
+        iter++;
+        const progress = iter / totalIters;
+        setDisplay(
+          target
+            .split("")
+            .map((char, i) => {
+              if (char === " " || char === ".") return char;
+              if (i / target.length < progress) return char;
+              return SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
+            })
+            .join("")
+        );
+        if (iter >= totalIters) {
+          setDisplay(target);
+          return;
+        }
+      }
+      rafRef.current = requestAnimationFrame(animate);
+    };
+
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [target, trigger]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return display;
+}
+
+function ScrambleLine({
+  text,
+  trigger,
+  className,
+  style,
+}: {
+  text: string;
+  trigger: number;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  const display = useScramble(text, trigger);
+  return (
+    <span className={`flex justify-center ${className ?? ""}`} style={style}>
+      <span className="whitespace-nowrap">{display}</span>
+    </span>
+  );
+}
+
+function AnimatedHeadline() {
+  const [setIdx, setSetIdx] = useState(0);
+  const [trigger, setTrigger] = useState(0);
+
+  useEffect(() => {
+    // Hold each tagline for 9s, then scramble to next
+    const id = setInterval(() => {
+      setSetIdx((i) => (i + 1) % HEADLINE_SETS.length);
+      setTrigger((t) => t + 1);
+    }, 9000);
+    return () => clearInterval(id);
+  }, []);
+
+  const [line1, line2, line3] = HEADLINE_SETS[setIdx];
+
+  return (
+    <h1 className="font-mono font-black uppercase leading-[1.08] tracking-tight mb-6 w-full">
+      <ScrambleLine
+        text={line1}
+        trigger={trigger}
+        className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl text-foreground drop-shadow-md"
+      />
+      <ScrambleLine
+        text={line2}
+        trigger={trigger}
+        className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl text-red-500 drop-shadow-lg"
+        style={{ textShadow: "0 0 24px rgba(239,68,68,0.5)" }}
+      />
+      {line3 && (
+        <ScrambleLine
+          text={line3}
+          trigger={trigger}
+          className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl text-orange-400 drop-shadow-lg"
+          style={{ textShadow: "0 0 24px rgba(251,146,60,0.55)" }}
+        />
+      )}
+    </h1>
   );
 }
 
@@ -141,121 +374,125 @@ export function Roast() {
   };
 
   return (
-    <div className="py-4 sm:py-6">
-      {/* ── Header + Form ── */}
-      <div className="container mx-auto px-3 sm:px-4">
-        <div className="max-w-4xl mx-auto">
+    <div className="flex flex-col">
 
-          {/* ── Header ── */}
-          <div className="mb-6">
-            <div className="flex items-center gap-2.5 mb-2">
-              <div className="w-8 h-8 sm:w-12 sm:h-12 bg-gradient-to-br from-red-500 to-orange-600 rounded-md flex items-center justify-center flex-shrink-0">
-                <Flame className="w-4 h-4 sm:w-7 sm:h-7 text-white" strokeWidth={2} fill="currentColor" />
-              </div>
-              <div className="min-w-0">
-                <h1 className="text-lg sm:text-2xl font-semibold flex items-center gap-2 flex-wrap">
-                  Project Roaster
-                  <Badge variant="secondary" className="text-xs rounded-md font-normal">
-                    AI-Powered
-                  </Badge>
-                </h1>
-                <p className="text-xs sm:text-sm text-muted-foreground leading-snug line-clamp-2">
-                  Get brutally honest AI feedback on your project. No feelings spared.
-                </p>
-              </div>
-            </div>
-          </div>
+      {/* ═══════════════════════════════════════════
+          HERO — ASCII fire lives ONLY in here
+      ═══════════════════════════════════════════ */}
+      <section
+        className="relative overflow-hidden flex flex-col px-2 text-center h-[calc(100dvh-8rem)] lg:h-[calc(100dvh-7rem)]"
+        style={{ minHeight: 0 }}
+      >
 
-          {/* ── Input Form ── */}
-          <Card className="border mb-6">
-            <CardHeader className="pb-4 border-b">
-              <CardTitle className="text-base flex items-center gap-2 font-mono">
-                <span className="text-primary font-mono font-bold">&gt;_</span>
-                Submit Your Project for Roasting
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-5 space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="projectUrl">Project URL</Label>
-                <div className="relative">
-                  <Link2
-                    className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"
-                    strokeWidth={2}
-                  />
-                  <Input
-                    id="projectUrl"
-                    type="url"
-                    placeholder="https://yourproject.com"
-                    value={projectUrl}
-                    onChange={(e) => setProjectUrl(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    className="pl-10 border rounded-md h-10"
-                  />
-                </div>
-              </div>
+        {/* Fire fills this section only */}
+        <AsciiFireAnimation />
 
-              <div className="flex items-center gap-2 p-3 bg-muted rounded-md border">
-                <AlertTriangle
-                  className="w-4 h-4 text-orange-600 flex-shrink-0"
-                  strokeWidth={2}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Warning: Our AI doesn't hold back. Prepare for honest (and brutal) Pinoy Style feedback.
-                  {!user && (
-                    <span className="ml-1">
-                      <Link to="/login" className="text-primary hover:underline">
-                        Sign in
-                      </Link>{" "}
-                      to save and share your roast.
-                    </span>
-                  )}
-                </p>
-              </div>
+        {/* Scrim: dark wash over the fixed fire canvas */}
+        <div className="absolute inset-0 z-[2] pointer-events-none bg-background/65" />
 
-              <div className="flex items-start gap-2.5 p-3 rounded-md border border-orange-500/20 bg-orange-500/5">
-                <Checkbox
-                  id="roastConsent"
-                  checked={roastConsent}
-                  onCheckedChange={(v) => setRoastConsent(v as boolean)}
-                  className="mt-0.5 flex-shrink-0"
-                />
-                <label
-                  htmlFor="roastConsent"
-                  className="text-xs text-muted-foreground leading-relaxed cursor-pointer"
-                >
-                  I own this project (or have the owner's permission to submit it) and I understand this
-                  roast is <strong>AI-generated satire</strong> — not factual assessment. I submitted
-                  this work voluntarily.{" "}
-                  <Link to="/terms#ai-roast" className="text-primary hover:underline">Learn more</Link>.
-                </label>
-              </div>
+        {/* Subtle dot-grid pattern over the scrim */}
+        <div
+          className="absolute inset-0 z-[2] pointer-events-none"
+          style={{
+            backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.06) 1px, transparent 1px)",
+            backgroundSize: "32px 32px",
+          }}
+        />
 
-              <Button
+        {/* Corner crosshairs — decorative */}
+        <span className="absolute top-6 left-6 text-orange-500/40 font-mono text-xl leading-none select-none pointer-events-none z-[3]">+</span>
+        <span className="absolute top-6 right-6 text-orange-500/40 font-mono text-xl leading-none select-none pointer-events-none z-[3]">+</span>
+
+        {/* ── Hero content ── */}
+        <div className="relative z-[3] flex-1 flex flex-col items-center justify-center py-10 w-full px-6 max-w-5xl mx-auto">
+
+          {/* Big animated scramble headline */}
+          <AnimatedHeadline />
+
+          {/* Static tagline */}
+          <p className="font-mono text-xs sm:text-sm text-muted-foreground/50 uppercase tracking-widest mb-8 leading-relaxed text-center">
+            WE ROAST STARTUPS,&nbsp; PORTFOLIOS,&nbsp; AT MGA DELUSIONAL FOUNDER.
+          </p>
+
+          {/* ── URL Input row ── */}
+          <div className="w-full max-w-xl">
+            <div className="flex border border-border/50 bg-background/40 backdrop-blur-md">
+              <input
+                type="url"
+                placeholder="your-sh*t.com"
+                value={projectUrl}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProjectUrl(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="flex-1 bg-transparent px-4 py-3.5 font-mono text-sm text-foreground placeholder:text-muted-foreground/35 outline-none min-w-0"
+              />
+              <button
                 onClick={handleRoast}
                 disabled={!projectUrl.trim() || !roastConsent}
-                className="w-full gap-2"
+                className="bg-orange-600 hover:bg-orange-500 active:bg-orange-700 disabled:opacity-30 disabled:cursor-not-allowed text-white font-mono font-bold text-xs sm:text-sm px-5 py-3.5 flex items-center gap-2 transition-colors whitespace-nowrap flex-shrink-0"
+                style={{ boxShadow: "0 0 18px rgba(234,88,12,0.35)" }}
               >
                 <Flame className="w-4 h-4" strokeWidth={2} />
-                Roast My Project
-              </Button>
-            </CardContent>
-          </Card>
-
-        </div>
-      </div>
-
-      {/* ── Full-bleed Marquee ── */}
-      <div className="w-full overflow-hidden border-y py-6 space-y-3">
-        <div className="container mx-auto px-3 sm:px-4 mb-3">
-          <div className="max-w-4xl mx-auto flex items-center justify-between">
-            <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-              Recent Roasts 🔥 — what Loki thinks of your projects
+                GET ROASTED
+              </button>
+            </div>
+            <p className="text-[10px] font-mono text-muted-foreground/40 mt-2 text-left pl-1">
+              Enter your landing page URL (e.g., your-sh*t.com)
             </p>
+
+            {/* Consent */}
+            <div className="flex items-start gap-2.5 mt-4 text-left">
+              <Checkbox
+                id="roastConsent"
+                checked={roastConsent}
+                onCheckedChange={(v) => setRoastConsent(v as boolean)}
+                className="mt-0.5 flex-shrink-0 border-border/50"
+              />
+              <label
+                htmlFor="roastConsent"
+                className="text-[11px] font-mono text-muted-foreground/50 leading-relaxed cursor-pointer"
+              >
+                I own this project and understand this is{" "}
+                <strong className="text-muted-foreground/70">AI-generated satire</strong>.{" "}
+                {!user && (
+                  <>
+                    <Link to="/login" className="text-orange-400 hover:underline">Sign in</Link>
+                    {" "}to save your roast.{" "}
+                  </>
+                )}
+                <Link to="/terms#ai-roast" className="text-orange-400/80 hover:underline">Learn more</Link>.
+              </label>
+            </div>
+
+            {/* CTA to live roasts */}
+            <div className="mt-6 flex justify-center">
+              <a
+                href="#live-roasts"
+                className="flex items-center gap-2 font-mono text-[11px] text-white/40 hover:text-orange-400 transition-colors group"
+              >
+                <span>see who got roasted</span>
+                <span className="group-hover:translate-y-0.5 transition-transform inline-block">↓</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════════════════════════════════════
+          LIVE ROASTS — separate section below hero
+      ═══════════════════════════════════════════ */}
+      <section id="live-roasts" className="relative z-[4] w-full border-t border-border/30 py-8 space-y-3 bg-background">
+        <div className="container mx-auto px-4 mb-4">
+          <div className="max-w-4xl mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
+              <p className="text-[10px] font-mono font-semibold text-muted-foreground uppercase tracking-widest">
+                Live Roasts
+              </p>
+            </div>
             {recentRoasts.length > 0 && (
-              <Badge variant="outline" className="text-xs rounded-md font-normal">
+              <span className="text-[10px] font-mono text-muted-foreground/50 border border-border/40 px-2 py-0.5">
                 {recentRoasts.length} projects roasted
-              </Badge>
+              </span>
             )}
           </div>
         </div>
@@ -264,12 +501,8 @@ export function Roast() {
         <div className="relative overflow-hidden">
           <div className="flex gap-3 animate-scroll-right" style={{ width: "max-content" }}>
             {marqueeItems
-              ? rowOne.map((r, i) => (
-                  <RoastMarqueeCard key={`r1-${i}`} roast={r as RecentRoast} />
-                ))
-              : rowOne.map((r, i) => (
-                  <StaticMarqueeCard key={`r1-${i}`} {...(r as typeof STATIC_ROASTS[0])} />
-                ))}
+              ? rowOne.map((r, i) => <RoastMarqueeCard key={`r1-${i}`} roast={r as RecentRoast} />)
+              : rowOne.map((r, i) => <StaticMarqueeCard key={`r1-${i}`} {...(r as typeof STATIC_ROASTS[0])} />)}
           </div>
         </div>
 
@@ -277,34 +510,11 @@ export function Roast() {
         <div className="relative overflow-hidden">
           <div className="flex gap-3 animate-scroll-left" style={{ width: "max-content" }}>
             {marqueeItems
-              ? rowTwo.map((r, i) => (
-                  <RoastMarqueeCard key={`r2-${i}`} roast={r as RecentRoast} />
-                ))
-              : rowTwo.map((r, i) => (
-                  <StaticMarqueeCard key={`r2-${i}`} {...(r as typeof STATIC_ROASTS[0])} />
-                ))}
+              ? rowTwo.map((r, i) => <RoastMarqueeCard key={`r2-${i}`} roast={r as RecentRoast} />)
+              : rowTwo.map((r, i) => <StaticMarqueeCard key={`r2-${i}`} {...(r as typeof STATIC_ROASTS[0])} />)}
           </div>
         </div>
-      </div>
-
-      {/* ── Empty state ── */}
-      {recentRoasts.length === 0 && (
-        <div className="container mx-auto px-3 sm:px-4 mt-4">
-          <div className="max-w-4xl mx-auto">
-            <Card className="border">
-              <CardContent className="p-10 text-center">
-                <div className="w-14 h-14 bg-muted rounded-full flex items-center justify-center mx-auto mb-3">
-                  <Laugh className="w-7 h-7 text-muted-foreground" strokeWidth={2} />
-                </div>
-                <h3 className="font-semibold mb-1">No Saved Roasts Yet</h3>
-                <p className="text-sm text-muted-foreground">
-                  Be the first — paste a URL above and let the AI rip. 🔥
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      )}
+      </section>
     </div>
   );
 }
