@@ -157,34 +157,35 @@ export const roastResolvers = {
         if (project.authorId === user.id) throw new Error("You cannot roast your own project");
       }
 
-      // ── Save Roast record only when linked to a registered project ───────
-      // The roasts table has a NOT NULL constraint on projectId, so we skip
-      // saving for external URL roasts. The feed Post record (created below)
-      // is what the card reads from — it stores the screenshot, content, tags.
-      if (input.projectId && project) {
-        roast = await prisma.roast.create({
-          data: {
-            projectId: input.projectId,
-            reviewerId: user.id,
-            quickRoast: input.quickRoast ?? null,
-            fullRoast: input.fullRoast ?? null,
-            detailedFeedback: input.fullRoast ?? null,
-          } as any,
-          include: ROAST_INCLUDE,
-        });
+      // ── Always save the Roast record ─────────────────────────────────────
+      // projectId is nullable — external URL roasts have no registered project.
+      // DB columns projectUrl / projectName / screenshotUrl added in migration 29.
+      roast = await prisma.roast.create({
+        data: {
+          projectId:    input.projectId    ?? null,
+          projectUrl:   input.projectUrl   ?? null,
+          projectName:  input.projectName  ?? null,
+          reviewerId:   user.id,
+          quickRoast:   input.quickRoast   ?? null,
+          fullRoast:    input.fullRoast    ?? null,
+          detailedFeedback: input.fullRoast ?? null,
+          screenshotUrl: input.screenshotUrl ?? null,
+        } as any,
+        include: ROAST_INCLUDE,
+      });
 
+      if (input.projectId && project) {
         // Increment project roast count
         await prisma.project.update({
           where: { id: input.projectId },
           data: { roastsCount: { increment: 1 } },
         });
-
         // Award XP to both parties
         awardXp(user.id, "SHARE_PROJECT", undefined, clientIp).catch(console.error);
         awardXp(project.authorId, "GET_ROASTED", user.id, clientIp).catch(console.error);
         checkAndAwardRoles(user.id).catch(console.error);
       } else {
-        // ── External URL — award XP to the reviewer only ───────────────────
+        // External URL — award XP to the reviewer only
         awardXp(user.id, "SHARE_PROJECT", undefined, clientIp).catch(console.error);
         checkAndAwardRoles(user.id).catch(console.error);
       }
@@ -245,19 +246,8 @@ export const roastResolvers = {
         });
       }
 
-      // Return the saved Roast record, or a minimal stub for external URL roasts
-      // (no roasts table row is created for those — the feed Post is what matters)
-      return roast ?? {
-        id: `ext-${Date.now()}`,
-        projectId: null,
-        quickRoast: input.quickRoast ?? null,
-        fullRoast: input.fullRoast ?? null,
-        likesCount: 0,
-        createdAt: new Date().toISOString(),
-        reviewer: null,
-        project: null,
-        likes: [],
-      };
+      // Return the saved Roast record (always exists now)
+      return roast;
     },
 
     likeRoast: async (

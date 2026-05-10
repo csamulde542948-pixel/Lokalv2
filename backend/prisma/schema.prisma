@@ -545,12 +545,17 @@ model ProjectMember {
 model Roast {
   id          String   @id @default(cuid())
   projectId   String?              // links to a registered Project (null for external URL roasts)
+  projectUrl  String?  @db.Text   // URL of the roasted site
+  projectName String?  @db.VarChar(200)
   reviewerId  String   @db.Uuid    // who submitted the roast
 
   // Roast content
-  quickRoast       String?  @db.Text  // first paragraph / hook
-  fullRoast        String?  @db.Text  // full AI-generated roast text
-  detailedFeedback String?  @db.Text  // legacy alias — kept for backwards compat
+  quickRoast       String?  @db.Text
+  fullRoast        String?  @db.Text
+  detailedFeedback String?  @db.Text  // legacy alias
+
+  // Screenshot from Firecrawl
+  screenshotUrl String? @db.Text
 
   // Engagement
   likesCount    Int     @default(0)
