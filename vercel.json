@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build:production",
+  "buildCommand": "npm run build:vercel",
   "rewrites": [
     {
       "source": "/((?!assets|defaults|favicon|og-card|apple-touch-icon|site.webmanifest|robots.txt|sitemap.xml).*)",
