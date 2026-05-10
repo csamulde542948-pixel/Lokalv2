@@ -352,6 +352,7 @@ export const typeDefs = gql`
     title: String!
     quickRoast: String!
     fullRoast: String!
+    screenshotUrl: String
     projectUrl: String!
     projectName: String!
   }

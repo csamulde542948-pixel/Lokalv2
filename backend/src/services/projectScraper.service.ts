@@ -1,12 +1,11 @@
 /**
- * Project Scraper Service — Jina Reader + GitHub API + DeepSeek AI Classification
+ * Project Scraper Service — Firecrawl + GitHub API + DeepSeek AI Classification
  *
  * Flow:
  *   1. Detect if URL is a GitHub repo → use GitHub API for rich data
- *   2. Scrape the target URL with Jina Reader (r.jina.ai) for page content
- *   3. Extract meta tags (og:title, og:description, og:image, favicon)
- *   4. Send scraped content to DeepSeek for AI classification (tagline, category, tech stack)
- *   5. Return structured ScrapedProjectInfo
+ *   2. Scrape the target URL with Firecrawl (markdown + screenshot + metadata in one call)
+ *   3. Send scraped content to DeepSeek for AI classification (tagline, category, tech stack)
+ *   4. Return structured ScrapedProjectInfo (with real screenshot as bannerUrl)
  */
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -81,64 +80,62 @@ async function fetchGitHubRepo(owner: string, repo: string): Promise<GitHubApiRe
   }
 }
 
-// ─── Step 2: Scrape with Jina Reader ──────────────────────────────────────────
+// ─── Step 2: Scrape with Firecrawl ───────────────────────────────────────────
 
-async function scrapeWithJina(url: string): Promise<string> {
-  const jinaUrl = `https://r.jina.ai/${url}`;
-  const headers: Record<string, string> = {
-    Accept: "text/plain",
-    "X-Return-Format": "text",
-  };
-
-  const apiKey = process.env.JINA_API_KEY;
-  if (apiKey && !apiKey.startsWith("jina_your")) {
-    headers["Authorization"] = `Bearer ${apiKey}`;
-  }
-
-  const res = await fetch(jinaUrl, { headers, signal: AbortSignal.timeout(30_000) });
-  if (!res.ok) throw new Error(`Jina Reader failed: ${res.status} ${res.statusText}`);
-
-  const text = await res.text();
-  // Trim to ~8000 chars for project info extraction (slightly more than roast)
-  return text.slice(0, 8000);
-}
-
-// ─── Step 3: Extract meta tags via Jina's JSON mode ───────────────────────────
-
-interface JinaMetadata {
+interface FirecrawlMetadata {
   title?: string;
   description?: string;
   ogImage?: string;
   favicon?: string;
+  [key: string]: unknown;
 }
 
-async function extractMeta(url: string): Promise<JinaMetadata> {
-  try {
-    const jinaUrl = `https://r.jina.ai/${url}`;
-    const headers: Record<string, string> = {
-      Accept: "application/json",
-      "X-Return-Format": "json",
-    };
+interface FirecrawlResult {
+  markdown: string;
+  screenshotUrl: string | null;
+  metadata: FirecrawlMetadata;
+}
 
-    const apiKey = process.env.JINA_API_KEY;
-    if (apiKey && !apiKey.startsWith("jina_your")) {
-      headers["Authorization"] = `Bearer ${apiKey}`;
-    }
-
-    const res = await fetch(jinaUrl, { headers, signal: AbortSignal.timeout(15_000) });
-    if (!res.ok) return {};
-
-    const data = (await res.json()) as any;
-
-    return {
-      title: data?.data?.title ?? undefined,
-      description: data?.data?.description ?? undefined,
-      ogImage: data?.data?.ogImage ?? data?.data?.image ?? undefined,
-      favicon: data?.data?.favicon ?? undefined,
-    };
-  } catch {
-    return {};
+async function scrapeWithFirecrawl(url: string): Promise<FirecrawlResult> {
+  const apiKey = process.env.FIRECRAWL_API_KEY;
+  if (!apiKey || apiKey.startsWith("fc-your")) {
+    throw new Error("FIRECRAWL_API_KEY is not configured in backend/.env");
   }
+
+  const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      url,
+      formats: ["markdown", "screenshot"],
+      waitFor: 1500,
+    }),
+    signal: AbortSignal.timeout(45_000),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => res.statusText);
+    throw new Error(`Firecrawl scrape failed: ${res.status} ${errText}`);
+  }
+
+  const data = (await res.json()) as {
+    success: boolean;
+    data?: {
+      markdown?: string;
+      screenshot?: string;
+      metadata?: FirecrawlMetadata;
+    };
+  };
+
+  const d = data.data ?? {};
+  return {
+    markdown: (d.markdown ?? "").slice(0, 8000),
+    screenshotUrl: d.screenshot ?? null,
+    metadata: d.metadata ?? {},
+  };
 }
 
 // ─── Step 4: Favicon fallback extraction ──────────────────────────────────────
@@ -303,9 +300,9 @@ export async function scrapeProjectInfo(url: string): Promise<ScrapedProjectInfo
       // Still run AI classification on the README/description for better tagline
       let aiResult: AiClassification;
       try {
-        const readmeContent = await scrapeWithJina(url);
+        const fcResult = await scrapeWithFirecrawl(url);
         aiResult = await classifyWithAi(
-          readmeContent,
+          fcResult.markdown,
           ghData.name,
           ghData.description ?? undefined,
           url
@@ -344,26 +341,25 @@ export async function scrapeProjectInfo(url: string): Promise<ScrapedProjectInfo
 
   // ── Generic website path ────────────────────────────────────────────────
 
-  // Run Jina scrape + meta extraction in parallel
-  const [scrapedContent, meta] = await Promise.all([
-    scrapeWithJina(url),
-    extractMeta(url),
-  ]);
+  // Single Firecrawl call: markdown + screenshot + metadata in parallel with nothing
+  const fcResult = await scrapeWithFirecrawl(url);
+  const meta = fcResult.metadata;
 
   // Run AI classification
   const aiResult = await classifyWithAi(
-    scrapedContent,
+    fcResult.markdown,
     meta.title,
     meta.description,
     url
   );
 
-  // Build icon URL: og:image favicon → Google S2 favicon fallback
+  // Build icon URL: favicon → Google S2 favicon fallback
   const iconUrl = meta.favicon || getFaviconUrl(url);
-  const bannerUrl = meta.ogImage || null;
+  // Prefer real Firecrawl screenshot, fall back to og:image
+  const bannerUrl = fcResult.screenshotUrl || meta.ogImage || null;
 
   // Try to detect GitHub link from scraped content
-  const githubUrlFromContent = extractGitHubUrl(scrapedContent);
+  const githubUrlFromContent = extractGitHubUrl(fcResult.markdown);
 
   return {
     name: aiResult.name,

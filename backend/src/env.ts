@@ -20,7 +20,7 @@ const OPTIONAL_ENV: string[] = [
   "GETSTREAM_API_KEY",
   "GETSTREAM_API_SECRET",
   "OPENROUTER_API_KEY",
-  "JINA_API_KEY",
+  "FIRECRAWL_API_KEY",
   "RESEND_API_KEY",
 ];
 const missingOptional = OPTIONAL_ENV.filter((key) => !process.env[key]);
