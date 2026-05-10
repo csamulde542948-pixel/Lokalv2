@@ -796,14 +796,26 @@ export function SharedPostPreview({ post, onOpenPost }: { post: OriginalPost; on
               </div>
             </div>
 
-            {/* Cover image */}
+            {/* Screenshot banner */}
             {coverImage && (
-              <img
-                src={coverImage}
-                alt={projectName}
-                className="w-full aspect-[2/1] object-cover"
-                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-              />
+              <div className="relative w-full overflow-hidden bg-muted/20" style={{ aspectRatio: "16/9" }}>
+                <img
+                  src={coverImage}
+                  alt={projectName}
+                  className="w-full h-full object-cover object-top"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).parentElement!.style.display = "none"; }}
+                />
+                {/* Scanline texture overlay */}
+                <div className="absolute inset-0 pointer-events-none opacity-20"
+                  style={{ backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.15) 2px, rgba(0,0,0,0.15) 4px)" }} />
+                {/* Bottom fade */}
+                <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-card to-transparent" />
+                {/* 🔥 ROASTED watermark */}
+                <div className="absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest"
+                  style={{ background: "rgba(234,88,12,0.85)", color: "#fff", backdropFilter: "blur(4px)" }}>
+                  <span>🔥</span> ROASTED
+                </div>
+              </div>
             )}
 
             {/* Roast body */}

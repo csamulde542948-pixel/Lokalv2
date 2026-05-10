@@ -591,9 +591,8 @@ export const feedResolvers = {
       { prisma }: GraphQLContext
     ) => {
       const rows: any[] = await prisma.$queryRaw`
-        SELECT p.*, row_to_json(a.*) AS author_json
+        SELECT p.id
         FROM posts p
-        JOIN profiles a ON a.id = p."authorId"
         WHERE p."isPinnedToFeed" = true
         LIMIT 1
       `;

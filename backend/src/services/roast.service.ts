@@ -50,6 +50,8 @@ export interface RoastResult {
   quickRoast: string;
   fullRoast: string;
   screenshotUrl: string | null;
+  faviconUrl: string | null;
+  ogImageUrl: string | null;
   strengths: string[];
   improvements: string[];
 }
@@ -83,7 +85,8 @@ async function scrapeWithFirecrawl(url: string): Promise<FirecrawlScrapeResult> 
     throw new Error("FIRECRAWL_API_KEY is not configured in backend/.env");
   }
 
-  const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+  // ── Attempt 1: markdown + screenshot (25s server-side cap) ──────────────
+  const attempt1 = await fetch("https://api.firecrawl.dev/v1/scrape", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -92,20 +95,55 @@ async function scrapeWithFirecrawl(url: string): Promise<FirecrawlScrapeResult> 
     body: JSON.stringify({
       url,
       formats: ["markdown", "screenshot"],
-      // Cap how long Firecrawl's server spends scraping the page.
-      // Without this, Firecrawl keeps retrying until our AbortSignal fires,
-      // eating the entire timeout budget before DeepSeek even starts.
-      timeout: 12000,
+      // 25 s gives slow/JS-heavy SPAs room to render while still leaving
+      // 70 s for DeepSeek in our 95 s total budget.
+      timeout: 25000,
     }),
-    signal: AbortSignal.timeout(18_000),
+    signal: AbortSignal.timeout(30_000),
   });
 
-  if (!res.ok) {
-    const errText = await res.text().catch(() => res.statusText);
-    throw new Error(`Firecrawl scrape failed: ${res.status} ${errText}`);
+  // ── 408 SCRAPE_TIMEOUT → retry with markdown-only (faster, no headless render) ──
+  if (attempt1.status === 408) {
+    console.warn("[roast] Firecrawl 408 on attempt 1 — retrying markdown-only");
+
+    const attempt2 = await fetch("https://api.firecrawl.dev/v1/scrape", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url,
+        formats: ["markdown"],
+        timeout: 20000,
+      }),
+      signal: AbortSignal.timeout(25_000),
+    }).catch(() => null);
+
+    if (!attempt2 || !attempt2.ok) {
+      // Both attempts failed — still produce a roast with minimal context
+      console.warn("[roast] Firecrawl attempt 2 also failed — proceeding with URL-only context");
+      return { markdown: "", screenshotUrl: null, metadata: {} };
+    }
+
+    const data2 = (await attempt2.json()) as {
+      success: boolean;
+      data?: { markdown?: string; metadata?: FirecrawlMetadata };
+    };
+    const d2 = data2.data ?? {};
+    return {
+      markdown: (d2.markdown ?? "").slice(0, 4500),
+      screenshotUrl: null, // no screenshot on fallback
+      metadata: d2.metadata ?? {},
+    };
   }
 
-  const data = (await res.json()) as {
+  if (!attempt1.ok) {
+    const errText = await attempt1.text().catch(() => attempt1.statusText);
+    throw new Error(`Firecrawl scrape failed: ${attempt1.status} ${errText}`);
+  }
+
+  const data = (await attempt1.json()) as {
     success: boolean;
     data?: {
       markdown?: string;
@@ -201,7 +239,13 @@ Write exactly 4 paragraphs in Taglish. Follow the system prompt rules exactly. N
 
 // ─── Step 4: Parse raw text into structured fields ───────────────────────────
 
-function parseRoastOutput(raw: string, projectName: string, screenshotUrl: string | null): RoastResult {
+function parseRoastOutput(
+  raw: string,
+  projectName: string,
+  screenshotUrl: string | null,
+  faviconUrl: string | null,
+  ogImageUrl: string | null,
+): RoastResult {
   const cleaned = raw
     .replace(/#{1,6}\s*/g, "")
     .replace(/\*{1,2}([^*]+)\*{1,2}/g, "$1")
@@ -216,7 +260,7 @@ function parseRoastOutput(raw: string, projectName: string, screenshotUrl: strin
   const quickRoast = paragraphs[0] ?? cleaned.slice(0, 300);
   const title = `${projectName} Got Roasted`;
 
-  return { title, quickRoast, fullRoast, screenshotUrl, strengths: [], improvements: [] };
+  return { title, quickRoast, fullRoast, screenshotUrl, faviconUrl, ogImageUrl, strengths: [], improvements: [] };
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -227,5 +271,11 @@ export async function generateAiRoast(
 ): Promise<RoastResult> {
   const scraped = await scrapeWithFirecrawl(url);
   const raw = await callDeepSeek(scraped, projectName);
-  return parseRoastOutput(raw, projectName, scraped.screenshotUrl);
+  return parseRoastOutput(
+    raw,
+    projectName,
+    scraped.screenshotUrl,
+    scraped.metadata.favicon ?? null,
+    scraped.metadata.ogImage ?? null,
+  );
 }

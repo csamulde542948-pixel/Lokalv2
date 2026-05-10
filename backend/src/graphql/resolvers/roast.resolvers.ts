@@ -155,7 +155,13 @@ export const roastResolvers = {
         project = await prisma.project.findUnique({ where: { id: input.projectId } });
         if (!project) throw new Error("Project not found");
         if (project.authorId === user.id) throw new Error("You cannot roast your own project");
+      }
 
+      // ── Save Roast record only when linked to a registered project ───────
+      // The roasts table has a NOT NULL constraint on projectId, so we skip
+      // saving for external URL roasts. The feed Post record (created below)
+      // is what the card reads from — it stores the screenshot, content, tags.
+      if (input.projectId && project) {
         roast = await prisma.roast.create({
           data: {
             projectId: input.projectId,
@@ -192,11 +198,19 @@ export const roastResolvers = {
       let feedPostId: string | null = null;
       try {
         const feedContent = `🔥 Just roasted **${input.projectName}** with Lokal AI!\n\n${input.fullRoast ?? input.quickRoast ?? ""}\n\n👉 ${input.projectUrl}`;
+        const hasScreenshot = !!input.screenshotUrl;
+        console.log(`[submitRoast] screenshotUrl=${input.screenshotUrl ?? "null"} hasScreenshot=${hasScreenshot}`);
         const post = await prisma.post.create({
           data: {
             authorId: user.id,
             content: feedContent,
             projectName: input.projectName ?? null,
+            // postType is derived from the "roast" tag below — no column needed
+            // Persist the Firecrawl screenshot — store in BOTH columns so
+            // the feed card always finds it regardless of field-resolver fallback
+            ...(input.screenshotUrl
+              ? { imageUrl: input.screenshotUrl, imageUrls: [input.screenshotUrl] }
+              : {}),
           },
         });
         feedPostId = post.id;
@@ -231,9 +245,10 @@ export const roastResolvers = {
         });
       }
 
-      // Return the Roast record if created, or a minimal stub for external URLs
+      // Return the saved Roast record, or a minimal stub for external URL roasts
+      // (no roasts table row is created for those — the feed Post is what matters)
       return roast ?? {
-        id: `stub-${Date.now()}`,
+        id: `ext-${Date.now()}`,
         projectId: null,
         quickRoast: input.quickRoast ?? null,
         fullRoast: input.fullRoast ?? null,

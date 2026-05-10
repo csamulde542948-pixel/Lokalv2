@@ -801,7 +801,10 @@ export function Feed() {
   // ── Derive items: interleave FeaturedProjectCards every 3 posts ──
   const feedItems = useMemo(() => {
     const items: Array<{ type: "post"; post: ReturnType<typeof adaptPost>; index: number } | { type: "featured"; project: FeaturedProject }> = [];
-    allPosts.forEach((post, i) => {
+    // Exclude the pinned post from the regular feed — it's already rendered above
+    const pinnedId = pinnedPost?.id;
+    const filteredPosts = pinnedId ? allPosts.filter((p) => p.id !== pinnedId) : allPosts;
+    filteredPosts.forEach((post, i) => {
       items.push({ type: "post", post, index: i });
       if ((i + 1) % 3 === 0) {
         const project = featuredProjects[Math.floor(i / 3) % featuredProjects.length];
@@ -809,7 +812,7 @@ export function Feed() {
       }
     });
     return items;
-  }, [allPosts]);
+  }, [allPosts, pinnedPost?.id]);
 
   // ── TanStack Virtual — virtualise the post list ──
   const virtualizer = useWindowVirtualizer({

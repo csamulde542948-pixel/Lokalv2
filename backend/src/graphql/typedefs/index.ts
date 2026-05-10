@@ -353,6 +353,8 @@ export const typeDefs = gql`
     quickRoast: String!
     fullRoast: String!
     screenshotUrl: String
+    faviconUrl: String
+    ogImageUrl: String
     projectUrl: String!
     projectName: String!
   }
@@ -1048,6 +1050,7 @@ export const typeDefs = gql`
     title: String
     quickRoast: String
     fullRoast: String
+    screenshotUrl: String
   }
 
   input CreateJobInput {

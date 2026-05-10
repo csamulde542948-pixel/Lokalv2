@@ -4,7 +4,6 @@ import { gql } from "@apollo/client/core";
 import { useMutation } from "@apollo/client/react";
 import { useAuth } from "../../contexts/AuthContext";
 import {
-  Flame,
   Terminal,
   Copy,
   Check,
@@ -32,6 +31,8 @@ const GENERATE_ROAST = gql`
       quickRoast
       fullRoast
       screenshotUrl
+      faviconUrl
+      ogImageUrl
       projectUrl
       projectName
     }
@@ -78,6 +79,8 @@ interface GeneratedRoast {
   quickRoast: string;
   fullRoast: string;
   screenshotUrl: string | null;
+  faviconUrl: string | null;
+  ogImageUrl: string | null;
   projectUrl: string;
   projectName: string;
 }
@@ -475,7 +478,7 @@ export function RoastResult() {
 
   const [submitRoast] = useMutation<
     { submitRoast: { id: string } },
-    { input: { projectUrl: string; projectName: string; projectId?: string; title?: string; quickRoast?: string; fullRoast?: string } }
+    { input: { projectUrl: string; projectName: string; projectId?: string; title?: string; quickRoast?: string; fullRoast?: string; screenshotUrl?: string | null } }
   >(SUBMIT_ROAST);
 
   const [generateRoast, { loading }] = useMutation<
@@ -568,6 +571,7 @@ export function RoastResult() {
             title: roast.title,
             quickRoast: roast.quickRoast,
             fullRoast: roast.fullRoast,
+            screenshotUrl: roast.screenshotUrl ?? undefined,
           },
         },
       });
@@ -683,14 +687,24 @@ export function RoastResult() {
 
       <div className="min-h-screen bg-background flex flex-col relative overflow-hidden">
 
-        {/* Background glow */}
-        <div className="fixed inset-0 pointer-events-none"
-          style={{ background: "radial-gradient(ellipse at center bottom, rgba(234,88,12,0.06) 0%, transparent 60%)" }} />
-        <div className="fixed inset-0 pointer-events-none opacity-20"
+        {/* Full-screen ASCII fire — same as loading screen */}
+        <AsciiFireCanvas className="fixed inset-0 pointer-events-none z-[1]" style={{ width: "100%", height: "100%" }} />
+
+        {/* Scrim — keeps text readable */}
+        <div className="fixed inset-0 z-[2] pointer-events-none bg-background/80" />
+
+        {/* Dot grid */}
+        <div className="fixed inset-0 z-[2] pointer-events-none opacity-20"
           style={{
             backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.06) 1px, transparent 1px)",
             backgroundSize: "32px 32px",
           }} />
+
+        {/* Corner marks */}
+        <span className="fixed top-16 left-5 z-[3] text-orange-500/30 text-xl leading-none select-none pointer-events-none">+</span>
+        <span className="fixed top-16 right-5 z-[3] text-orange-500/30 text-xl leading-none select-none pointer-events-none">+</span>
+        <span className="fixed bottom-5 left-5 z-[3] text-orange-500/20 text-xl leading-none select-none pointer-events-none">+</span>
+        <span className="fixed bottom-5 right-5 z-[3] text-orange-500/20 text-xl leading-none select-none pointer-events-none">+</span>
 
         {/* ── Top bar ── */}
         <header className="relative z-10 flex items-center justify-between px-4 sm:px-6 h-12 border-b border-border/40 bg-background/80 backdrop-blur-sm sticky top-0">
@@ -700,7 +714,7 @@ export function RoastResult() {
           <button onClick={goBack}
             className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground/60 hover:text-orange-400 transition-colors uppercase tracking-widest">
             <ArrowLeft className="w-3 h-3" />
-            ← BACK
+            BACK
           </button>
 
           <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground/40">
@@ -715,30 +729,121 @@ export function RoastResult() {
           </button>
         </header>
 
+        {/* ── Sticky Publish & Share bar ── */}
+        {done && !published && (
+          <div className="relative z-10 sticky top-12 border-b border-orange-500/20 bg-background/90 backdrop-blur-sm">
+            <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-orange-500/40 to-transparent" />
+            <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 py-2 flex items-center justify-between gap-4">
+              <p className="text-[11px] text-muted-foreground/50 font-mono uppercase tracking-widest hidden sm:block">
+                🔥 Your roast is ready — share it with the community
+              </p>
+              <div className="flex items-center gap-2 ml-auto">
+                {publishError && (
+                  <p className="text-[10px] text-red-500/70 font-mono uppercase tracking-widest">⚠ {publishError}</p>
+                )}
+                <button
+                  onClick={handlePublish}
+                  disabled={publishLoading}
+                  className="flex items-center gap-2 px-5 h-9 text-[11px] font-black uppercase tracking-widest text-white transition-opacity disabled:opacity-50 flex-shrink-0"
+                  style={{ background: "linear-gradient(135deg,#ea580c,#dc2626)", boxShadow: "0 0 16px rgba(234,88,12,0.35)" }}
+                >
+                  {publishLoading
+                    ? <><Zap className="w-3.5 h-3.5 animate-pulse" />PUBLISHING…</>
+                    : <><Share2 className="w-3.5 h-3.5" />PUBLISH &amp; SHARE</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {done && published && (
+          <div className="relative z-10 sticky top-12 border-b border-green-500/20 bg-background/90 backdrop-blur-sm">
+            <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-green-500/40 to-transparent" />
+            <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 py-2 flex items-center justify-center gap-2">
+              <Check className="w-3.5 h-3.5 text-green-500" />
+              <span className="text-[11px] font-black uppercase tracking-widest text-green-400 font-mono">PUBLISHED TO FEED!</span>
+            </div>
+          </div>
+        )}
+
         {/* ── Main ── */}
-        <main className="relative z-10 flex-1 w-full max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-4 font-mono">
+        <main className="relative z-10 flex-1 w-full max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-4 font-mono">
 
           {/* ── Project header ── */}
-          <div className="border border-border/50 bg-card/60 px-5 py-4"
+          <div className="border border-border/50 bg-card/60 overflow-hidden"
             style={{ boxShadow: "0 0 24px rgba(234,88,12,0.06)" }}>
-            <div className="flex items-start gap-4">
-              <div className="w-10 h-10 flex items-center justify-center flex-shrink-0 bg-orange-500/10 border border-orange-500/20">
-                <Flame className="w-5 h-5 text-orange-500" fill="currentColor" />
+
+            {/* OG image banner */}
+            {(roast.ogImageUrl || roast.screenshotUrl) && (
+              <div className="relative w-full h-36 sm:h-44 overflow-hidden bg-card/40">
+                <img
+                  src={roast.ogImageUrl ?? roast.screenshotUrl ?? ""}
+                  alt={`${roast.projectName} preview`}
+                  className="w-full h-full object-cover object-top"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                />
+                {/* Gradient fade to card bg */}
+                <div className="absolute inset-0"
+                  style={{ background: "linear-gradient(to bottom, transparent 50%, hsl(var(--card)/0.95) 100%)" }} />
+                {/* Scan-line texture overlay */}
+                <div className="absolute inset-0 pointer-events-none opacity-30"
+                  style={{
+                    backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.15) 2px, rgba(0,0,0,0.15) 4px)",
+                  }} />
               </div>
-              <div className="flex-1 min-w-0">
-                <h1 className="text-base font-black uppercase tracking-tight text-foreground truncate">
-                  {roast.projectName}
-                </h1>
-                <a href={roast.projectUrl} target="_blank" rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] text-orange-400/60 hover:text-orange-400 transition-colors mt-0.5">
-                  <ExternalLink className="w-3 h-3 flex-shrink-0" />
-                  <span className="truncate">{domain}</span>
-                </a>
-                {roast.quickRoast && (
-                  <p className="text-xs text-muted-foreground/60 mt-2 italic leading-relaxed line-clamp-2 border-l-2 border-orange-500/30 pl-3">
-                    {roast.quickRoast}
-                  </p>
-                )}
+            )}
+
+            {/* Card body */}
+            <div className="px-5 py-4">
+              <div className="flex items-start gap-4">
+                {/* Favicon / logo */}
+                <div className="w-11 h-11 flex items-center justify-center flex-shrink-0 bg-card border border-border/50 overflow-hidden"
+                  style={{ boxShadow: "0 0 12px rgba(234,88,12,0.12)" }}>
+                  {roast.faviconUrl ? (
+                    <img
+                      src={roast.faviconUrl}
+                      alt=""
+                      className="w-7 h-7 object-contain"
+                      onError={(e) => {
+                        const el = e.currentTarget as HTMLImageElement;
+                        // Fallback to Google's favicon CDN
+                        if (!el.dataset.fallback) {
+                          el.dataset.fallback = "1";
+                          el.src = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+                        } else {
+                          el.style.display = "none";
+                          el.parentElement!.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" class="text-orange-500"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>`;
+                        }
+                      }}
+                    />
+                  ) : (
+                    <img
+                      src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`}
+                      alt=""
+                      className="w-7 h-7 object-contain"
+                      onError={(e) => {
+                        const el = e.currentTarget as HTMLImageElement;
+                        el.style.display = "none";
+                        el.parentElement!.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" class="text-orange-500"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>`;
+                      }}
+                    />
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <h1 className="text-base font-black uppercase tracking-tight text-foreground truncate">
+                    {roast.projectName}
+                  </h1>
+                  <a href={roast.projectUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] text-orange-400/60 hover:text-orange-400 transition-colors mt-0.5">
+                    <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                    <span className="truncate">{domain}</span>
+                  </a>
+                  {roast.quickRoast && (
+                    <p className="text-xs text-muted-foreground/60 mt-2 italic leading-relaxed line-clamp-2 border-l-2 border-orange-500/30 pl-3">
+                      {roast.quickRoast}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -873,33 +978,13 @@ export function RoastResult() {
           {/* ── Actions ── */}
           {done && (
             <div className="space-y-3 pb-10">
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={goBack}
-                  className="flex items-center justify-center gap-2 h-11 border border-border/50 text-xs font-black uppercase tracking-widest text-muted-foreground/70 hover:text-foreground hover:border-orange-500/30 transition-colors"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  ROAST ANOTHER
-                </button>
-                <button
-                  onClick={handlePublish}
-                  disabled={published || publishLoading}
-                  className="flex items-center justify-center gap-2 h-11 text-xs font-black uppercase tracking-widest text-white transition-opacity disabled:opacity-40"
-                  style={{ background: "linear-gradient(135deg,#ea580c,#dc2626)", boxShadow: "0 0 20px rgba(234,88,12,0.3)" }}
-                >
-                  {published ? (
-                    <><Check className="w-3.5 h-3.5" />PUBLISHED!</>
-                  ) : publishLoading ? (
-                    <><Zap className="w-3.5 h-3.5 animate-pulse" />PUBLISHING…</>
-                  ) : (
-                    <><Share2 className="w-3.5 h-3.5" />PUBLISH &amp; SHARE</>
-                  )}
-                </button>
-              </div>
-
-              {publishError && (
-                <p className="text-xs text-red-500/70 font-mono text-center uppercase tracking-widest">⚠ {publishError}</p>
-              )}
+              <button
+                onClick={goBack}
+                className="w-full flex items-center justify-center gap-2 h-11 border border-border/50 text-xs font-black uppercase tracking-widest text-muted-foreground/70 hover:text-foreground hover:border-orange-500/30 transition-colors"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                ROAST ANOTHER
+              </button>
 
               {!user && (
                 <p className="text-center text-[11px] text-muted-foreground/40 uppercase tracking-widest">
