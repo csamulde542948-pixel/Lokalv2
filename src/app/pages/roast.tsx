@@ -316,6 +316,12 @@ export function Roast() {
   const [searchParams] = useSearchParams();
   const [projectUrl, setProjectUrl] = useState(() => searchParams.get("url") ?? "");
   const [roastConsent, setRoastConsent] = useState(false);
+  const [consentShake, setConsentShake] = useState(false);
+
+  const triggerConsentShake = () => {
+    setConsentShake(true);
+    setTimeout(() => setConsentShake(false), 600);
+  };
 
   // If url came in via query param, trigger immediately
   useEffect(() => {
@@ -337,6 +343,10 @@ export function Roast() {
   const handleRoast = () => {
     const url = projectUrl.trim();
     if (!url) return;
+    if (!roastConsent) {
+      triggerConsentShake();
+      return;
+    }
     navigate("/roast/result", { state: { projectUrl: url } });
   };
 
@@ -398,7 +408,7 @@ export function Roast() {
               />
               <button
                 onClick={handleRoast}
-                disabled={!projectUrl.trim() || !roastConsent}
+                disabled={!projectUrl.trim()}
                 className="bg-orange-600 hover:bg-orange-500 active:bg-orange-700 disabled:opacity-30 disabled:cursor-not-allowed text-white font-mono font-bold text-xs sm:text-sm px-5 py-3.5 flex items-center gap-2 transition-colors whitespace-nowrap flex-shrink-0"
                 style={{ boxShadow: "0 0 18px rgba(234,88,12,0.35)" }}
               >
@@ -411,27 +421,40 @@ export function Roast() {
             </p>
 
             {/* Consent */}
-            <div className="flex items-start gap-2.5 mt-4 text-left">
+            <div
+              className={`flex items-start gap-2.5 mt-4 text-left transition-transform ${consentShake ? "animate-shake" : ""}`}
+            >
               <Checkbox
                 id="roastConsent"
                 checked={roastConsent}
                 onCheckedChange={(v) => setRoastConsent(v as boolean)}
-                className="mt-0.5 flex-shrink-0 border-border/50"
+                className={`mt-0.5 flex-shrink-0 transition-all duration-200 ${
+                  consentShake
+                    ? "border-orange-500 ring-2 ring-orange-500/50 ring-offset-1 ring-offset-background"
+                    : "border-border/50"
+                }`}
               />
-              <label
-                htmlFor="roastConsent"
-                className="text-[11px] font-mono text-muted-foreground/50 leading-relaxed cursor-pointer"
-              >
-                I own this project and understand this is{" "}
-                <strong className="text-muted-foreground/70">AI-generated satire</strong>.{" "}
-                {!user && (
-                  <>
-                    <Link to="/login" className="text-orange-400 hover:underline">Sign in</Link>
-                    {" "}to save your roast.{" "}
-                  </>
+              <div>
+                <label
+                  htmlFor="roastConsent"
+                  className="text-[11px] font-mono text-muted-foreground/50 leading-relaxed cursor-pointer"
+                >
+                  I own this project and understand this is{" "}
+                  <strong className="text-muted-foreground/70">AI-generated satire</strong>.{" "}
+                  {!user && (
+                    <>
+                      <Link to="/login" className="text-orange-400 hover:underline">Sign in</Link>
+                      {" "}to save your roast.{" "}
+                    </>
+                  )}
+                  <Link to="/terms#ai-roast" className="text-orange-400/80 hover:underline">Learn more</Link>.
+                </label>
+                {consentShake && (
+                  <p className="text-[10px] font-mono text-orange-500 mt-1 animate-fade-in">
+                    ⚠ Check this box before getting roasted
+                  </p>
                 )}
-                <Link to="/terms#ai-roast" className="text-orange-400/80 hover:underline">Learn more</Link>.
-              </label>
+              </div>
             </div>
 
             {/* CTA to live roasts */}
