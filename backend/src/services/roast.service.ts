@@ -1,98 +1,169 @@
-/**
- * Roast Engine — Jina Reader + DeepSeek V4 Pro Nitro via OpenRouter
+﻿/**
+ * Roast Engine — Firecrawl + DeepSeek V4 Pro Nitro via OpenRouter
  *
  * Flow:
- *   1. Scrape the target URL with Jina Reader (r.jina.ai)
- *   2. Build a prompt with the scraped content + system prompt
- *   3. Call DeepSeek V4 Pro Nitro via OpenRouter (fastest routing, no queue)
- *   4. Return the raw 6-paragraph Taglish roast
+ *   1. Scrape with Firecrawl — markdown + screenshot + full metadata (12s server-side cap)
+ *   2. Build a rich brand brief from metadata (what they CLAIM) + markdown (what they BUILT)
+ *   3. Call DeepSeek — roast the gap between claim and reality
+ *   4. Return structured RoastResult
+ *
+ * Timeout budget: Firecrawl 18s + DeepSeek 75s = 93s max
  */
 
 import { assertSafeExternalUrl } from "../lib/ssrf";
 
-const SYSTEM_PROMPT = `You are a brilliant, arrogant, senior full stack developer — a trashtalker who roasts websites with brutal, specific, technical precision. You sound like a frustrated Filipino founder ranting in a GC, not an AI assistant.
+// ─── System Prompt ────────────────────────────────────────────────────────────
 
-‼️ LANGUAGE RULE — NON-NEGOTIABLE:
-You MUST write in TAGLISH — a natural mix of Filipino (Tagalog) and English in every paragraph.
-NEVER write in pure English. Every paragraph must have Tagalog words and phrases woven naturally into it.
+const SYSTEM_PROMPT = `You are a brilliant, arrogant, senior full stack developer and serial startup critic. You roast websites with surgical, specific, technically grounded brutality. You sound like a frustrated Filipino founder who has seen too many of these garbage products — ranting in a GC at 2am, not performing for an audience.
 
-TONE & STYLE:
-- Arrogant, sarcastic, trashtalking. Use sarcastic jokes, no cute metaphors.
-- Profanity feels natural — use putangina, gago, bobo, tangina, (sarcastically), etc. when it strengthens the point.
-- Never sound robotic. Write like a real person ranting, not an AI generating text.
-- Do NOT add section titles or labels to paragraphs.
-- Use hate speech and slurs and profanity when it fits the tone. The goal is to be brutally honest and specific.
-- Connect to Filipino culture, tech scene, trending issues.
-- Connect to latest issues/trends in tech when relevant in Philippine context (e.g. "This looks like another one of those 'support local devs' scams that only exist to get government grants.")
+LANGUAGE — ABSOLUTE RULE:
+Write in TAGLISH. Every single paragraph must mix Filipino (Tagalog) and English naturally. "Ito na naman," "putangina," "ano ba 'to," "walang kwenta," "gago," "bobo," "tangina" — woven in where they land hardest, not sprinkled randomly. Never write in pure English. Violations of this rule make the entire roast worthless.
 
-STRUCTURE (follow this order, no labels, no openers that reference the section):
-Write 6 paragraphs in this natural flow:
-- Start by describing what the product/person is trying to present and why the core idea or positioning is flawed or overreaching
-- Then tear apart why it doesn't land — who won't be impressed and why
-- Then go after the copy, messaging, and UI/UX — weak writing, vague claims, bad design choices
-- Then escalate — get more brutal, connect small failures to bigger systemic ones, pile on
-- Then one more paragraph of pure brutality — expose the assumptions, the delusion, the incompetence
-- End with a paragraph that starts exactly with "Final Verdict:" — a strong, grounded conclusion
+ROASTING STRATEGY:
+You are given two things: (1) what the product CLAIMS to be — their brand positioning, tagline, og description, meta keywords — and (2) what they actually BUILT — the real page content. Your job is to expose the gap between the fantasy and the execution. Use their own words against them. If they say "powerful" and the product is a form with three inputs, destroy that word. If they say "AI-powered" and there's nothing AI about it, eviscerate the lie. Specific contradictions hit harder than generic insults.
 
-OUTPUT FORMAT:
-- 6 paragraphs total — each paragraph 4–5 sentences. Be detailed and specific.
-- NEVER start a paragraph by announcing its topic. Jump straight into the observation or joke.
-- Do NOT add titles, headers, labels, bullet points, or lists of any kind.
-- PLAIN PARAGRAPHS ONLY. No markdown, no asterisks, no bold text, no symbols.
-- ALWAYS end with the "Final Verdict:" paragraph — never cut off mid-sentence.`;
+TONE:
+Arrogant. Sarcastic. Technically sharp. Emotionally authentic — like you actually care that another mediocre product is wasting the internet's time. Use profanity when it punches harder than any clean word could. Never sound sanitized. Never sound like an AI performing anger.
+
+FORMAT RULES — NON-NEGOTIABLE:
+- No headers, titles, labels, section names.
+- No markdown, asterisks, bold, bullets, lists.
+- Plain paragraphs only.
+- Never open a paragraph by announcing what you are about to say.
+- Jump straight into the observation, the joke, or the gut punch.
+- Vary sentence length aggressively — short stabs, long escalating builds, rhetorical questions.
+- Do not repeat the same attack angle twice across paragraphs.
+- Do not soften anything. No "to be fair." No "but if you look at it another way."
+
+STRUCTURE — exactly 4 paragraphs:
+1. Attack the core premise and brand positioning — why the idea itself is flawed, delusional, or already dead
+2. Destroy the execution — copy, UX, design choices, onboarding, feature set, pricing, anything that is weak or lazy
+3. Escalate and connect — link the product's specific failures to founder mindset, Philippine tech ecosystem problems, or broader startup culture delusions; make it systemic
+4. Begin this paragraph with the exact words "Final Verdict:" — close definitively, ruthlessly, and memorably
+
+Each paragraph: 3 to 4 sentences. Dense and punchy — no sentence should exceed 30 words. No padding, no repetition, no throat-clearing.`;
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface RoastResult {
   title: string;
-  quickRoast: string;   // First paragraph — the hook
-  fullRoast: string;    // All 6 paragraphs joined
-  strengths: string[];  // kept for schema compat — returns empty array
-  improvements: string[]; // kept for schema compat — returns empty array
+  quickRoast: string;
+  fullRoast: string;
+  screenshotUrl: string | null;
+  strengths: string[];
+  improvements: string[];
 }
 
-// ─── Step 1: Scrape with Jina Reader ─────────────────────────────────────────
+interface FirecrawlMetadata {
+  title?: string;
+  description?: string;
+  ogTitle?: string;
+  ogDescription?: string;
+  ogImage?: string;
+  favicon?: string;
+  keywords?: string;
+  author?: string;
+  language?: string;
+  [k: string]: unknown;
+}
 
-async function scrapeWithJina(url: string): Promise<string> {
-  // MED-03: Defense-in-depth SSRF guard — even if the caller already validated
-  // the URL, validate again inside the service so scrapeWithJina is safe if
-  // called from any future code path that bypasses the resolver-level check.
+interface FirecrawlScrapeResult {
+  markdown: string;
+  screenshotUrl: string | null;
+  metadata: FirecrawlMetadata;
+}
+
+// ─── Step 1: Scrape with Firecrawl ───────────────────────────────────────────
+
+async function scrapeWithFirecrawl(url: string): Promise<FirecrawlScrapeResult> {
   await assertSafeExternalUrl(url);
 
-  const jinaUrl = `https://r.jina.ai/${url}`;
-  const headers: Record<string, string> = {
-    Accept: "text/plain",
-    "X-Return-Format": "text",
-  };
-
-  const apiKey = process.env.JINA_API_KEY;
-  if (apiKey && !apiKey.startsWith("jina_your")) {
-    headers["Authorization"] = `Bearer ${apiKey}`;
+  const apiKey = process.env.FIRECRAWL_API_KEY;
+  if (!apiKey || apiKey.startsWith("fc-your")) {
+    throw new Error("FIRECRAWL_API_KEY is not configured in backend/.env");
   }
 
-  const res = await fetch(jinaUrl, { headers, signal: AbortSignal.timeout(30_000) });
-  if (!res.ok) throw new Error(`Jina Reader failed: ${res.status} ${res.statusText}`);
+  const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      url,
+      formats: ["markdown", "screenshot"],
+      // Cap how long Firecrawl's server spends scraping the page.
+      // Without this, Firecrawl keeps retrying until our AbortSignal fires,
+      // eating the entire timeout budget before DeepSeek even starts.
+      timeout: 12000,
+    }),
+    signal: AbortSignal.timeout(18_000),
+  });
 
-  const text = await res.text();
-  // Trim to ~6000 chars to stay within context limits
-  return text.slice(0, 6000);
+  if (!res.ok) {
+    const errText = await res.text().catch(() => res.statusText);
+    throw new Error(`Firecrawl scrape failed: ${res.status} ${errText}`);
+  }
+
+  const data = (await res.json()) as {
+    success: boolean;
+    data?: {
+      markdown?: string;
+      screenshot?: string;
+      metadata?: FirecrawlMetadata;
+    };
+  };
+
+  const d = data.data ?? {};
+  return {
+    // 4500 chars of markdown is plenty — keeps DeepSeek fast
+    markdown: (d.markdown ?? "").slice(0, 4500),
+    screenshotUrl: d.screenshot ?? null,
+    metadata: d.metadata ?? {},
+  };
 }
 
-// ─── Step 2: Call DeepSeek via OpenRouter ─────────────────────────────────────
+// ─── Step 2: Build brand brief ───────────────────────────────────────────────
+// Firecrawl gives us the product's OWN marketing language (og tags, keywords).
+// We surface this separately so DeepSeek can roast the gap between claim and reality.
 
-async function callDeepSeek(scrapedContent: string, projectName: string): Promise<string> {
+function buildBrandBrief(metadata: FirecrawlMetadata, projectName: string): string {
+  const lines: string[] = [];
+
+  const name = metadata.ogTitle || metadata.title || projectName;
+  lines.push(`Product name: ${name}`);
+
+  const tagline = metadata.ogDescription || metadata.description;
+  if (tagline) lines.push(`What they claim: "${tagline}"`);
+
+  if (metadata.keywords) lines.push(`Keywords they target: ${metadata.keywords}`);
+  if (metadata.author) lines.push(`Author/team: ${metadata.author}`);
+  if (metadata.language && metadata.language !== "en") {
+    lines.push(`Site language: ${metadata.language}`);
+  }
+
+  return lines.join("\n");
+}
+
+// ─── Step 3: Call DeepSeek via OpenRouter ────────────────────────────────────
+
+async function callDeepSeek(scrapeResult: FirecrawlScrapeResult, projectName: string): Promise<string> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey || apiKey.startsWith("sk-or-your")) {
     throw new Error("OPENROUTER_API_KEY is not configured in backend/.env");
   }
 
-  const userPrompt = `Roast this website/product called "${projectName}".
+  const brandBrief = buildBrandBrief(scrapeResult.metadata, projectName);
 
-Here is the scraped content from their site:
+  const userPrompt = `Roast this website/product.
 
----
-${scrapedContent}
----
+=== WHAT THEY CLAIM (brand positioning, their own marketing) ===
+${brandBrief}
 
-Write 6 paragraphs. Follow the system prompt exactly. No labels, no headers. End with "Final Verdict:".`;
+=== WHAT THEY ACTUALLY BUILT (scraped page content) ===
+${scrapeResult.markdown || "No content could be extracted from the page."}
+
+Write exactly 4 paragraphs in Taglish. Follow the system prompt rules exactly. No labels. No markdown. The final paragraph must begin with "Final Verdict:" and must end with a complete sentence — never cut off.`;
 
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
@@ -108,10 +179,13 @@ Write 6 paragraphs. Follow the system prompt exactly. No labels, no headers. End
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.9,
+      temperature: 0.88,
+      // Taglish is token-heavy — two languages per sentence.
+      // 4 paragraphs × 4 sentences × ~55 tokens = ~880 tokens minimum.
+      // 2000 gives safe headroom so Final Verdict never gets clipped mid-sentence.
       max_tokens: 2000,
     }),
-    signal: AbortSignal.timeout(110_000),
+    signal: AbortSignal.timeout(75_000),
   });
 
   if (!res.ok) {
@@ -125,16 +199,14 @@ Write 6 paragraphs. Follow the system prompt exactly. No labels, no headers. End
   return content.trim();
 }
 
-// ─── Step 3: Parse the raw text into structured fields ────────────────────────
+// ─── Step 4: Parse raw text into structured fields ───────────────────────────
 
-function parseRoastOutput(raw: string, projectName: string): RoastResult {
-  // Strip any accidental markdown (bold, italics, headers) the model sneaks in
+function parseRoastOutput(raw: string, projectName: string, screenshotUrl: string | null): RoastResult {
   const cleaned = raw
-    .replace(/#{1,6}\s*/g, "")       // markdown headers
-    .replace(/\*{1,2}([^*]+)\*{1,2}/g, "$1") // bold/italic
+    .replace(/#{1,6}\s*/g, "")
+    .replace(/\*{1,2}([^*]+)\*{1,2}/g, "$1")
     .trim();
 
-  // Split on blank lines to get paragraphs
   const paragraphs = cleaned
     .split(/\n{2,}/)
     .map((p) => p.replace(/\n/g, " ").trim())
@@ -144,27 +216,16 @@ function parseRoastOutput(raw: string, projectName: string): RoastResult {
   const quickRoast = paragraphs[0] ?? cleaned.slice(0, 300);
   const title = `${projectName} Got Roasted`;
 
-  return {
-    title,
-    quickRoast,
-    fullRoast,
-    strengths: [],
-    improvements: [],
-  };
+  return { title, quickRoast, fullRoast, screenshotUrl, strengths: [], improvements: [] };
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+// ─── Public API ──────────────────────────────────────────────────────────────
 
 export async function generateAiRoast(
   url: string,
   projectName: string
 ): Promise<RoastResult> {
-  // Scrape
-  const scraped = await scrapeWithJina(url);
-
-  // Generate
+  const scraped = await scrapeWithFirecrawl(url);
   const raw = await callDeepSeek(scraped, projectName);
-
-  // Parse
-  return parseRoastOutput(raw, projectName);
+  return parseRoastOutput(raw, projectName, scraped.screenshotUrl);
 }

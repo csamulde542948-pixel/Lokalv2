@@ -31,6 +31,7 @@ const GENERATE_ROAST = gql`
       title
       quickRoast
       fullRoast
+      screenshotUrl
       projectUrl
       projectName
     }
@@ -76,6 +77,7 @@ interface GeneratedRoast {
   title: string;
   quickRoast: string;
   fullRoast: string;
+  screenshotUrl: string | null;
   projectUrl: string;
   projectName: string;
 }
@@ -83,106 +85,192 @@ interface GeneratedRoast {
 // ─── Loading steps ────────────────────────────────────────────────────────────
 
 const LOADING_STEPS = [
-  { label: "Connecting to Jina Reader",   detail: "fetching page content..."      },
-  { label: "Scraping target URL",         detail: "extracting text & metadata..."  },
-  { label: "Sending to DeepSeek Nitro",   detail: "routing via OpenRouter..."      },
-  { label: "AI generating roast",         detail: "cooking your Pinoy Style roast..."  },
-  { label: "Finalizing output",           detail: "structuring paragraphs..."      },
+  { label: "Scraping with Firecrawl",      detail: "fetching page content..."           },
+  { label: "Extracting brand context",     detail: "reading og tags, keywords, copy..."  },
+  { label: "Sending to DeepSeek Nitro",    detail: "routing via OpenRouter..."           },
+  { label: "AI generating roast",          detail: "cooking your Pinoy Style roast..."   },
+  { label: "Finalizing output",            detail: "structuring paragraphs..."           },
 ];
+
+// ─── ASCII Fire Canvas (same as hero) ────────────────────────────────────────
+
+const FIRE_CHARS = [" ", ".", ":", "^", "*", "x", "X", "$", "#", "M"];
+const FIRE_COLORS = [
+  "transparent","#1a0000","#3d0000","#7a1000","#b02000",
+  "#d44000","#e86010","#f09030","#f8c050","#fff8a0",
+];
+const CELL_PX = 7;
+
+function AsciiFireCanvas({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    let animId: number;
+    const resize = () => { canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight; };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas);
+    const tick = () => {
+      const W = canvas.width, H = canvas.height;
+      const COLS = Math.ceil(W / CELL_PX), ROWS = Math.ceil(H / CELL_PX);
+      if (!(tick as any).grid || (tick as any).cols !== COLS || (tick as any).rows !== ROWS) {
+        (tick as any).grid = Array.from({ length: ROWS }, () => new Uint8Array(COLS));
+        (tick as any).cols = COLS; (tick as any).rows = ROWS;
+      }
+      const grid: Uint8Array[] = (tick as any).grid;
+      for (let x = 0; x < COLS; x++) {
+        grid[ROWS-1][x] = Math.random() < 0.92 ? Math.floor(Math.random()*2)+8 : Math.floor(Math.random()*2);
+        if (ROWS>1) grid[ROWS-2][x] = Math.random() < 0.85 ? Math.floor(Math.random()*2)+7 : 0;
+        if (ROWS>2) grid[ROWS-3][x] = Math.random() < 0.70 ? Math.floor(Math.random()*2)+6 : 0;
+        if (ROWS>3) grid[ROWS-4][x] = Math.random() < 0.55 ? Math.floor(Math.random()*2)+5 : 0;
+      }
+      for (let y = 0; y < ROWS-4; y++) {
+        for (let x = 0; x < COLS; x++) {
+          const below=grid[y+1][x], left=grid[y+1][(x-1+COLS)%COLS], right=grid[y+1][(x+1)%COLS];
+          grid[y][x] = Math.max(0, Math.round((below+left+right)/3 - Math.random()*0.45));
+        }
+      }
+      ctx.clearRect(0,0,W,H);
+      ctx.font = `bold ${CELL_PX}px monospace`;
+      ctx.textBaseline = "top";
+      for (let y=0; y<ROWS; y++) for (let x=0; x<COLS; x++) {
+        const val = grid[y][x];
+        if (!val) continue;
+        ctx.fillStyle = FIRE_COLORS[Math.min(val, FIRE_COLORS.length-1)];
+        ctx.fillText(FIRE_CHARS[Math.min(val, FIRE_CHARS.length-1)], x*CELL_PX, y*CELL_PX);
+      }
+      animId = requestAnimationFrame(tick);
+    };
+    animId = requestAnimationFrame(tick);
+    return () => { cancelAnimationFrame(animId); ro.disconnect(); };
+  }, []);
+  return <canvas ref={canvasRef} className={className} style={style} aria-hidden />;
+}
 
 // ─── Loading screen ───────────────────────────────────────────────────────────
 
 function LoadingScreen({ url }: { url: string }) {
   const [stepIdx, setStepIdx] = useState(0);
-  const [dots, setDots]       = useState("");
 
   useEffect(() => {
     const iv = setInterval(() => setStepIdx(i => Math.min(i + 1, LOADING_STEPS.length - 1)), 6000);
     return () => clearInterval(iv);
   }, []);
-  useEffect(() => {
-    const iv = setInterval(() => setDots(d => d.length >= 3 ? "" : d + "."), 400);
-    return () => clearInterval(iv);
-  }, []);
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4">
-      <div className="w-full max-w-lg rounded-xl overflow-hidden border border-border shadow-2xl font-mono">
-        <div className="flex items-center justify-between px-4 py-2.5 bg-muted border-b border-border">
-          <div className="flex gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-primary/70" />
-            <div className="w-3 h-3 rounded-full bg-primary/40" />
-            <div className="w-3 h-3 rounded-full bg-primary/20" />
-          </div>
-          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Terminal className="w-3.5 h-3.5 text-primary" />
-            lokal-roast — analyzing
-          </span>
-          <div className="w-16" />
-        </div>
-        <div className="bg-card px-6 py-7 space-y-6">
-          <p className="text-xs text-muted-foreground/60 truncate">
-            <span className="text-primary font-semibold">$</span> generate-roast --url{" "}
-            <span className="text-primary/70">{url}</span>
-          </p>
-          <div className="flex justify-center">
-            <div className="flex items-end gap-[3px] h-14">
-              {[0,1,2,3,4,5,6,7].map(i => (
-                <div key={i} className="w-1.5 rounded-full"
+    <div className="min-h-screen bg-background flex flex-col relative overflow-hidden font-mono">
+
+      {/* Full-screen ASCII fire behind everything */}
+      <AsciiFireCanvas className="absolute inset-0 pointer-events-none z-[1]" style={{ width: "100%", height: "100%" }} />
+
+      {/* Scrim */}
+      <div className="absolute inset-0 z-[2] pointer-events-none bg-background/70" />
+
+      {/* Dot grid */}
+      <div className="absolute inset-0 z-[2] pointer-events-none"
+        style={{
+          backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px)",
+          backgroundSize: "32px 32px",
+        }} />
+
+      {/* Corner marks */}
+      <span className="absolute top-5 left-5 z-[3] text-orange-500/40 text-xl leading-none select-none pointer-events-none">+</span>
+      <span className="absolute top-5 right-5 z-[3] text-orange-500/40 text-xl leading-none select-none pointer-events-none">+</span>
+
+      {/* Centered terminal card */}
+      <div className="relative z-[3] flex-1 flex items-center justify-center px-4 py-8">
+        <div className="w-full max-w-lg">
+
+          {/* Terminal window */}
+          <div className="border border-orange-500/20 bg-background/60 backdrop-blur-sm overflow-hidden"
+            style={{ boxShadow: "0 0 48px rgba(234,88,12,0.15), 0 0 0 1px rgba(234,88,12,0.08)" }}>
+
+            {/* Glow line top */}
+            <div className="h-px bg-gradient-to-r from-transparent via-orange-500/50 to-transparent" />
+
+            {/* Title bar */}
+            <div className="flex items-center justify-between px-4 py-2.5 bg-background/40 border-b border-orange-500/10">
+              <div className="flex gap-1.5">
+                <div className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
+                <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/40" />
+                <div className="w-2.5 h-2.5 rounded-full bg-green-500/20" />
+              </div>
+              <span className="text-[10px] text-orange-400/50 uppercase tracking-[0.2em]">
+                LOKI.EXE — ANALYZING TARGET
+              </span>
+              <div className="w-14" />
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-6 space-y-5">
+
+              {/* URL prompt */}
+              <p className="text-xs text-muted-foreground/50 truncate">
+                <span className="text-orange-500">$</span>{" "}
+                <span className="text-orange-400/70">loki roast</span>{" "}
+                <span className="text-foreground/30">--url</span>{" "}
+                <span className="text-orange-300/60">{url}</span>
+              </p>
+
+              {/* Current step label */}
+              <p className="text-center text-xs font-black uppercase tracking-[0.2em] text-orange-400">
+                {LOADING_STEPS[stepIdx]?.label}
+              </p>
+
+              {/* Step list */}
+              <div className="space-y-2.5 border-t border-orange-500/10 pt-4">
+                {LOADING_STEPS.map((step, i) => {
+                  const done   = i < stepIdx;
+                  const active = i === stepIdx;
+                  return (
+                    <div key={i} className="flex items-center gap-3 text-[11px]">
+                      <span className="w-4 text-center flex-shrink-0 font-bold">
+                        {done   ? <span className="text-green-500">✓</span>
+                        : active ? <span className="text-orange-400 animate-pulse">▶</span>
+                        :          <span className="text-muted-foreground/20">○</span>}
+                      </span>
+                      <span className={`flex-1 uppercase tracking-wide ${
+                        done   ? "line-through text-muted-foreground/20"
+                        : active ? "text-foreground"
+                        :          "text-muted-foreground/20"
+                      }`}>
+                        {step.label}
+                      </span>
+                      {active && (
+                        <span className="text-muted-foreground/40 text-[10px] normal-case">
+                          {step.detail}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Progress bar */}
+              <div className="relative h-px bg-orange-500/10 overflow-hidden">
+                <div
+                  className="absolute inset-y-0 left-0 transition-all duration-[1200ms]"
                   style={{
-                    background: "linear-gradient(to top,#f97316,#ec4899)",
-                    animationName: "waveBar",
-                    animationDuration: "1.2s",
-                    animationTimingFunction: "ease-in-out",
-                    animationIterationCount: "infinite",
-                    animationDelay: `${i * 0.15}s`,
-                    height: "20px",
+                    width: `${((stepIdx + 1) / LOADING_STEPS.length) * 100}%`,
+                    background: "linear-gradient(90deg, #dc2626, #ea580c, #f97316)",
+                    boxShadow: "0 0 10px rgba(249,115,22,0.7)",
                   }}
                 />
-              ))}
+              </div>
+
+              <p className="text-center text-[10px] text-muted-foreground/30 uppercase tracking-[0.2em]">
+                DeepSeek Nitro is cooking — up to 60s
+              </p>
             </div>
+
+            {/* Glow line bottom */}
+            <div className="h-px bg-gradient-to-r from-transparent via-red-500/20 to-transparent" />
           </div>
-          <p className="text-center text-xs font-semibold text-primary tracking-widest uppercase">
-            {LOADING_STEPS[stepIdx]?.label}...
-          </p>
-          <div className="space-y-2">
-            {LOADING_STEPS.map((step, i) => {
-              const done   = i < stepIdx;
-              const active = i === stepIdx;
-              return (
-                <div key={i} className="flex items-center gap-3 text-xs">
-                  <span className="w-4 text-center flex-shrink-0">
-                    {done   ? <span className="text-green-500">✓</span>
-                    : active ? <span className="text-primary animate-pulse">▶</span>
-                    :          <span className="text-muted-foreground/30">○</span>}
-                  </span>
-                  <span className={`flex-1 ${done ? "line-through text-muted-foreground/40" : active ? "text-foreground" : "text-muted-foreground/30"}`}>
-                    {step.label}
-                  </span>
-                  {active && <span className="text-muted-foreground/60">{step.detail}{dots}</span>}
-                </div>
-              );
-            })}
-          </div>
-          <div className="relative h-0.5 rounded-full bg-muted overflow-hidden">
-            <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-1000"
-              style={{
-                width: `${((stepIdx + 1) / LOADING_STEPS.length) * 100}%`,
-                background: "linear-gradient(90deg,#f97316,#ec4899,#8b5cf6)",
-              }}
-            />
-          </div>
-          <p className="text-center text-[10px] text-muted-foreground/40">
-            This can take up to 60s — DeepSeek Nitro is cooking 🔥
-          </p>
         </div>
       </div>
-      <style>{`
-        @keyframes waveBar {
-          0%,100% { height:8px; opacity:.4 }
-          50%      { height:48px; opacity:1 }
-        }
-      `}</style>
     </div>
   );
 }
@@ -508,19 +596,31 @@ export function RoastResult() {
     const isRateLimit = isAnonLimit || isAuthLimit;
 
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center px-4">
-        <div className="w-full max-w-sm rounded-xl border border-border bg-card overflow-hidden shadow-xl font-mono">
-          <div className="h-1 bg-gradient-to-r from-destructive/60 via-orange-500/60 to-destructive/30" />
-          <div className="px-6 py-7 space-y-5">
+      <div className="min-h-screen bg-background flex items-center justify-center px-4 font-mono">
+        <div className="w-full max-w-sm border border-border/50 overflow-hidden"
+          style={{ boxShadow: "0 0 32px rgba(220,38,38,0.08)" }}>
+          {/* Red top bar */}
+          <div className="h-px bg-gradient-to-r from-transparent via-red-500/60 to-transparent" />
+          {/* Title bar */}
+          <div className="flex items-center justify-between px-4 py-2.5 bg-background/70 border-b border-border/40">
+            <div className="flex gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-red-500/70" />
+              <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/40" />
+              <div className="w-2.5 h-2.5 rounded-full bg-green-500/20" />
+            </div>
+            <span className="text-[10px] text-muted-foreground/40 uppercase tracking-widest">LOKI.EXE — ERROR</span>
+            <div className="w-14" />
+          </div>
+          <div className="bg-card/40 px-5 py-6 space-y-5">
             <div className="flex items-start gap-3">
-              <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${isRateLimit ? "bg-orange-500/10" : "bg-destructive/10"}`}>
-                <AlertTriangle className={`w-5 h-5 ${isRateLimit ? "text-orange-500" : "text-destructive"}`} />
+              <div className={`w-9 h-9 flex items-center justify-center flex-shrink-0 border ${isRateLimit ? "border-orange-500/30 bg-orange-500/10" : "border-red-500/30 bg-red-500/10"}`}>
+                <AlertTriangle className={`w-4 h-4 ${isRateLimit ? "text-orange-500" : "text-red-500"}`} />
               </div>
               <div>
-                <p className="font-semibold text-sm">
-                  {isRateLimit ? "Roast limit reached" : isNetwork ? "Connection error" : "Request failed"}
+                <p className="font-black text-sm uppercase tracking-wide">
+                  {isRateLimit ? "ROAST LIMIT REACHED" : isNetwork ? "CONNECTION ERROR" : "REQUEST FAILED"}
                 </p>
-                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                <p className="text-xs text-muted-foreground/60 mt-1 leading-relaxed normal-case">
                   {isAnonLimit
                     ? "You've used your 3 free roasts this hour. Sign in to get 10 roasts per hour."
                     : isAuthLimit
@@ -535,28 +635,31 @@ export function RoastResult() {
               {isAnonLimit ? (
                 <>
                   <Link to="/login" state={{ from: location }} className="flex-1">
-                    <Button size="sm" className="w-full gap-2">
-                      <LogIn className="w-3.5 h-3.5" /> Sign In
-                    </Button>
+                    <button className="w-full flex items-center justify-center gap-2 h-9 text-xs font-black uppercase tracking-widest text-white"
+                      style={{ background: "linear-gradient(135deg,#ea580c,#dc2626)" }}>
+                      <LogIn className="w-3.5 h-3.5" /> SIGN IN
+                    </button>
                   </Link>
-                  <Button size="sm" variant="outline" className="flex-1 gap-2" onClick={goBack}>
-                    <ArrowLeft className="w-3.5 h-3.5" /> Back
-                  </Button>
+                  <button onClick={goBack}
+                    className="flex-1 flex items-center justify-center gap-2 h-9 border border-border/50 text-xs font-black uppercase tracking-widest text-muted-foreground/60 hover:text-foreground transition-colors">
+                    <ArrowLeft className="w-3.5 h-3.5" /> BACK
+                  </button>
                 </>
               ) : (
                 <>
                   {!isAuthLimit && (
-                    <Button size="sm" className="flex-1 gap-2" onClick={() => {
-                      firedRef.current = false;
-                      setMutationError(null);
-                      runMutation(incoming!.projectUrl);
-                    }}>
-                      <RotateCcw className="w-3.5 h-3.5" /> Retry
-                    </Button>
+                    <button
+                      className="flex-1 flex items-center justify-center gap-2 h-9 text-xs font-black uppercase tracking-widest text-white"
+                      style={{ background: "linear-gradient(135deg,#ea580c,#dc2626)" }}
+                      onClick={() => { firedRef.current = false; setMutationError(null); runMutation(incoming!.projectUrl); }}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" /> RETRY
+                    </button>
                   )}
-                  <Button size="sm" variant="outline" className="flex-1 gap-2" onClick={goBack}>
-                    <ArrowLeft className="w-3.5 h-3.5" /> Back
-                  </Button>
+                  <button onClick={goBack}
+                    className="flex-1 flex items-center justify-center gap-2 h-9 border border-border/50 text-xs font-black uppercase tracking-widest text-muted-foreground/60 hover:text-foreground transition-colors">
+                    <ArrowLeft className="w-3.5 h-3.5" /> BACK
+                  </button>
                 </>
               )}
             </div>
@@ -576,236 +679,193 @@ export function RoastResult() {
   // ── Result ────────────────────────────────────────────────────────────────
   return (
     <>
-      {/* Blurred auth modal */}
-      {showAuthModal && (
-        <AuthModal from={location} onClose={() => setShowAuthModal(false)} />
-      )}
+      {showAuthModal && <AuthModal from={location} onClose={() => setShowAuthModal(false)} />}
 
-      <div className="min-h-screen bg-background flex flex-col">
+      <div className="min-h-screen bg-background flex flex-col relative overflow-hidden">
 
-        {/* ── Slim top bar ── */}
-        <header className="flex items-center justify-between px-4 sm:px-6 h-12 border-b border-border/50 bg-background/80 backdrop-blur-sm sticky top-0 z-10">
-          <button
-            onClick={goBack}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            Roast another
+        {/* Background glow */}
+        <div className="fixed inset-0 pointer-events-none"
+          style={{ background: "radial-gradient(ellipse at center bottom, rgba(234,88,12,0.06) 0%, transparent 60%)" }} />
+        <div className="fixed inset-0 pointer-events-none opacity-20"
+          style={{
+            backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.06) 1px, transparent 1px)",
+            backgroundSize: "32px 32px",
+          }} />
+
+        {/* ── Top bar ── */}
+        <header className="relative z-10 flex items-center justify-between px-4 sm:px-6 h-12 border-b border-border/40 bg-background/80 backdrop-blur-sm sticky top-0">
+          {/* Glow line */}
+          <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-orange-500/20 to-transparent" />
+
+          <button onClick={goBack}
+            className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground/60 hover:text-orange-400 transition-colors uppercase tracking-widest">
+            <ArrowLeft className="w-3 h-3" />
+            ← BACK
           </button>
 
-          {/* Brand wordmark */}
-          <BrandLogo size="sm" />
+          <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground/40">
+            LOKI.EXE — RESULT
+          </span>
 
-          <button
-            onClick={handleCopy}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
+          <button onClick={handleCopy}
+            className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground/60 hover:text-orange-400 transition-colors uppercase tracking-widest">
             {copied
-              ? <><Check className="w-3.5 h-3.5 text-green-500" /><span className="text-green-500">Copied</span></>
-              : <><Copy className="w-3.5 h-3.5" />Copy</>}
+              ? <><Check className="w-3 h-3 text-green-500" /><span className="text-green-500">COPIED</span></>
+              : <><Copy className="w-3 h-3" />COPY</>}
           </button>
         </header>
 
-        {/* ── Main content ── */}
-        <main className="flex-1 w-full max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+        {/* ── Main ── */}
+        <main className="relative z-10 flex-1 w-full max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-4 font-mono">
 
-          {/* ── Project header card ── */}
-          <div className="rounded-xl border border-border bg-card px-5 py-4 flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-pink-600 flex items-center justify-center flex-shrink-0 shadow-md">
-              <Flame className="w-5 h-5 text-white" fill="currentColor" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h1 className="text-lg font-bold truncate">{roast.projectName}</h1>
-              <a
-                href={roast.projectUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors mt-0.5"
-              >
-                <ExternalLink className="w-3 h-3 flex-shrink-0" />
-                <span className="truncate">{domain}</span>
-              </a>
-              {roast.quickRoast && (
-                <p className="text-xs text-muted-foreground/70 mt-2 italic leading-relaxed line-clamp-2 border-l-2 border-primary/30 pl-3">
-                  {roast.quickRoast}
-                </p>
-              )}
+          {/* ── Project header ── */}
+          <div className="border border-border/50 bg-card/60 px-5 py-4"
+            style={{ boxShadow: "0 0 24px rgba(234,88,12,0.06)" }}>
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 flex items-center justify-center flex-shrink-0 bg-orange-500/10 border border-orange-500/20">
+                <Flame className="w-5 h-5 text-orange-500" fill="currentColor" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h1 className="text-base font-black uppercase tracking-tight text-foreground truncate">
+                  {roast.projectName}
+                </h1>
+                <a href={roast.projectUrl} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] text-orange-400/60 hover:text-orange-400 transition-colors mt-0.5">
+                  <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                  <span className="truncate">{domain}</span>
+                </a>
+                {roast.quickRoast && (
+                  <p className="text-xs text-muted-foreground/60 mt-2 italic leading-relaxed line-clamp-2 border-l-2 border-orange-500/30 pl-3">
+                    {roast.quickRoast}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* ── Terminal output card ── */}
-          <div className="rounded-xl overflow-hidden border border-border shadow-xl font-mono">
-            {/* title bar */}
-            <div className="flex items-center justify-between px-4 py-2.5 bg-muted border-b border-border">
+          {/* ── Terminal output ── */}
+          <div className="border border-border/50 overflow-hidden"
+            style={{ boxShadow: "0 0 32px rgba(234,88,12,0.08)" }}>
+
+            {/* Title bar */}
+            <div className="flex items-center justify-between px-4 py-2.5 bg-background/70 border-b border-border/40">
               <div className="flex gap-1.5">
-                <div className="w-3 h-3 rounded-full bg-primary/70" />
-                <div className="w-3 h-3 rounded-full bg-primary/40" />
-                <div className="w-3 h-3 rounded-full bg-primary/20" />
+                <div className="w-2.5 h-2.5 rounded-full bg-red-500/70" />
+                <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50" />
+                <div className="w-2.5 h-2.5 rounded-full bg-green-500/30" />
               </div>
-              {/* Brand in terminal title bar */}
-              <div className="flex items-center gap-1.5">
-                <svg width="13" height="13" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <defs>
-                    <linearGradient id="flameLgT" x1="0" y1="32" x2="32" y2="0" gradientUnits="userSpaceOnUse">
-                      <stop stopColor="#f97316" />
-                      <stop offset="1" stopColor="#ec4899" />
-                    </linearGradient>
-                  </defs>
-                  <path fill="url(#flameLgT)" d="M16 2C16 2 20 8 20 13c0 2.2-1.8 4-4 4s-4-1.8-4-4c0-1.5.5-2.8 1-4C9 12 7 16.5 7 21c0 5 4 9 9 9s9-4 9-9c0-6.5-5-13-9-19z" />
-                </svg>
-                <span className="text-xs font-mono font-semibold text-foreground/60">
-                  lokalhost<span className="text-muted-foreground/40">.club</span>
-                  <span className="text-muted-foreground/30 mx-1">—</span>
-                  <span className="text-muted-foreground/50 font-normal">{domain}</span>
-                </span>
-              </div>
-              <button
-                onClick={handleCopy}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
+              <span className="text-[10px] text-muted-foreground/40 uppercase tracking-widest">
+                ROAST OUTPUT — {domain}
+              </span>
+              <button onClick={handleCopy}
+                className="flex items-center gap-1 text-[10px] text-muted-foreground/40 hover:text-orange-400 transition-colors uppercase tracking-widest">
                 {copied
-                  ? <><Check className="w-3 h-3 text-primary" /><span className="text-primary text-[10px]">Copied</span></>
-                  : <><Copy className="w-3 h-3" /><span className="text-[10px]">Copy</span></>}
+                  ? <><Check className="w-3 h-3 text-green-500" /><span className="text-green-500">OK</span></>
+                  : <><Copy className="w-3 h-3" />COPY</>}
               </button>
             </div>
 
-            {/* body */}
-            <div className="bg-card px-5 py-5 min-h-[260px]">
-              {/* prompt */}
-              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mb-4 text-xs text-muted-foreground/50">
-                <span className="text-green-500/80 font-semibold">user</span>
-                <span className="opacity-40">@</span>
-                <span className="text-primary/70 font-semibold">lokalhost</span>
-                <span className="opacity-40">~$</span>
-                <span className="break-all text-foreground/40">
-                  roast --url <span className="text-primary/60">{roast.projectUrl}</span>
+            {/* Body */}
+            <div className="bg-card/40 px-5 py-5 min-h-[240px]">
+              {/* Prompt */}
+              <div className="flex flex-wrap items-center gap-x-1 gap-y-1 mb-4 text-[11px] text-muted-foreground/40">
+                <span className="text-green-500/70 font-bold">user</span>
+                <span className="opacity-30">@</span>
+                <span className="text-orange-400/60 font-bold">lokalhost</span>
+                <span className="opacity-30">~$</span>
+                <span className="break-all text-foreground/30">
+                  loki roast --url <span className="text-orange-400/50">{roast.projectUrl}</span>
                 </span>
               </div>
 
-              {/* status lines */}
-              <div className="mb-5 space-y-0.5 text-xs border-b border-border/50 pb-4">
-                {["Scraping via Jina Reader", "Sending to DeepSeek V3.2 Nitro", "Generating Pinoy Style roast output"].map(line => (
-                  <p key={line} className="text-muted-foreground/40">
-                    <span className="text-primary/50">▶</span> {line}…{" "}
-                    <span className="text-green-500/60">✓</span>
+              {/* Completed steps */}
+              <div className="mb-4 space-y-0.5 text-[11px] border-b border-border/30 pb-3">
+                {["Scraping via Jina Reader", "Routing to DeepSeek V3.2 Nitro", "Generating Pinoy Style output"].map(line => (
+                  <p key={line} className="text-muted-foreground/30">
+                    <span className="text-orange-500/50">▶</span> {line}{" "}
+                    <span className="text-green-500/50">✓</span>
                   </p>
                 ))}
               </div>
 
-              {/* typewriter output */}
-              <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+              {/* Typewriter roast */}
+              <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
                 {displayed}
                 {!done && (
-                  <span className="inline-block w-[8px] h-[1.1em] bg-primary ml-0.5 animate-pulse align-middle rounded-[1px]" />
+                  <span className="inline-block w-2 h-[1em] bg-orange-500 ml-0.5 animate-pulse align-middle" />
                 )}
               </div>
 
-              {/* done footer */}
+              {/* Done footer */}
               {done && (
-                <div className="mt-6 pt-3 border-t border-border/50">
-                  <p className="text-xs text-muted-foreground/40">
-                    <span className="text-green-500/70">✓</span> process exited with code{" "}
-                    <span className="text-destructive/70 font-bold">1</span> — roast complete
+                <div className="mt-6 pt-3 border-t border-border/30">
+                  <p className="text-[11px] text-muted-foreground/30 uppercase tracking-widest">
+                    <span className="text-green-500/60">✓</span> PROCESS EXITED CODE{" "}
+                    <span className="text-red-500/70 font-black">1</span> — ROAST COMPLETE
                   </p>
-                  <div className="h-px mt-2 bg-gradient-to-r from-primary/40 via-pink-500/20 to-transparent" />
+                  <div className="h-px mt-2"
+                    style={{ background: "linear-gradient(90deg, rgba(234,88,12,0.4), rgba(220,38,38,0.2), transparent)" }} />
                 </div>
               )}
               <div ref={bottomRef} />
             </div>
           </div>
 
-          {/* ── Layer 3: AI disclaimer + Report button ── */}
-          <div
-            className="rounded-xl border font-mono"
-            style={{
-              borderColor: "rgba(255,255,255,0.08)",
-              background: "rgba(255,255,255,0.02)",
-            }}
-          >
-            <div className="px-4 py-3 flex items-start justify-between gap-4">
-              <div className="flex items-start gap-2.5 min-w-0">
-                <AlertTriangle className="w-3.5 h-3.5 text-muted-foreground/50 flex-shrink-0 mt-0.5" strokeWidth={2} />
-                <p className="text-[11px] text-muted-foreground/60 leading-relaxed">
-                  <span className="font-semibold text-muted-foreground/80">AI-generated satirical feedback — not factual assessment.</span>{" "}
-                  This output was produced by an automated language model and does not represent the
-                  views of Lokalhost or its developers. For entertainment purposes only.{" "}
-                  <Link to="/terms#ai-content" className="text-primary/60 hover:text-primary transition-colors hover:underline">
-                    Terms · AI Disclaimer
-                  </Link>
-                </p>
-              </div>
-              <button
-                className="flex items-center gap-1 text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors flex-shrink-0 mt-0.5"
-                onClick={() => {
-                  window.location.href = `mailto:abuse@lokalhost.club?subject=${encodeURIComponent("Report Roast Output")}&body=${encodeURIComponent(`Reporting roast for: ${roast?.projectUrl ?? ""}\n\nReason: `)}`;  
-                }}
-                title="Report this output"
-              >
-                <Flag className="w-3 h-3" strokeWidth={2} />
-                Report
-              </button>
+          {/* ── Disclaimer ── */}
+          <div className="border border-border/30 bg-card/20 px-4 py-3 flex items-start justify-between gap-4">
+            <div className="flex items-start gap-2.5 min-w-0">
+              <AlertTriangle className="w-3.5 h-3.5 text-muted-foreground/30 flex-shrink-0 mt-0.5" strokeWidth={2} />
+              <p className="text-[11px] text-muted-foreground/40 leading-relaxed">
+                <span className="font-bold text-muted-foreground/60">AI-generated satire — not factual.</span>{" "}
+                For entertainment only.{" "}
+                <Link to="/terms#ai-content" className="text-orange-400/50 hover:text-orange-400 transition-colors hover:underline">
+                  Terms · AI Disclaimer
+                </Link>
+              </p>
             </div>
-          </div>
-
-          {/* ── Add to my projects banner ── */}
-          {done && user && !dismissedAddProject && !published && (
-            <div
-              className="rounded-xl overflow-hidden border font-mono"
-              style={{
-                borderColor: "rgba(249,115,22,0.25)",
-                background: "rgba(249,115,22,0.04)",
+            <button
+              className="flex items-center gap-1 text-[10px] text-muted-foreground/30 hover:text-muted-foreground transition-colors flex-shrink-0 mt-0.5 uppercase tracking-widest"
+              onClick={() => {
+                window.location.href = `mailto:abuse@lokalhost.club?subject=${encodeURIComponent("Report Roast Output")}&body=${encodeURIComponent(`Reporting roast for: ${roast?.projectUrl ?? ""}\n\nReason: `)}`;
               }}
             >
-              {/* CMD title bar */}
-              <div
-                className="flex items-center justify-between px-3 py-2 border-b"
-                style={{ borderColor: "rgba(249,115,22,0.15)", background: "rgba(249,115,22,0.06)" }}
-              >
+              <Flag className="w-3 h-3" strokeWidth={2} />
+              Report
+            </button>
+          </div>
+
+          {/* ── Add to projects banner ── */}
+          {done && user && !dismissedAddProject && !published && (
+            <div className="border border-orange-500/20 bg-orange-500/[0.03] overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-orange-500/10 bg-orange-500/[0.04]">
                 <div className="flex gap-1.5">
-                  <div className="w-2.5 h-2.5 rounded-full" style={{ background: "rgba(249,115,22,0.5)" }} />
-                  <div className="w-2.5 h-2.5 rounded-full" style={{ background: "rgba(249,115,22,0.3)" }} />
-                  <div className="w-2.5 h-2.5 rounded-full" style={{ background: "rgba(249,115,22,0.15)" }} />
+                  <div className="w-2 h-2 rounded-full bg-orange-500/50" />
+                  <div className="w-2 h-2 rounded-full bg-orange-500/30" />
+                  <div className="w-2 h-2 rounded-full bg-orange-500/15" />
                 </div>
-                <span className="text-[10px] text-orange-400/60">lokal-suggest — add-project</span>
-                <button
-                  onClick={() => setDismissedAddProject(true)}
-                  className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-                  aria-label="Dismiss"
-                >
+                <span className="text-[10px] text-orange-400/50 uppercase tracking-widest">SUGGEST — ADD PROJECT</span>
+                <button onClick={() => setDismissedAddProject(true)}
+                  className="text-muted-foreground/30 hover:text-muted-foreground transition-colors">
                   <X className="w-3 h-3" />
                 </button>
               </div>
-              {/* body */}
               <div className="px-4 py-3 flex items-center justify-between gap-4">
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold text-foreground/80">
-                    Add this to your projects?
-                  </p>
-                  <p className="text-[10px] text-muted-foreground/60 mt-0.5 truncate">
-                    $ add-project --url{" "}
-                    <span className="text-orange-400/70">{roast.projectUrl}</span>
+                  <p className="text-xs font-bold text-foreground/70 uppercase tracking-wide">Add this to your projects?</p>
+                  <p className="text-[10px] text-muted-foreground/40 mt-0.5 truncate">
+                    $ add-project --url <span className="text-orange-400/60">{roast.projectUrl}</span>
                   </p>
                 </div>
-                <Button
-                  size="sm"
-                  className="gap-1.5 flex-shrink-0 text-xs h-8 px-3"
-                  style={{
-                    background: "linear-gradient(135deg,#f97316,#ec4899)",
-                    border: "none",
-                    color: "#fff",
-                  }}
-                  onClick={() => {
-                    navigate("/projects", {
-                      state: {
-                        prefillProjectUrl: roast.projectUrl,
-                        prefillProjectName: roast.projectName,
-                      },
-                    });
-                  }}
+                <button
+                  className="flex items-center gap-1.5 px-3 h-8 text-xs font-bold text-white uppercase tracking-widest flex-shrink-0 transition-opacity hover:opacity-90"
+                  style={{ background: "linear-gradient(135deg,#ea580c,#dc2626)", boxShadow: "0 0 16px rgba(234,88,12,0.3)" }}
+                  onClick={() => navigate("/projects", {
+                    state: { prefillProjectUrl: roast.projectUrl, prefillProjectName: roast.projectName },
+                  })}
                 >
                   <FolderPlus className="w-3.5 h-3.5" />
-                  Add Project
-                </Button>
+                  ADD
+                </button>
               </div>
             </div>
           )}
@@ -814,39 +874,40 @@ export function RoastResult() {
           {done && (
             <div className="space-y-3 pb-10">
               <div className="grid grid-cols-2 gap-3">
-                <Button variant="outline" className="gap-2" onClick={goBack}>
-                  <RotateCcw className="w-4 h-4" />
-                  Roast Another
-                </Button>
-                <Button
-                  className="gap-2"
+                <button
+                  onClick={goBack}
+                  className="flex items-center justify-center gap-2 h-11 border border-border/50 text-xs font-black uppercase tracking-widest text-muted-foreground/70 hover:text-foreground hover:border-orange-500/30 transition-colors"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  ROAST ANOTHER
+                </button>
+                <button
                   onClick={handlePublish}
                   disabled={published || publishLoading}
+                  className="flex items-center justify-center gap-2 h-11 text-xs font-black uppercase tracking-widest text-white transition-opacity disabled:opacity-40"
+                  style={{ background: "linear-gradient(135deg,#ea580c,#dc2626)", boxShadow: "0 0 20px rgba(234,88,12,0.3)" }}
                 >
                   {published ? (
-                    <><Check className="w-4 h-4" />Published!</>
+                    <><Check className="w-3.5 h-3.5" />PUBLISHED!</>
                   ) : publishLoading ? (
-                    <><Zap className="w-4 h-4 animate-pulse" />Publishing…</>
+                    <><Zap className="w-3.5 h-3.5 animate-pulse" />PUBLISHING…</>
                   ) : (
-                    <><Share2 className="w-4 h-4" />Publish &amp; Share</>
+                    <><Share2 className="w-3.5 h-3.5" />PUBLISH &amp; SHARE</>
                   )}
-                </Button>
+                </button>
               </div>
 
               {publishError && (
-                <p className="text-xs text-destructive font-mono text-center">⚠ {publishError}</p>
+                <p className="text-xs text-red-500/70 font-mono text-center uppercase tracking-widest">⚠ {publishError}</p>
               )}
 
               {!user && (
-                <p className="text-center text-[11px] text-muted-foreground font-mono">
-                  <span className="text-primary">→</span>{" "}
-                  <button
-                    className="text-primary hover:underline"
-                    onClick={() => setShowAuthModal(true)}
-                  >
-                    Sign in
+                <p className="text-center text-[11px] text-muted-foreground/40 uppercase tracking-widest">
+                  <span className="text-orange-400">→</span>{" "}
+                  <button className="text-orange-400 hover:underline" onClick={() => setShowAuthModal(true)}>
+                    SIGN IN
                   </button>{" "}
-                  to publish to the Lokal feed
+                  TO PUBLISH TO THE LOKAL FEED
                 </p>
               )}
             </div>
