@@ -1719,20 +1719,34 @@ export function PostCard({
   const [showComments,      setShowComments]      = useState(false);
   const commentsFetchedRef = useRef(false);
 
+  const [commentsError, setCommentsError] = useState(false);
+
   // Lazy query — fires to load full comment thread
-  const [fetchComments, { loading: commentsLoading }] = useLazyQuery(GET_POST_COMMENTS, {
+  // NOTE: Apollo Client v4 removed onCompleted/onError from useLazyQuery options.
+  // We watch the result reactively via useEffect instead.
+  const [fetchComments, { loading: commentsLoading, data: commentsQueryData, error: commentsQueryError }] = useLazyQuery(GET_POST_COMMENTS, {
     fetchPolicy: "network-only",
-    onCompleted: (data) => {
-      const fetched: any[] = data?.post?.comments ?? [];
-      // Always replace with server data — even if empty, that IS the truth
-      setLocalComments(fetched.map(adaptFetchedComment));
-      // Update count to match actual top-level count from server
-      if (fetched.length > 0) setLocalCommentCount(fetched.length);
-    },
   });
 
-  function doFetchComments() {
+  useEffect(() => {
+    if (!commentsQueryData) return;
+    const fetched: any[] = (commentsQueryData as any)?.post?.comments ?? [];
+    setLocalComments(fetched.map(adaptFetchedComment));
+    if (fetched.length > 0) setLocalCommentCount(fetched.length);
     commentsFetchedRef.current = true;
+    setCommentsError(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commentsQueryData]);
+
+  useEffect(() => {
+    if (!commentsQueryError) return;
+    commentsFetchedRef.current = false;
+    setCommentsError(true);
+  }, [commentsQueryError]);
+
+  function doFetchComments() {
+    commentsFetchedRef.current = false;
+    setCommentsError(false);
     fetchComments({ variables: { postId: post.id, limit: 50, offset: 0 } });
   }
 
@@ -1843,6 +1857,7 @@ export function PostCard({
 
   function startReply(parentId: string, parentName: string, visualParentId?: string, topLevelId?: string) {
     setShowComments(true);
+    if (!commentsFetchedRef.current) doFetchComments();
     setReplyingTo({ id: parentId, name: parentName, visualParentId, topLevelId });
     setTimeout(() => replyInputRef.current?.focus(), 50);
   }
@@ -1899,7 +1914,6 @@ export function PostCard({
           )
         );
         // Re-fetch full comment thread so count + replies stay in sync for everyone
-        commentsFetchedRef.current = false;
         doFetchComments();
       }
     } catch {
@@ -2421,6 +2435,15 @@ export function PostCard({
               {/* Existing comments */}
               {commentsLoading && localComments.length === 0 && (
                 <div className="text-xs text-muted-foreground text-center py-2">Loading comments…</div>
+              )}
+              {commentsError && (
+                <div className="text-xs text-muted-foreground text-center py-2">
+                  Couldn't load comments.{" "}
+                  <button className="underline hover:text-foreground" onClick={doFetchComments}>Retry</button>
+                </div>
+              )}
+              {!commentsLoading && !commentsError && localComments.length === 0 && commentsFetchedRef.current && (
+                <div className="text-xs text-muted-foreground text-center py-2">No comments yet. Be the first!</div>
               )}
               {localComments.map((comment) => (
                 <CommentItem

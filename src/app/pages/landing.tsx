@@ -306,21 +306,6 @@ interface LiveRoast {
   author: { id: string; name: string; avatarUrl: string | null };
 }
 
-interface RoastCard { name: string; url: string; snippet: string; }
-
-const ROAST_CARDS: RoastCard[] = [
-  { name: "MyAwesomeApp", url: "https://myawesomeapp.com", snippet: "Design from 2005 called, it wants its gradients back." },
-  { name: "PinoyStartup", url: "https://pinoystartup.ph", snippet: "Too many fonts, too little sense. Pick a lane, pre!" },
-  { name: "TechBro SaaS", url: "https://techbrosaas.io", snippet: "Generic SaaS template #4729. Where's the personality?" },
-  { name: "SuperPortfolio", url: "https://superportfolio.dev", snippet: "Autoplay music in 2026? Brave but terrible choice." },
-  { name: "LokalShop PH", url: "https://lokalshop.ph", snippet: "Actually decent! May improvement pa pero goods na." },
-  { name: "BudgetBuddy", url: "https://budgetbuddy.app", snippet: "The UI is functional but the colors? Questionable." },
-  { name: "DevHub Manila", url: "https://devhubmanila.com", snippet: "Loading for 10 seconds? Users don't have all day, pre." },
-  { name: "CraftCafe PH", url: "https://craftcafe.ph", snippet: "Beautiful design, terrible UX. Beauty without brains." },
-  { name: "FreelancerHQ", url: "https://freelancerhq.ph", snippet: "Clean and functional. But where's the Filipino flavor?" },
-  { name: "AI Tutor PH", url: "https://aitutorph.com", snippet: "The chatbot has more personality than your landing page." },
-];
-
 function LiveMarqueeCard({ roast }: { roast: LiveRoast }) {
   const displayUrl = roast.projectUrl.replace(/^https?:\/\//, "");
   return (
@@ -344,32 +329,6 @@ function LiveMarqueeCard({ roast }: { roast: LiveRoast }) {
         {roast.author && (
           <p className="text-[9px] text-muted-foreground/50 mt-1.5 truncate">by {roast.author.name}</p>
         )}
-      </div>
-    </div>
-  );
-}
-
-function MarqueeCard({ card }: { card: RoastCard }) {
-  return (
-    <div className="flex-shrink-0 w-[280px] rounded-lg border border-border/60 overflow-hidden transition-all hover:scale-[1.02] hover:border-primary/30">
-      {/* >_ cmd header */}
-      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/40 bg-muted/30">
-        <span className="text-primary font-mono font-bold text-[10px]">&gt;_</span>
-        <span className="text-[9px] font-mono text-muted-foreground truncate">{card.url.replace(/^https?:\/\//, '')} has been roasted</span>
-      </div>
-      {/* Body */}
-      <div className="bg-card p-3 font-mono">
-        <a
-          href={card.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-semibold text-xs text-primary hover:underline truncate block mb-1.5"
-        >
-          {card.name}
-        </a>
-        <p className="text-xs text-muted-foreground leading-snug line-clamp-2">
-          <span className="text-primary/70">$ </span>{card.snippet}
-        </p>
       </div>
     </div>
   );
@@ -422,19 +381,13 @@ export function Landing() {
   const [email, setEmail] = useState("");
   const [joined, setJoined] = useState(false);
 
-  const { data: roastData } = useQuery<{ roasts: LiveRoast[] }>(GET_RECENT_ROASTS_LANDING, {
+  const { data: roastData, loading: roastsLoading } = useQuery<{ roasts: LiveRoast[] }>(GET_RECENT_ROASTS_LANDING, {
     fetchPolicy: "cache-and-network",
   });
 
   const liveRoasts = roastData?.roasts ?? [];
-  const useLive = liveRoasts.length >= 4;
-
-  const doubled = useLive
-    ? [...liveRoasts, ...liveRoasts]
-    : [...ROAST_CARDS, ...ROAST_CARDS];
-  const reversed = useLive
-    ? [...[...liveRoasts].reverse(), ...[...liveRoasts].reverse()]
-    : [...[...ROAST_CARDS].reverse(), ...[...ROAST_CARDS].reverse()];
+  const doubled = [...liveRoasts, ...liveRoasts];
+  const reversed = [...[...liveRoasts].reverse(), ...[...liveRoasts].reverse()];
 
   const handleRoast = () => {
     const url = projectUrl.trim();
@@ -594,24 +547,38 @@ export function Landing() {
           <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
             LIVE ROASTS &mdash; what Loki thinks of your projects
-            {useLive && <span className="ml-1 text-muted-foreground/50">({liveRoasts.length} roasted)</span>}
+            {liveRoasts.length > 0 && <span className="ml-1 text-muted-foreground/50">({liveRoasts.length} roasted)</span>}
           </p>
         </div>
 
-        <div className="relative overflow-hidden mb-3">
-          <div className="flex gap-3 animate-scroll-right" style={{ width: "max-content" }}>
-            {useLive
-              ? (doubled as LiveRoast[]).map((r, i) => <LiveMarqueeCard key={`r1-${i}`} roast={r} />)
-              : (doubled as RoastCard[]).map((c, i) => <MarqueeCard key={`r1-${i}`} card={c} />)}
+        {/* Empty state */}
+        {!roastsLoading && liveRoasts.length === 0 && (
+          <div className="max-w-6xl mx-auto px-4 sm:px-6">
+            <div className="flex flex-col items-center justify-center py-10 border border-dashed border-border/40 text-center gap-2">
+              <Flame className="w-7 h-7 text-primary/20" />
+              <p className="text-xs font-mono text-muted-foreground/50 uppercase tracking-widest">No roasts yet</p>
+              <p className="text-[11px] font-mono text-muted-foreground/40">
+                Be the first —{" "}
+                <a href="/roast" className="text-primary/60 hover:text-primary underline transition-colors">roast your project</a>
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="relative overflow-hidden">
-          <div className="flex gap-3 animate-scroll-left" style={{ width: "max-content" }}>
-            {useLive
-              ? (reversed as LiveRoast[]).map((r, i) => <LiveMarqueeCard key={`r2-${i}`} roast={r} />)
-              : (reversed as RoastCard[]).map((c, i) => <MarqueeCard key={`r2-${i}`} card={c} />)}
-          </div>
-        </div>
+        )}
+
+        {liveRoasts.length > 0 && (
+          <>
+            <div className="relative overflow-hidden mb-3">
+              <div className="flex gap-3 animate-scroll-right" style={{ width: "max-content" }}>
+                {doubled.map((r, i) => <LiveMarqueeCard key={`r1-${i}`} roast={r} />)}
+              </div>
+            </div>
+            <div className="relative overflow-hidden">
+              <div className="flex gap-3 animate-scroll-left" style={{ width: "max-content" }}>
+                {reversed.map((r, i) => <LiveMarqueeCard key={`r2-${i}`} roast={r} />)}
+              </div>
+            </div>
+          </>
+        )}
       </section>
 
       {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}

@@ -194,36 +194,6 @@ function RoastMarqueeCard({ roast }: { roast: RecentRoast }) {
   );
 }
 
-// ─── Static Fallback Cards (shown while loading or no data) ───────────────────
-
-const STATIC_ROASTS = [
-  { name: "MyAwesomeApp", snippet: "Design from 2005 called, it wants its gradients back." },
-  { name: "Filipino Startup", snippet: "Too many fonts, too little sense. Pick a lane!" },
-  { name: "TechBro SaaS", snippet: "Generic SaaS template #4729. Where's the personality?" },
-  { name: "Super Portfolio", snippet: "Autoplay music in 2026? Brave but terrible choice." },
-  { name: "LokalShop PH", snippet: "Actually decent! Still has room for improvement though." },
-  { name: "BudgetBuddy", snippet: "The UI is functional but the colors? Questionable." },
-  { name: "DevHub Manila", snippet: "Loading for 10 seconds? Users don't have all day." },
-  { name: "CraftCafe PH", snippet: "Beautiful design, terrible UX. Beauty without brains." },
-];
-
-function StaticMarqueeCard({ name, snippet }: typeof STATIC_ROASTS[0]) {
-  return (
-    <div className="flex-shrink-0 w-[260px] rounded-none border border-border/50 overflow-hidden bg-card/80 hover:border-orange-500/30 transition-colors">
-      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/40 bg-muted/20">
-        <span className="text-orange-500 font-mono font-bold text-[10px]">&gt;_</span>
-        <span className="text-[9px] font-mono text-muted-foreground truncate">{name.toLowerCase().replace(/\s+/g, '')} roasted</span>
-      </div>
-      <div className="p-3 font-mono">
-        <span className="font-semibold text-xs text-orange-400 truncate block mb-1.5">{name}</span>
-        <p className="text-xs text-muted-foreground leading-snug line-clamp-2">
-          <span className="text-orange-500/50">$ </span>{snippet}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 // ─── Animated Scramble Headline ──────────────────────────────────────────────
 
 const HEADLINE_SETS: [string, string, string?][] = [
@@ -358,10 +328,11 @@ export function Roast() {
   });
 
   const recentRoasts = recentData?.roasts ?? [];
+  const loading = !recentData;
 
-  const marqueeItems = recentRoasts.length >= 4 ? recentRoasts : null;
-  const rowOne = marqueeItems ? [...marqueeItems, ...marqueeItems] : [...STATIC_ROASTS, ...STATIC_ROASTS];
-  const rowTwo = marqueeItems ? [...[...marqueeItems].reverse(), ...[...marqueeItems].reverse()] : [...[...STATIC_ROASTS].reverse(), ...[...STATIC_ROASTS].reverse()];
+  // Duplicate for smooth infinite marquee (need enough items to fill viewport)
+  const rowOne = [...recentRoasts, ...recentRoasts];
+  const rowTwo = [...[...recentRoasts].reverse(), ...[...recentRoasts].reverse()];
 
   const handleRoast = () => {
     const url = projectUrl.trim();
@@ -497,23 +468,34 @@ export function Roast() {
           </div>
         </div>
 
-        {/* Row 1 – scrolls right */}
-        <div className="relative overflow-hidden">
-          <div className="flex gap-3 animate-scroll-right" style={{ width: "max-content" }}>
-            {marqueeItems
-              ? rowOne.map((r, i) => <RoastMarqueeCard key={`r1-${i}`} roast={r as RecentRoast} />)
-              : rowOne.map((r, i) => <StaticMarqueeCard key={`r1-${i}`} {...(r as typeof STATIC_ROASTS[0])} />)}
+        {/* Empty state */}
+        {!loading && recentRoasts.length === 0 && (
+          <div className="container mx-auto px-4">
+            <div className="max-w-4xl mx-auto flex flex-col items-center justify-center py-12 border border-dashed border-border/40 text-center gap-3">
+              <Flame className="w-8 h-8 text-orange-500/30" />
+              <p className="font-mono text-xs text-muted-foreground/50 uppercase tracking-widest">No roasts yet</p>
+              <p className="font-mono text-[11px] text-muted-foreground/40">Be the first to roast a project 🔥</p>
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Row 2 – scrolls left */}
-        <div className="relative overflow-hidden">
-          <div className="flex gap-3 animate-scroll-left" style={{ width: "max-content" }}>
-            {marqueeItems
-              ? rowTwo.map((r, i) => <RoastMarqueeCard key={`r2-${i}`} roast={r as RecentRoast} />)
-              : rowTwo.map((r, i) => <StaticMarqueeCard key={`r2-${i}`} {...(r as typeof STATIC_ROASTS[0])} />)}
+        {/* Row 1 – scrolls right (only when there's data) */}
+        {recentRoasts.length > 0 && (
+          <div className="relative overflow-hidden">
+            <div className="flex gap-3 animate-scroll-right" style={{ width: "max-content" }}>
+              {rowOne.map((r, i) => <RoastMarqueeCard key={`r1-${i}`} roast={r} />)}
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Row 2 – scrolls left (only when there's data) */}
+        {recentRoasts.length > 0 && (
+          <div className="relative overflow-hidden">
+            <div className="flex gap-3 animate-scroll-left" style={{ width: "max-content" }}>
+              {rowTwo.map((r, i) => <RoastMarqueeCard key={`r2-${i}`} roast={r} />)}
+            </div>
+          </div>
+        )}
       </section>
     </div>
   );

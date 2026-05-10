@@ -205,6 +205,11 @@ const GET_PINNED_POST = gql`
       roastReactionCount roastReactedByMe isPinnedToFeed createdAt
       author { id name displayName username avatarUrl isVerified rank { name } }
       tags { id name }
+      commentsPreview(limit: 3) {
+        id content likesCount likedByMe myReaction parentId mentions isEdited repliesCount createdAt
+        editHistory { id previousContent editedAt }
+        author { id name displayName username avatarUrl }
+      }
     }
   }
 `;

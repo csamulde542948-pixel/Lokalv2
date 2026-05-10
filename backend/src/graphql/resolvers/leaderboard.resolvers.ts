@@ -118,8 +118,8 @@ export const leaderboardResolvers = {
         having: { id: { _count: { gte: 1 } } },
       });
 
-      // Get project → author mapping
-      const projectIds = roastAggs.map((r: any) => r.projectId);
+      // Get project → author mapping (filter out nulls — roasts without a linked project)
+      const projectIds = roastAggs.map((r: any) => r.projectId).filter((id: any): id is string => id != null);
       const roastedProjects = projectIds.length > 0
         ? await prisma.project.findMany({
             where: { id: { in: projectIds } },
