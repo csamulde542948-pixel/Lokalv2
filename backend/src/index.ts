@@ -261,7 +261,7 @@ async function startServer() {
           FRONTEND_URL,
           "https://studio.apollographql.com",
           // Allow all Vercel preview deployments for this project
-          "https://lokalv2-git-staging-lokakhost.vercel.app",
+          "https://lokalv2-git-staging-lokalhost.vercel.app",
         ]
       : [FRONTEND_URL, "https://studio.apollographql.com"];
   app.use(
