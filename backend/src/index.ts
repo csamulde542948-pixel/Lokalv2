@@ -257,7 +257,12 @@ async function startServer() {
         "https://lokalv2.vercel.app",
       ]
     : IS_STAGING
-      ? [FRONTEND_URL, "https://studio.apollographql.com"] // Allow Studio in staging for debugging
+      ? [
+          FRONTEND_URL,
+          "https://studio.apollographql.com",
+          // Allow all Vercel preview deployments for this project
+          "https://lokalv2-git-staging-lokalhost.vercel.app",
+        ]
       : [FRONTEND_URL, "https://studio.apollographql.com"];
   app.use(
     cors({
@@ -265,6 +270,10 @@ async function startServer() {
         // Allow requests with no origin (server-to-server, curl, health checks)
         if (!origin) return callback(null, true);
         if (allowedOrigins.includes(origin)) return callback(null, true);
+        // Allow any Vercel preview deployment for this project in staging
+        if (IS_STAGING && /^https:\/\/lokalv2(-[a-z0-9]+)*\.vercel\.app$/.test(origin)) {
+          return callback(null, true);
+        }
         callback(new Error(`CORS: origin '${origin}' not allowed`));
       },
       credentials: true,
