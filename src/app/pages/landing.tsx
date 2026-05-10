@@ -2,6 +2,8 @@
 // Positioning: The uncensored dev social platform. Anti-Facebook. PH-first, global reach.
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router";
+import { gql } from "@apollo/client/core";
+import { useQuery } from "@apollo/client/react";
 import { BrandLogo } from "../components/brand-logo";
 import {
   Flame,
@@ -282,6 +284,28 @@ function TermCard({
 /*  ROAST MARQUEE                                                            */
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
+const GET_RECENT_ROASTS_LANDING = gql`
+  query GetRecentRoastsLanding {
+    roasts(limit: 20) {
+      id
+      quickRoast
+      projectName
+      projectUrl
+      createdAt
+      author { id name avatarUrl }
+    }
+  }
+`;
+
+interface LiveRoast {
+  id: string;
+  quickRoast: string;
+  projectName: string;
+  projectUrl: string;
+  createdAt: string;
+  author: { id: string; name: string; avatarUrl: string | null };
+}
+
 interface RoastCard { name: string; url: string; snippet: string; }
 
 const ROAST_CARDS: RoastCard[] = [
@@ -297,6 +321,33 @@ const ROAST_CARDS: RoastCard[] = [
   { name: "AI Tutor PH", url: "https://aitutorph.com", snippet: "The chatbot has more personality than your landing page." },
 ];
 
+function LiveMarqueeCard({ roast }: { roast: LiveRoast }) {
+  const displayUrl = roast.projectUrl.replace(/^https?:\/\//, "");
+  return (
+    <div className="flex-shrink-0 w-[280px] rounded-lg border border-border/60 overflow-hidden transition-all hover:scale-[1.02] hover:border-primary/30">
+      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/40 bg-muted/30">
+        <span className="text-primary font-mono font-bold text-[10px]">&gt;_</span>
+        <span className="text-[9px] font-mono text-muted-foreground truncate">{displayUrl} has been roasted</span>
+      </div>
+      <div className="bg-card p-3 font-mono">
+        <a
+          href={roast.projectUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-semibold text-xs text-primary hover:underline truncate block mb-1.5"
+        >
+          {roast.projectName}
+        </a>
+        <p className="text-xs text-muted-foreground leading-snug line-clamp-2">
+          <span className="text-primary/70">$ </span>{roast.quickRoast}
+        </p>
+        {roast.author && (
+          <p className="text-[9px] text-muted-foreground/50 mt-1.5 truncate">by {roast.author.name}</p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function MarqueeCard({ card }: { card: RoastCard }) {
   return (
@@ -370,8 +421,20 @@ export function Landing() {
   const [roastConsent, setRoastConsent] = useState(false);
   const [email, setEmail] = useState("");
   const [joined, setJoined] = useState(false);
-  const doubled = [...ROAST_CARDS, ...ROAST_CARDS];
-  const reversed = [...[...ROAST_CARDS].reverse(), ...[...ROAST_CARDS].reverse()];
+
+  const { data: roastData } = useQuery<{ roasts: LiveRoast[] }>(GET_RECENT_ROASTS_LANDING, {
+    fetchPolicy: "cache-and-network",
+  });
+
+  const liveRoasts = roastData?.roasts ?? [];
+  const useLive = liveRoasts.length >= 4;
+
+  const doubled = useLive
+    ? [...liveRoasts, ...liveRoasts]
+    : [...ROAST_CARDS, ...ROAST_CARDS];
+  const reversed = useLive
+    ? [...[...liveRoasts].reverse(), ...[...liveRoasts].reverse()]
+    : [...[...ROAST_CARDS].reverse(), ...[...ROAST_CARDS].reverse()];
 
   const handleRoast = () => {
     const url = projectUrl.trim();
@@ -531,17 +594,22 @@ export function Landing() {
           <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
             LIVE ROASTS &mdash; what Loki thinks of your projects
+            {useLive && <span className="ml-1 text-muted-foreground/50">({liveRoasts.length} roasted)</span>}
           </p>
         </div>
 
         <div className="relative overflow-hidden mb-3">
           <div className="flex gap-3 animate-scroll-right" style={{ width: "max-content" }}>
-            {doubled.map((c, i) => <MarqueeCard key={`r1-${i}`} card={c} />)}
+            {useLive
+              ? (doubled as LiveRoast[]).map((r, i) => <LiveMarqueeCard key={`r1-${i}`} roast={r} />)
+              : (doubled as RoastCard[]).map((c, i) => <MarqueeCard key={`r1-${i}`} card={c} />)}
           </div>
         </div>
         <div className="relative overflow-hidden">
           <div className="flex gap-3 animate-scroll-left" style={{ width: "max-content" }}>
-            {reversed.map((c, i) => <MarqueeCard key={`r2-${i}`} card={c} />)}
+            {useLive
+              ? (reversed as LiveRoast[]).map((r, i) => <LiveMarqueeCard key={`r2-${i}`} roast={r} />)
+              : (reversed as RoastCard[]).map((c, i) => <MarqueeCard key={`r2-${i}`} card={c} />)}
           </div>
         </div>
       </section>

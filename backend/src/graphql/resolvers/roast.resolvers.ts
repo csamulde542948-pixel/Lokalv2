@@ -359,6 +359,21 @@ export const roastResolvers = {
   },
 
   Roast: {
+    // DB model uses `reviewer` relation; typedef exposes `author`
+    author: (parent: any) => parent.reviewer,
+
+    // Not a DB column — derive from projectName
+    title: (parent: any) => parent.projectName ? `${parent.projectName} Got Roasted` : "Got Roasted",
+
+    // Nullable in DB but String! in typedef — fall back to empty string
+    projectUrl: (parent: any) => parent.projectUrl ?? "",
+    projectName: (parent: any) => parent.projectName ?? "",
+
+    // Not tracked on the Roast record itself — return sensible defaults
+    commentsCount: () => 0,
+    sharesCount: () => 0,
+    rankScore: () => null,
+
     likedByMe: async (
       parent: { id: string },
       _: unknown,
