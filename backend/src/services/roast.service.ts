@@ -88,6 +88,9 @@ interface FirecrawlScrapeResult {
 
 const FIRECRAWL_BROWSERS_PER_KEY = 2; // Firecrawl free/starter browser limit per account
 const FIRECRAWL_MAX_QUEUE = 8;        // global queue cap — reject beyond this
+// Max time a request may wait in the queue for a free Firecrawl slot.
+// Budget: httpServer.timeout=125s, Firecrawl=30s, DeepSeek=75s → only 20s left for queuing.
+const FIRECRAWL_QUEUE_TIMEOUT_MS = 18_000;
 
 class Semaphore {
   private running = 0;
@@ -98,17 +101,29 @@ class Semaphore {
   get available() { return this.max - this.running; }
   get queueLength() { return this.queue.length; }
 
-  tryAcquireOrQueue(maxQueue: number): Promise<void> | "rejected" {
+  tryAcquireOrQueue(maxQueue: number): { promise: Promise<void>; cancel: () => void } | "immediate" | "rejected" {
     if (this.running < this.max) {
       this.running++;
-      return Promise.resolve();
+      return "immediate";
     }
     if (this.queue.length >= maxQueue) {
       return "rejected";
     }
-    return new Promise<void>((resolve) => {
-      this.queue.push(resolve);
+    let resolve!: () => void;
+    const promise = new Promise<void>((res) => {
+      resolve = res;
+      this.queue.push(res);
     });
+    return {
+      promise,
+      cancel: () => this.cancelQueued(resolve),
+    };
+  }
+
+  /** Remove a resolve callback from the queue (used when a waiter times out). */
+  cancelQueued(resolve: () => void) {
+    const idx = this.queue.indexOf(resolve);
+    if (idx !== -1) this.queue.splice(idx, 1);
   }
 
   release() {
@@ -184,7 +199,31 @@ async function scrapeWithFirecrawl(url: string): Promise<FirecrawlScrapeResult> 
     );
   }
 
-  await acquired;
+  // ── Race the queue wait against a hard deadline ──────────────────────────
+  // If all slots are busy, `acquired` is a queued promise that resolves when a
+  // slot frees. We race it against a timeout so a queued request never sits long
+  // enough to hit the HTTP server's 125s connection timeout.
+  // Budget: 125s server − 30s Firecrawl − 75s DeepSeek = only ~20s for queuing.
+  if (acquired !== "immediate") {
+    let cancelTimeout: () => void = () => {};
+    const timeoutPromise = new Promise<"timeout">((resolve) => {
+      const id = setTimeout(() => resolve("timeout"), FIRECRAWL_QUEUE_TIMEOUT_MS);
+      cancelTimeout = () => clearTimeout(id);
+    });
+
+    const result = await Promise.race([
+      acquired.promise.then(() => "acquired" as const),
+      timeoutPromise,
+    ]);
+    cancelTimeout();
+
+    if (result === "timeout") {
+      acquired.cancel(); // remove our resolver so the freed slot goes to the next real waiter
+      throw new Error(
+        "Roast queue timed out — all scraping slots were busy. Please try again in a moment!"
+      );
+    }
+  }
 
   try {
     return await scrapeWithFirecrawlInner(url, slot.key);
