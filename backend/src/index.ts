@@ -230,16 +230,44 @@ async function startServer() {
       console.error("[GraphQL Error]", error);
       // In production & staging, mask internal errors to avoid leaking stack traces / DB details
       if (IS_DEPLOYED) {
-        const safeMessages = [
+        const msg = formattedError.message ?? "";
+
+        // Exact safe messages (auth, feature flags, etc.)
+        const safeExact = [
           "Unauthorized", "Forbidden", "Not found",
           "Forbidden: admin role required",
           "Cannot follow yourself",
           "Chat service is not configured",
           "Chat token generation failed",
         ];
-        const message = safeMessages.includes(formattedError.message ?? "")
-          ? formattedError.message
-          : "Internal server error";
+
+        // Prefix-based safe messages — user-facing errors from roast service,
+        // rate limiters, and other business logic that should reach the client.
+        const safePrefixes = [
+          "Rate limit exceeded",
+          "Too many roasts",
+          "Roast queue timed out",
+          "Firecrawl is currently at capacity",
+          "You already roasted this URL",
+          "No Firecrawl API keys",
+          "FIRECRAWL_API_KEY",
+          "OPENROUTER_API_KEY",
+          "DeepSeek returned empty content",
+          // URL validation / reachability errors
+          "That website appears to be down",
+          "We can't scrape that website",
+          "We couldn't access that website",
+          // SSRF / URL input validation
+          "Invalid URL",
+          "URL must use",
+          "Requests to",
+        ];
+
+        const isAllowed =
+          safeExact.includes(msg) ||
+          safePrefixes.some((prefix) => msg.startsWith(prefix));
+
+        const message = isAllowed ? msg : "Internal server error";
         return { message, locations: formattedError.locations, path: formattedError.path };
       }
       return formattedError;
