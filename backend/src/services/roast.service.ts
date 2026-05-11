@@ -327,6 +327,16 @@ async function scrapeWithFirecrawlInner(
 
   if (!attempt1.ok) {
     const errText = await attempt1.text().catch(() => attempt1.statusText);
+
+    // ── SCRAPE_ALL_ENGINES_FAILED (500) — URL is inaccessible to Firecrawl ──
+    // Causes: bot protection, login-required page, dead URL, Cloudflare block.
+    // Instead of hard-failing, fall through to DeepSeek with URL-only context
+    // so the user still gets a roast (based on URL/name) rather than an error.
+    if (attempt1.status === 500 && errText.includes("SCRAPE_ALL_ENGINES_FAILED")) {
+      console.warn(`[roast] Firecrawl SCRAPE_ALL_ENGINES_FAILED for ${url} — proceeding with URL-only context`);
+      return { markdown: "", screenshotUrl: null, metadata: {} };
+    }
+
     throw new Error(`Firecrawl scrape failed: ${attempt1.status} ${errText}`);
   }
 
