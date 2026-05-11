@@ -75,6 +75,45 @@ interface FirecrawlScrapeResult {
   metadata: FirecrawlMetadata;
 }
 
+// ─── Firecrawl concurrency limiter ───────────────────────────────────────────
+// Firecrawl's free/starter plan allows only 2 concurrent browser sessions.
+// This semaphore queues excess requests rather than letting them crash with 429.
+
+const FIRECRAWL_MAX_CONCURRENT = 2; // match your Firecrawl plan's browser limit
+const FIRECRAWL_MAX_QUEUE = 8;      // reject fast if too many are already waiting
+
+class Semaphore {
+  private running = 0;
+  private queue: Array<() => void> = [];
+
+  constructor(private readonly max: number) {}
+
+  /** Returns true if a slot was acquired immediately, false if queued/rejected. */
+  tryAcquireOrQueue(maxQueue: number): Promise<void> | "rejected" {
+    if (this.running < this.max) {
+      this.running++;
+      return Promise.resolve();
+    }
+    if (this.queue.length >= maxQueue) {
+      return "rejected";
+    }
+    return new Promise<void>((resolve) => {
+      this.queue.push(resolve);
+    });
+  }
+
+  release() {
+    const next = this.queue.shift();
+    if (next) {
+      next(); // hand the slot to the next waiter without decrementing
+    } else {
+      this.running--;
+    }
+  }
+}
+
+const firecrawlSemaphore = new Semaphore(FIRECRAWL_MAX_CONCURRENT);
+
 // ─── Step 1: Scrape with Firecrawl ───────────────────────────────────────────
 
 async function scrapeWithFirecrawl(url: string): Promise<FirecrawlScrapeResult> {
@@ -85,6 +124,27 @@ async function scrapeWithFirecrawl(url: string): Promise<FirecrawlScrapeResult> 
     throw new Error("FIRECRAWL_API_KEY is not configured in backend/.env");
   }
 
+  // ── Acquire a concurrency slot (queue if all 2 browsers are busy) ────────
+  const slot = firecrawlSemaphore.tryAcquireOrQueue(FIRECRAWL_MAX_QUEUE);
+  if (slot === "rejected") {
+    throw new Error(
+      "Too many roasts are being generated right now. Please try again in a moment!"
+    );
+  }
+  // Wait for a free slot (may resolve immediately or after a previous roast finishes)
+  await slot;
+
+  try {
+    return await scrapeWithFirecrawlInner(url, apiKey);
+  } finally {
+    firecrawlSemaphore.release();
+  }
+}
+
+async function scrapeWithFirecrawlInner(
+  url: string,
+  apiKey: string
+): Promise<FirecrawlScrapeResult> {
   // ── Attempt 1: markdown + screenshot (25s server-side cap) ──────────────
   const attempt1 = await fetch("https://api.firecrawl.dev/v1/scrape", {
     method: "POST",
@@ -101,6 +161,42 @@ async function scrapeWithFirecrawl(url: string): Promise<FirecrawlScrapeResult> 
     }),
     signal: AbortSignal.timeout(30_000),
   });
+
+  // ── 429 RATE_LIMIT → semaphore should prevent this, but handle defensively ──
+  // Firecrawl may also 429 for per-minute API rate limits, not just concurrency.
+  if (attempt1.status === 429) {
+    const retryAfterHeader = attempt1.headers.get("Retry-After");
+    const waitMs = retryAfterHeader ? parseInt(retryAfterHeader, 10) * 1000 : 5000;
+    console.warn(`[roast] Firecrawl 429 — waiting ${waitMs}ms then retrying once`);
+    await new Promise((r) => setTimeout(r, Math.min(waitMs, 15_000)));
+
+    const retry429 = await fetch("https://api.firecrawl.dev/v1/scrape", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ url, formats: ["markdown"], timeout: 20000 }),
+      signal: AbortSignal.timeout(25_000),
+    }).catch(() => null);
+
+    if (!retry429 || !retry429.ok) {
+      throw new Error(
+        "Firecrawl is currently at capacity. Please wait a moment and try again."
+      );
+    }
+
+    const data429 = (await retry429.json()) as {
+      success: boolean;
+      data?: { markdown?: string; metadata?: FirecrawlMetadata };
+    };
+    const d429 = data429.data ?? {};
+    return {
+      markdown: (d429.markdown ?? "").slice(0, 4500),
+      screenshotUrl: null,
+      metadata: d429.metadata ?? {},
+    };
+  }
 
   // ── 408 SCRAPE_TIMEOUT → retry with markdown-only (faster, no headless render) ──
   if (attempt1.status === 408) {
