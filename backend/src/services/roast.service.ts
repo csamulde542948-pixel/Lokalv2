@@ -75,12 +75,19 @@ interface FirecrawlScrapeResult {
   metadata: FirecrawlMetadata;
 }
 
-// ─── Firecrawl concurrency limiter ───────────────────────────────────────────
-// Firecrawl's free/starter plan allows only 2 concurrent browser sessions.
-// This semaphore queues excess requests rather than letting them crash with 429.
+// ─── Firecrawl key pool + concurrency limiter ────────────────────────────────
+// Each Firecrawl account allows 2 concurrent browser sessions.
+// We run a pool of N keys, each with its own Semaphore(2), giving us 2×N total
+// concurrent scrapes before any queuing kicks in.
+//
+// Env vars (set at least one):
+//   FIRECRAWL_API_KEY_1   — primary account key
+//   FIRECRAWL_API_KEY_2   — secondary account key (optional but recommended)
+//
+// Legacy fallback: FIRECRAWL_API_KEY is treated as key 1 if _1 is absent.
 
-const FIRECRAWL_MAX_CONCURRENT = 2; // match your Firecrawl plan's browser limit
-const FIRECRAWL_MAX_QUEUE = 8;      // reject fast if too many are already waiting
+const FIRECRAWL_BROWSERS_PER_KEY = 2; // Firecrawl free/starter browser limit per account
+const FIRECRAWL_MAX_QUEUE = 8;        // global queue cap — reject beyond this
 
 class Semaphore {
   private running = 0;
@@ -88,7 +95,9 @@ class Semaphore {
 
   constructor(private readonly max: number) {}
 
-  /** Returns true if a slot was acquired immediately, false if queued/rejected. */
+  get available() { return this.max - this.running; }
+  get queueLength() { return this.queue.length; }
+
   tryAcquireOrQueue(maxQueue: number): Promise<void> | "rejected" {
     if (this.running < this.max) {
       this.running++;
@@ -105,39 +114,82 @@ class Semaphore {
   release() {
     const next = this.queue.shift();
     if (next) {
-      next(); // hand the slot to the next waiter without decrementing
+      next();
     } else {
       this.running--;
     }
   }
 }
 
-const firecrawlSemaphore = new Semaphore(FIRECRAWL_MAX_CONCURRENT);
+interface FirecrawlKeySlot {
+  key: string;
+  semaphore: Semaphore;
+}
+
+function buildKeyPool(): FirecrawlKeySlot[] {
+  const pool: FirecrawlKeySlot[] = [];
+
+  // Support FIRECRAWL_API_KEY_1 … _N, plus legacy FIRECRAWL_API_KEY as fallback for key 1
+  const key1 = process.env.FIRECRAWL_API_KEY_1 ?? process.env.FIRECRAWL_API_KEY ?? "";
+  const key2 = process.env.FIRECRAWL_API_KEY_2 ?? "";
+
+  for (const key of [key1, key2]) {
+    if (key && !key.startsWith("fc-your")) {
+      pool.push({ key, semaphore: new Semaphore(FIRECRAWL_BROWSERS_PER_KEY) });
+    }
+  }
+
+  return pool;
+}
+
+// Built once at startup — survives for the lifetime of the process
+const firecrawlPool = buildKeyPool();
+
+/** Pick the key slot with the most available capacity (fewest queued waiters). */
+function pickSlot(): FirecrawlKeySlot | null {
+  if (firecrawlPool.length === 0) return null;
+  return firecrawlPool.reduce((best, slot) =>
+    slot.semaphore.available > best.semaphore.available ||
+    (slot.semaphore.available === best.semaphore.available &&
+      slot.semaphore.queueLength < best.semaphore.queueLength)
+      ? slot
+      : best
+  );
+}
 
 // ─── Step 1: Scrape with Firecrawl ───────────────────────────────────────────
 
 async function scrapeWithFirecrawl(url: string): Promise<FirecrawlScrapeResult> {
   await assertSafeExternalUrl(url);
 
-  const apiKey = process.env.FIRECRAWL_API_KEY;
-  if (!apiKey || apiKey.startsWith("fc-your")) {
-    throw new Error("FIRECRAWL_API_KEY is not configured in backend/.env");
+  if (firecrawlPool.length === 0) {
+    throw new Error(
+      "No Firecrawl API keys configured. Set FIRECRAWL_API_KEY_1 (and optionally FIRECRAWL_API_KEY_2) in environment variables."
+    );
   }
 
-  // ── Acquire a concurrency slot (queue if all 2 browsers are busy) ────────
-  const slot = firecrawlSemaphore.tryAcquireOrQueue(FIRECRAWL_MAX_QUEUE);
-  if (slot === "rejected") {
+  // ── Pick least-busy key slot ─────────────────────────────────────────────
+  const slot = pickSlot()!;
+  const totalQueued = firecrawlPool.reduce((n, s) => n + s.semaphore.queueLength, 0);
+  if (totalQueued >= FIRECRAWL_MAX_QUEUE) {
     throw new Error(
       "Too many roasts are being generated right now. Please try again in a moment!"
     );
   }
-  // Wait for a free slot (may resolve immediately or after a previous roast finishes)
-  await slot;
+
+  const acquired = slot.semaphore.tryAcquireOrQueue(FIRECRAWL_MAX_QUEUE);
+  if (acquired === "rejected") {
+    throw new Error(
+      "Too many roasts are being generated right now. Please try again in a moment!"
+    );
+  }
+
+  await acquired;
 
   try {
-    return await scrapeWithFirecrawlInner(url, apiKey);
+    return await scrapeWithFirecrawlInner(url, slot.key);
   } finally {
-    firecrawlSemaphore.release();
+    slot.semaphore.release();
   }
 }
 
