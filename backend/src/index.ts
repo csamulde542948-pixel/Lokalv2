@@ -261,6 +261,11 @@ async function startServer() {
           "Invalid URL",
           "URL must use",
           "Requests to",
+          // AbortSignal.timeout() throws a DOMException with this message
+          // (belt-and-suspenders — roast.service should already catch this)
+          "The operation was aborted",
+          // Generic Firecrawl network failures
+          "Firecrawl network error",
         ];
 
         const isAllowed =

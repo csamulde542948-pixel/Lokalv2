@@ -267,21 +267,54 @@ async function scrapeWithFirecrawlInner(
   apiKey: string
 ): Promise<FirecrawlScrapeResult> {
   // ── Attempt 1: markdown + screenshot (25s server-side cap) ──────────────
-  const attempt1 = await fetch("https://api.firecrawl.dev/v1/scrape", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      url,
-      formats: ["markdown", "screenshot"],
-      // 25 s gives slow/JS-heavy SPAs room to render while still leaving
-      // 70 s for DeepSeek in our 95 s total budget.
-      timeout: 25000,
-    }),
-    signal: AbortSignal.timeout(30_000),
-  });
+  // NOTE: AbortSignal.timeout() causes fetch() to THROW a TimeoutError (not
+  // return a 408 response) when the deadline fires. Must be wrapped in try-catch.
+  let attempt1: Response;
+  try {
+    attempt1 = await fetch("https://api.firecrawl.dev/v1/scrape", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url,
+        formats: ["markdown", "screenshot"],
+        timeout: 25000,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (err: any) {
+    // AbortSignal.timeout fired (TimeoutError / DOMException) or network failure
+    const isTimeout = err?.name === "TimeoutError" || err?.name === "AbortError";
+    if (isTimeout) {
+      console.warn(`[roast] Firecrawl attempt 1 network timeout — retrying markdown-only`);
+      const attempt2 = await fetch("https://api.firecrawl.dev/v1/scrape", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ url, formats: ["markdown"], timeout: 20000 }),
+        signal: AbortSignal.timeout(25_000),
+      }).catch(() => null);
+      if (!attempt2 || !attempt2.ok) {
+        console.warn("[roast] Firecrawl markdown-only retry also failed — proceeding with URL-only context");
+        return { markdown: "", screenshotUrl: null, metadata: {} };
+      }
+      const data2 = (await attempt2.json()) as {
+        success: boolean;
+        data?: { markdown?: string; metadata?: FirecrawlMetadata };
+      };
+      const d2 = data2.data ?? {};
+      return {
+        markdown: (d2.markdown ?? "").slice(0, 4500),
+        screenshotUrl: null,
+        metadata: d2.metadata ?? {},
+      };
+    }
+    throw new Error(`Firecrawl network error: ${err?.message ?? err}`);
+  }
 
   // ── 429 RATE_LIMIT → semaphore should prevent this, but handle defensively ──
   // Firecrawl may also 429 for per-minute API rate limits, not just concurrency.
