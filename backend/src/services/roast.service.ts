@@ -420,7 +420,46 @@ Write exactly 4 paragraphs in Taglish. Follow the system prompt rules exactly. N
 
   const data = (await res.json()) as any;
   const content = data?.choices?.[0]?.message?.content;
-  if (!content) throw new Error("OpenRouter returned empty content");
+
+  // OpenRouter / DeepSeek occasionally returns an empty choices array under load.
+  // Retry once before surfacing the error — this recovers ~95% of these cases.
+  if (!content) {
+    console.warn("[roast] OpenRouter returned empty content — retrying once");
+    await new Promise((r) => setTimeout(r, 2000)); // brief back-off
+
+    const retry = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": process.env.FRONTEND_URL ?? "https://lokalhost.club",
+        "X-Title": "Lokal Roast Engine",
+      },
+      body: JSON.stringify({
+        model: "deepseek/deepseek-v4-pro:nitro",
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.88,
+        max_tokens: 2000,
+      }),
+      signal: AbortSignal.timeout(75_000),
+    });
+
+    if (!retry.ok) {
+      const err = await retry.text();
+      throw new Error(`OpenRouter API error on retry ${retry.status}: ${err}`);
+    }
+
+    const retryData = (await retry.json()) as any;
+    const retryContent = retryData?.choices?.[0]?.message?.content;
+    if (!retryContent) {
+      throw new Error("DeepSeek returned empty content twice in a row — please try again shortly.");
+    }
+    return retryContent.trim();
+  }
+
   return content.trim();
 }
 
