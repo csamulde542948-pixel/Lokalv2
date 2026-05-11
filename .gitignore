@@ -47,3 +47,6 @@ backend/full-db-audit.mjs
 backend/railway-inspect.*
 backend/tmp_*
 backend/email-logo-trimmed.png
+
+# Infrastructure docs with real project refs — keep out of git
+guidelines/INFRASTRUCTURE_SETUP.md
