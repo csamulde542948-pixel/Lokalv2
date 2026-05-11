@@ -263,7 +263,7 @@ function ScrambleLine({
   const display = useScramble(text, trigger);
   return (
     <span className={`flex justify-center ${className ?? ""}`} style={style}>
-      <span className="whitespace-nowrap">{display}</span>
+      <span className="break-words text-center">{display}</span>
     </span>
   );
 }
@@ -284,23 +284,23 @@ function AnimatedHeadline() {
   const [line1, line2, line3] = HEADLINE_SETS[setIdx];
 
   return (
-    <h1 className="font-mono font-black uppercase leading-[1.08] tracking-tight mb-6 w-full">
+    <h1 className="font-mono font-black uppercase leading-[1.08] tracking-tight mb-4 sm:mb-6 w-full">
       <ScrambleLine
         text={line1}
         trigger={trigger}
-        className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl text-foreground drop-shadow-md"
+        className="text-2xl sm:text-4xl lg:text-6xl xl:text-7xl text-foreground drop-shadow-md"
       />
       <ScrambleLine
         text={line2}
         trigger={trigger}
-        className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl text-red-500 drop-shadow-lg"
+        className="text-2xl sm:text-4xl lg:text-6xl xl:text-7xl text-red-500 drop-shadow-lg"
         style={{ textShadow: "0 0 24px rgba(239,68,68,0.5)" }}
       />
       {line3 && (
         <ScrambleLine
           text={line3}
           trigger={trigger}
-          className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl text-orange-400 drop-shadow-lg"
+          className="text-2xl sm:text-4xl lg:text-6xl xl:text-7xl text-orange-400 drop-shadow-lg"
           style={{ textShadow: "0 0 24px rgba(251,146,60,0.55)" }}
         />
       )}
@@ -385,14 +385,14 @@ export function Roast() {
         <span className="absolute top-6 right-6 text-orange-500/40 font-mono text-xl leading-none select-none pointer-events-none z-[3]">+</span>
 
         {/* ── Hero content ── */}
-        <div className="relative z-[3] flex-1 flex flex-col items-center justify-center py-10 w-full px-6 max-w-5xl mx-auto">
+        <div className="relative z-[3] flex-1 flex flex-col items-center justify-center py-6 sm:py-10 w-full px-4 sm:px-6 max-w-5xl mx-auto">
 
           {/* Big animated scramble headline */}
           <AnimatedHeadline />
 
           {/* Static tagline */}
-          <p className="font-mono text-xs sm:text-sm text-muted-foreground/50 uppercase tracking-widest mb-8 leading-relaxed text-center">
-            WE ROAST STARTUPS,&nbsp; PORTFOLIOS,&nbsp; AT MGA DELUSIONAL FOUNDER.
+          <p className="font-mono text-[10px] sm:text-xs text-muted-foreground/50 uppercase tracking-wider sm:tracking-widest mb-5 sm:mb-8 leading-relaxed text-center px-2">
+            WE ROAST STARTUPS, PORTFOLIOS, AT MGA DELUSIONAL FOUNDER.
           </p>
 
           {/* ── URL Input row ── */}
@@ -404,16 +404,16 @@ export function Roast() {
                 value={projectUrl}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProjectUrl(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="flex-1 bg-transparent px-4 py-3.5 font-mono text-sm text-foreground placeholder:text-muted-foreground/35 outline-none min-w-0"
+                className="flex-1 bg-transparent px-3 sm:px-4 py-3.5 font-mono text-sm text-foreground placeholder:text-muted-foreground/35 outline-none min-w-0"
               />
               <button
                 onClick={handleRoast}
                 disabled={!projectUrl.trim()}
-                className="bg-orange-600 hover:bg-orange-500 active:bg-orange-700 disabled:opacity-30 disabled:cursor-not-allowed text-white font-mono font-bold text-xs sm:text-sm px-5 py-3.5 flex items-center gap-2 transition-colors whitespace-nowrap flex-shrink-0"
+                className="bg-orange-600 hover:bg-orange-500 active:bg-orange-700 disabled:opacity-30 disabled:cursor-not-allowed text-white font-mono font-bold text-xs sm:text-sm px-3 sm:px-5 py-3.5 flex items-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap flex-shrink-0"
                 style={{ boxShadow: "0 0 18px rgba(234,88,12,0.35)" }}
               >
                 <Flame className="w-4 h-4" strokeWidth={2} />
-                GET ROASTED
+                <span className="hidden sm:inline">GET ROASTED</span>
               </button>
             </div>
             <p className="text-[10px] font-mono text-muted-foreground/40 mt-2 text-left pl-1">
