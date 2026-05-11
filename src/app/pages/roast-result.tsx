@@ -507,9 +507,16 @@ export function RoastResult() {
       })
       .catch((err) => {
         const msg: string = err?.message ?? "";
-        if (msg.toLowerCase().includes("failed to fetch") || msg.toLowerCase().includes("network")) {
+        const msgLower = msg.toLowerCase();
+        const isNetworkErr =
+          msgLower.includes("failed to fetch") ||
+          msgLower.includes("load failed") ||       // Safari mobile
+          msgLower.includes("networkerror") ||
+          msgLower.includes("network request failed") ||
+          err?.networkError != null;                // Apollo NetworkError wrapper
+        if (isNetworkErr) {
           setMutationError("NETWORK");
-        } else if (msg.toLowerCase().includes("rate limit") || msg.toLowerCase().includes("too many")) {
+        } else if (msgLower.includes("rate limit") || msgLower.includes("too many")) {
           setMutationError(user ? "AUTH_LIMIT" : "FREE_LIMIT");
         } else {
           setMutationError(msg || "Something went wrong. Please try again.");
@@ -632,7 +639,7 @@ export function RoastResult() {
                     : isAuthLimit
                     ? "You've hit your 10 roasts per hour. Come back in a bit!"
                     : isNetwork
-                    ? "Could not reach the backend. Make sure the server is running on port 4000."
+                    ? "Couldn't reach the server — check your connection and try again."
                     : mutationError}
                 </p>
               </div>
