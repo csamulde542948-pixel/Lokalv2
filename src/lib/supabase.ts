@@ -44,7 +44,7 @@ function deleteRawCookie(name: string): void {
   document.cookie = `${encodeURIComponent(name)}=; path=/; max-age=0; SameSite=Lax`;
 }
 
-// PKCE code verifier keys go to sessionStorage — survives OAuth redirects
+// PKCE code verifier keys go to sessionStorage ï¿½ survives OAuth redirects
 // Session/token keys go to chunked cookies
 function isSessionStorageKey(key: string): boolean {
   return key.includes("-code-verifier") || key.includes("pkce");
