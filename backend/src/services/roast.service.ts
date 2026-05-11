@@ -360,22 +360,25 @@ async function scrapeWithFirecrawlInner(
 
     // ── SCRAPE_ALL_ENGINES_FAILED (500) ──────────────────────────────────────
     // Firecrawl's three engines all failed. Could mean:
-    //   (A) Site is UP but bot-protected (Cloudflare, hCaptcha, login wall)
-    //       → fall back to URL-only roast context
-    //   (B) Site is DEAD / 404 / DNS failure / not a real URL
-    //       → surface a clear user-facing error, don't generate a roast
+    //   (A) Site is DEAD / DNS failure / wrong URL
+    //       → tell the user to check their URL
+    //   (B) Site is UP but blocked (Cloudflare, bot protection, login wall)
+    //       → tell the user we can't scrape it (don't generate a context-free roast)
     //
-    // We distinguish these by firing our own lightweight HEAD request.
+    // We distinguish by firing our own lightweight HEAD request.
     if (attempt1.status === 500 && errText.includes("SCRAPE_ALL_ENGINES_FAILED")) {
       const reachable = await isUrlReachable(url);
       if (!reachable) {
         throw new Error(
-          "We couldn't access that website. It may be down, the URL might be wrong, or it may not be publicly accessible. Double-check the URL and try again."
+          "That website appears to be down or doesn't exist. Double-check the URL is correct and publicly accessible, then try again."
         );
       }
-      // Site is reachable but bot-protected — fall back to URL-only context
-      console.warn(`[roast] Firecrawl SCRAPE_ALL_ENGINES_FAILED for ${url} — site is up but bot-protected, proceeding with URL-only context`);
-      return { markdown: "", screenshotUrl: null, metadata: {} };
+      // Site is up but Firecrawl is blocked (Cloudflare, hCaptcha, login wall, etc.)
+      // Generating a roast with no page context would just be AI hallucination — don't do it.
+      console.warn(`[roast] Firecrawl SCRAPE_ALL_ENGINES_FAILED for ${url} — site is live but unscrapable (bot protection / auth wall)`);
+      throw new Error(
+        "We can't scrape that website — it's likely protected by Cloudflare, requires login, or blocks automated access. Try a publicly accessible landing page instead."
+      );
     }
 
     throw new Error(`Firecrawl scrape failed: ${attempt1.status} ${errText}`);
