@@ -34,3 +34,16 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+.vercel
+.env*.local
+
+# One-off backend DB migration / audit / debug scripts
+backend/add-*.mjs
+backend/apply-*.mjs
+backend/backfill-*.mjs
+backend/check-*.mjs
+backend/check-*.cjs
+backend/full-db-audit.mjs
+backend/railway-inspect.*
+backend/tmp_*
+backend/email-logo-trimmed.png
