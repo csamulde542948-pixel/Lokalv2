@@ -232,6 +232,36 @@ async function scrapeWithFirecrawl(url: string): Promise<FirecrawlScrapeResult> 
   }
 }
 
+// ── URL reachability check ────────────────────────────────────────────────────
+// Used to distinguish "bot-protected" from "dead URL" when Firecrawl 500s.
+// Sends a HEAD (fallback GET) directly from our server with a tight timeout.
+// Any HTTP response (even 4xx/5xx) means the server exists → reachable.
+// Connection errors / DNS failure / timeout → not reachable.
+async function isUrlReachable(url: string): Promise<boolean> {
+  const check = async (method: "HEAD" | "GET") => {
+    const res = await fetch(url, {
+      method,
+      // Follow redirects so e.g. http:// → https:// works
+      redirect: "follow",
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; LokalBot/1.0)" },
+      signal: AbortSignal.timeout(8_000),
+    });
+    // Any HTTP response (including 403, 404, 401) means the host exists
+    return res.status < 600;
+  };
+
+  try {
+    return await check("HEAD");
+  } catch {
+    // Some servers reject HEAD — fall back to GET
+    try {
+      return await check("GET");
+    } catch {
+      return false; // DNS failure, connection refused, timeout, etc.
+    }
+  }
+}
+
 async function scrapeWithFirecrawlInner(
   url: string,
   apiKey: string
@@ -328,12 +358,23 @@ async function scrapeWithFirecrawlInner(
   if (!attempt1.ok) {
     const errText = await attempt1.text().catch(() => attempt1.statusText);
 
-    // ── SCRAPE_ALL_ENGINES_FAILED (500) — URL is inaccessible to Firecrawl ──
-    // Causes: bot protection, login-required page, dead URL, Cloudflare block.
-    // Instead of hard-failing, fall through to DeepSeek with URL-only context
-    // so the user still gets a roast (based on URL/name) rather than an error.
+    // ── SCRAPE_ALL_ENGINES_FAILED (500) ──────────────────────────────────────
+    // Firecrawl's three engines all failed. Could mean:
+    //   (A) Site is UP but bot-protected (Cloudflare, hCaptcha, login wall)
+    //       → fall back to URL-only roast context
+    //   (B) Site is DEAD / 404 / DNS failure / not a real URL
+    //       → surface a clear user-facing error, don't generate a roast
+    //
+    // We distinguish these by firing our own lightweight HEAD request.
     if (attempt1.status === 500 && errText.includes("SCRAPE_ALL_ENGINES_FAILED")) {
-      console.warn(`[roast] Firecrawl SCRAPE_ALL_ENGINES_FAILED for ${url} — proceeding with URL-only context`);
+      const reachable = await isUrlReachable(url);
+      if (!reachable) {
+        throw new Error(
+          "We couldn't access that website. It may be down, the URL might be wrong, or it may not be publicly accessible. Double-check the URL and try again."
+        );
+      }
+      // Site is reachable but bot-protected — fall back to URL-only context
+      console.warn(`[roast] Firecrawl SCRAPE_ALL_ENGINES_FAILED for ${url} — site is up but bot-protected, proceeding with URL-only context`);
       return { markdown: "", screenshotUrl: null, metadata: {} };
     }
 
