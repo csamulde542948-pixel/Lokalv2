@@ -491,7 +491,9 @@ export function RoastResult() {
     if (!incoming?.projectUrl && !loadRoastFromSession()) navigate("/roast", { replace: true });
   }, [incoming, navigate]);
 
-  const runMutation = (url: string) => {
+  const runMutation = (rawUrl: string) => {
+    // Normalize: auto-prepend https:// if protocol is missing (common on mobile / share-sheet)
+    const url = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
     let name: string;
     try { name = new URL(url).hostname.replace(/^www\./, "").split(".")[0]; }
     catch { name = url; }

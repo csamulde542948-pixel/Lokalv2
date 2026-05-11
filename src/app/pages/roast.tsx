@@ -325,8 +325,11 @@ export function Roast() {
 
   // If url came in via query param, trigger immediately
   useEffect(() => {
-    const url = searchParams.get("url");
-    if (url) navigate("/roast/result", { state: { projectUrl: url }, replace: true });
+    let url = searchParams.get("url");
+    if (url) {
+      if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+      navigate("/roast/result", { state: { projectUrl: url }, replace: true });
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: recentData } = useQuery<{ roasts: RecentRoast[] }>(GET_RECENT_ROASTS, {
@@ -341,8 +344,10 @@ export function Roast() {
   const rowTwo = [...[...recentRoasts].reverse(), ...[...recentRoasts].reverse()];
 
   const handleRoast = () => {
-    const url = projectUrl.trim();
+    let url = projectUrl.trim();
     if (!url) return;
+    // Auto-prepend https:// if the user omitted the protocol (common on mobile)
+    if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
     if (!roastConsent) {
       triggerConsentShake();
       return;
