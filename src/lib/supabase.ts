@@ -2,27 +2,28 @@ import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./env";
 
 /**
- * Cookie-based session storage for Supabase.
+ * Hybrid storage adapter: sessionStorage for PKCE code verifier,
+ * chunked cookies for the session token.
  *
- * Why cookies over localStorage:
- * - SameSite=Lax blocks CSRF attacks (Strict would break OAuth redirects)
- * - Secure flag enforces HTTPS-only transmission
- * - Not accessible via browser extension localStorage APIs
+ * Why split:
+ * - PKCE code_verifier is written before OAuth redirect and read on callback.
+ *   sessionStorage survives same-origin top-level redirects reliably.
+ * - Session token uses chunked cookies (SameSite=Lax, Secure) so it's not
+ *   exposed to browser extension localStorage APIs and is CSRF-safe.
  *
- * Why chunked:
- * - Supabase session JSON (JWT + user metadata + Google profile) can exceed
- *   the 4096-byte cookie limit. We split into 3600-byte chunks so nothing
- *   gets silently truncated and sessions survive page reloads.
- *
- * Note: These are NOT httpOnly (JS SPA cannot set those â€” only a server can).
- * XSS protection comes from no user-controlled innerHTML and strict CSP.
+ * Note: cookies are NOT httpOnly (JS SPA limitation).
+ * XSS protection: no user-controlled innerHTML + CSP headers.
  */
-const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
-const CHUNK_SIZE = 3600;  // bytes per chunk (conservative, leaves room for cookie overhead)
+
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
+const CHUNK_SIZE = 3600;
 const MAX_CHUNKS = 10;
 
-function cookieOptions() {
-  const secure = typeof location !== "undefined" && location.protocol === "https:" ? "; Secure" : "";
+function cookieOptions(): string {
+  const secure =
+    typeof location !== "undefined" && location.protocol === "https:"
+      ? "; Secure"
+      : "";
   return `; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=Lax${secure}`;
 }
 
@@ -43,9 +44,20 @@ function deleteRawCookie(name: string): void {
   document.cookie = `${encodeURIComponent(name)}=; path=/; max-age=0; SameSite=Lax`;
 }
 
-const cookieStorage = {
+// PKCE code verifier keys go to sessionStorage — survives OAuth redirects
+// Session/token keys go to chunked cookies
+function isSessionStorageKey(key: string): boolean {
+  return key.includes("-code-verifier") || key.includes("pkce");
+}
+
+const hybridStorage = {
   getItem(key: string): string | null {
-    // Try reading as chunks first
+    if (isSessionStorageKey(key)) {
+      return typeof sessionStorage !== "undefined"
+        ? sessionStorage.getItem(key)
+        : null;
+    }
+    // Chunked cookie read
     let result = "";
     let found = false;
     for (let i = 0; i < MAX_CHUNKS; i++) {
@@ -55,17 +67,20 @@ const cookieStorage = {
       found = true;
     }
     if (found) return result;
-
-    // Fallback: single cookie (pre-chunking sessions or small values)
+    // Fallback: unchunked cookie (small values)
     return getRawCookie(key);
   },
 
   setItem(key: string, value: string): void {
-    // Clear old single cookie + old chunks
+    if (isSessionStorageKey(key)) {
+      if (typeof sessionStorage !== "undefined") {
+        sessionStorage.setItem(key, value);
+      }
+      return;
+    }
+    // Clear old cookies then write chunks
     deleteRawCookie(key);
     for (let i = 0; i < MAX_CHUNKS; i++) deleteRawCookie(`${key}.${i}`);
-
-    // Split value into chunks and store each
     let offset = 0;
     let chunk = 0;
     while (offset < value.length) {
@@ -76,6 +91,12 @@ const cookieStorage = {
   },
 
   removeItem(key: string): void {
+    if (isSessionStorageKey(key)) {
+      if (typeof sessionStorage !== "undefined") {
+        sessionStorage.removeItem(key);
+      }
+      return;
+    }
     deleteRawCookie(key);
     for (let i = 0; i < MAX_CHUNKS; i++) deleteRawCookie(`${key}.${i}`);
   },
@@ -86,6 +107,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
-    storage: cookieStorage,
+    flowType: "pkce",
+    storage: hybridStorage,
   },
 });
