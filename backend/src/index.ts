@@ -231,6 +231,12 @@ async function startServer() {
       // In production & staging, mask internal errors to avoid leaking stack traces / DB details
       if (IS_DEPLOYED) {
         const msg = formattedError.message ?? "";
+        const code = formattedError.extensions?.code ?? "";
+
+        // Always pass through any error explicitly tagged as user-facing
+        if (code === "RATE_LIMITED") {
+          return { message: msg, locations: formattedError.locations, path: formattedError.path, extensions: { code } };
+        }
 
         // Exact safe messages (auth, feature flags, etc.)
         const safeExact = [
@@ -245,6 +251,7 @@ async function startServer() {
         // rate limiters, and other business logic that should reach the client.
         const safePrefixes = [
           "Rate limit exceeded",
+          "Daily limit reached",
           "Too many roasts",
           "Roast queue timed out",
           "Firecrawl is currently at capacity",
