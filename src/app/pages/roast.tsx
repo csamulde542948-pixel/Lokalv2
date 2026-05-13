@@ -154,6 +154,18 @@ const GET_RECENT_ROASTS = gql`
   }
 `;
 
+const GET_ROAST_QUOTA = gql`
+  query GetRoastQuota {
+    roastQuota {
+      used
+      remaining
+      limit
+      resetsAt
+      isAnon
+    }
+  }
+`;
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface RecentRoast {
@@ -163,6 +175,60 @@ interface RecentRoast {
   projectUrl: string;
   createdAt: string;
   author: { id: string; name: string; avatarUrl: string | null };
+}
+
+interface RoastQuota {
+  used: number;
+  remaining: number;
+  limit: number;
+  resetsAt: string;
+  isAnon: boolean;
+}
+
+// ─── Quota Badge ──────────────────────────────────────────────────────────────
+
+function RoastQuotaBadge({ quota }: { quota: RoastQuota }) {
+  // Compute hours until reset
+  const secsLeft = Math.max(0, Math.ceil((new Date(quota.resetsAt).getTime() - Date.now()) / 1000));
+  const h = Math.floor(secsLeft / 3600);
+  const m = Math.floor((secsLeft % 3600) / 60);
+  const resetLabel = h > 0 ? `${h}h ${m}m` : `${m}m`;
+
+  const flames = Array.from({ length: quota.limit }, (_, i) => i < quota.remaining);
+
+  if (quota.remaining === 0) {
+    return (
+      <div className="flex items-center gap-2 font-mono text-[11px] text-orange-500/70 bg-orange-500/8 border border-orange-500/20 px-3 py-1.5 rounded-sm w-fit mx-auto">
+        <span className="text-orange-400">⚠</span>
+        <span>
+          Daily limit reached · resets in{" "}
+          <span className="text-orange-400 font-bold">{resetLabel}</span>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2.5 font-mono text-[11px] text-muted-foreground/60 w-fit mx-auto">
+      {/* Flame pip icons */}
+      <span className="flex items-center gap-0.5">
+        {flames.map((filled, i) => (
+          <Flame
+            key={i}
+            className={`w-3.5 h-3.5 transition-colors ${filled ? "text-orange-500" : "text-muted-foreground/20"}`}
+            strokeWidth={2}
+          />
+        ))}
+      </span>
+      <span>
+        <span className="text-orange-400 font-bold">{quota.remaining}</span>
+        {" / "}{quota.limit} roast{quota.limit !== 1 ? "s" : ""} left today
+        {quota.isAnon && (
+          <span className="text-muted-foreground/40"> · <Link to="/login" className="text-orange-400/80 hover:text-orange-400 hover:underline transition-colors">sign in</Link> for {3} per day</span>
+        )}
+      </span>
+    </div>
+  );
 }
 
 // ─── Marquee Card ─────────────────────────────────────────────────────────────────────────────
@@ -336,6 +402,10 @@ export function Roast() {
     fetchPolicy: "cache-and-network",
   });
 
+  const { data: quotaData, refetch: refetchQuota } = useQuery<{ roastQuota: RoastQuota }>(GET_ROAST_QUOTA, {
+    fetchPolicy: "network-only", // always fresh — counts change after each roast
+  });
+
   const recentRoasts = recentData?.roasts ?? [];
   const loading = !recentData;
 
@@ -352,6 +422,7 @@ export function Roast() {
       triggerConsentShake();
       return;
     }
+    refetchQuota(); // refresh quota count right before navigating
     navigate("/roast/result", { state: { projectUrl: url } });
   };
 
@@ -424,6 +495,13 @@ export function Roast() {
             <p className="text-[10px] font-mono text-muted-foreground/40 mt-2 text-left pl-1">
               Enter your landing page URL (e.g., your-sh*t.com)
             </p>
+
+            {/* Daily quota indicator */}
+            {quotaData?.roastQuota && (
+              <div className="mt-3">
+                <RoastQuotaBadge quota={quotaData.roastQuota} />
+              </div>
+            )}
 
             {/* Consent */}
             <div

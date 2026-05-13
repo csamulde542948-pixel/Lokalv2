@@ -2,7 +2,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { AvatarFrame } from "./avatar-frame";
 import { avatarSrc } from "../../lib/defaults";
 import { Skeleton } from "./ui/skeleton";
-import { User, Users, FolderKanban, BarChart3, Settings, Rocket, Flame, Trophy, Sparkles, Shield, Briefcase, Calendar } from "lucide-react";
+import { User, Users, FolderKanban, BarChart3, Settings, Flame, Trophy, Sparkles, Shield, Briefcase, Calendar } from "lucide-react";
 import { Link, useLocation } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useQuery } from "@apollo/client/react";
@@ -27,10 +27,10 @@ interface LeftSidebarProps {
 // Featured/Special navigation items
 const featuredItems = [
   {
-    icon: Rocket,
-    label: "Launchpad",
-    description: "Launch your projects",
-    path: "/launchpad",
+    icon: FolderKanban,
+    label: "Projects",
+    description: "Explore & ship projects",
+    path: "/projects",
     gradient: "from-blue-500 to-cyan-500",
     iconColor: "text-blue-500",
     bgColor: "bg-blue-500/10",

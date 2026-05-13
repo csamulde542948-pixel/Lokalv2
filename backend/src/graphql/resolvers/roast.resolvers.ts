@@ -4,12 +4,22 @@ import { generateAiRoast } from "../../services/roast.service";
 import { createNotification } from "../../lib/notifications";
 import { assertSafeExternalUrl } from "../../lib/ssrf";
 import {
-  roastRateLimiter,
-  ipRoastLimiter,
+  roastDailyLimiter,
+  ipRoastDailyLimiter,
   normalizeRoastUrl,
   roastUrlCache,
   perUserUrlLimiter,
 } from "../../lib/rateLimit";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** ISO-8601 timestamp of the next UTC midnight */
+function nextUtcMidnightIso(): string {
+  const now = new Date();
+  return new Date(Date.UTC(
+    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1
+  )).toISOString();
+}
 import {
   checkAndConsumeRoastToken,
   getRoastTokenStatus,
@@ -47,6 +57,25 @@ export const roastResolvers = {
       return getRoastTokenStatus(user.id, prisma);
     },
 
+    /**
+     * roastQuota — returns today's remaining roast generation quota.
+     * Works for both authenticated and anonymous callers.
+     * - Authenticated: 3/day, keyed on user ID
+     * - Anonymous:     1/day, keyed on public network IP (NAT router IP)
+     */
+    roastQuota: async (_: unknown, __: unknown, { user, clientIp }: GraphQLContext) => {
+      const resetsAt = nextUtcMidnightIso();
+      if (user) {
+        const limit = 3;
+        const used  = roastDailyLimiter.getCount(user.id);
+        return { used, remaining: Math.max(0, limit - used), limit, resetsAt, isAnon: false };
+      } else {
+        const limit = 1;
+        const used  = ipRoastDailyLimiter.getCount(clientIp);
+        return { used, remaining: Math.max(0, limit - used), limit, resetsAt, isAnon: true };
+      }
+    },
+
     roastReactors: async (_: unknown, { postId }: { postId: string }, { user, prisma }: GraphQLContext) => {
       if (!user) throw new Error("Unauthorized");
       const reactions = await prisma.roastReaction.findMany({
@@ -66,22 +95,26 @@ export const roastResolvers = {
      * Auth is NOT required to generate a roast — users can try the feature
      * before signing up. Auth IS required to publish/share via submitRoast.
      *
-     * Rate limits:
-     *   - Anonymous: 3 roasts per IP per hour (weaker key, lower quota)
-     *   - Authenticated: 10 roasts per user per hour (stronger key, higher quota)
+     * Rate limits (calendar-day, resets at UTC midnight):
+     *   - Anonymous : 1 roast per public network IP per day.
+     *                 Uses X-Forwarded-For[0] (the NAT router IP) so every device
+     *                 on the same WiFi/network shares a single daily quota.
+     *   - Authenticated: 3 roasts per user per day.
      */
     generateRoast: async (
       _: unknown,
       { input }: { input: { projectUrl: string; projectName: string } },
       { user, clientIp }: GraphQLContext
     ) => {
-      // Apply the appropriate rate limit based on auth state
+      // Apply the appropriate daily rate limit based on auth state
       if (user) {
-        // Authenticated: higher quota keyed on stable user ID
-        roastRateLimiter.check(user.id);
+        // Authenticated: 3 roasts per calendar day, keyed on stable user ID
+        roastDailyLimiter.check(user.id);
       } else {
-        // Anonymous: lower quota keyed on IP — still protects paid APIs
-        ipRoastLimiter.check(clientIp);
+        // Anonymous: 1 roast per calendar day, keyed on public network IP.
+        // X-Forwarded-For[0] is the NAT router IP — all devices on the same
+        // home/office network share one quota automatically.
+        ipRoastDailyLimiter.check(clientIp);
       }
 
       const { projectName } = input;

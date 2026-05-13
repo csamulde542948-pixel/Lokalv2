@@ -511,6 +511,46 @@ export function Projects() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Hero Banner */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-blue-500/5 to-cyan-500/10 border-b">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute -top-24 -right-24 w-96 h-96 bg-primary/10 rounded-full blur-3xl" />
+          <div className="absolute -bottom-12 -left-12 w-64 h-64 bg-cyan-500/10 rounded-full blur-2xl" />
+        </div>
+        <div className="container mx-auto px-4 py-10 relative z-10">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+            <div className="max-w-xl">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-9 h-9 rounded-xl bg-primary/15 flex items-center justify-center">
+                  <FolderKanban className="w-5 h-5 text-primary" strokeWidth={2} />
+                </div>
+                <span className="text-xs font-semibold uppercase tracking-widest text-primary">Projects</span>
+              </div>
+              <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-2">
+                What the community is building
+              </h1>
+              <p className="text-muted-foreground text-base leading-relaxed">
+                Discover open-source repos, personal projects, and shipped products from developers in the Lokal community.
+              </p>
+            </div>
+            {user && (
+              <button
+                onClick={() => setShowAddDialog(true)}
+                className="group flex-shrink-0 flex items-center gap-3 px-5 py-4 rounded-2xl border-2 border-dashed border-primary/40 bg-primary/5 hover:bg-primary/10 hover:border-primary/60 transition-all duration-200 text-left"
+              >
+                <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center group-hover:bg-primary/25 transition-colors">
+                  <Plus className="w-5 h-5 text-primary" strokeWidth={2.5} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-primary">Share your project</p>
+                  <p className="text-xs text-muted-foreground">Paste a URL — we'll fill in the rest</p>
+                </div>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
         <AlertDialogContent>
@@ -534,29 +574,40 @@ export function Projects() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Sticky Header */}
-      <div className="border-b bg-card sticky top-0 z-10">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                <FolderKanban className="w-5 h-5 text-primary" strokeWidth={2} />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold">Projects</h1>
-                <p className="text-sm text-muted-foreground">
-                  {loading ? "Loading…" : `${projects.length} projects found`}
-                </p>
-              </div>
+      {/* Sticky Filter Bar */}
+      <div className="border-b bg-card/95 backdrop-blur-sm sticky top-0 z-10">
+        <div className="container mx-auto px-4 py-3">
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" strokeWidth={2} />
+              <Input
+                placeholder="Search by name, description, or tech stack…"
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
+                className="pl-10"
+              />
             </div>
+            {!loading && (
+              <span className="text-xs text-muted-foreground hidden sm:block whitespace-nowrap">
+                {projects.length} project{projects.length !== 1 ? "s" : ""}
+              </span>
+            )}
 
             <Dialog open={showAddDialog} onOpenChange={handleDialogOpenChange}>
-              <DialogTrigger asChild>
-                <Button className="gap-2">
+              {!user && (
+                <DialogTrigger asChild>
+                  <Button className="gap-2 flex-shrink-0">
+                    <Plus className="w-4 h-4" strokeWidth={2} />
+                    Add Project
+                  </Button>
+                </DialogTrigger>
+              )}
+              {user && (
+                <Button className="gap-2 flex-shrink-0" onClick={() => setShowAddDialog(true)}>
                   <Plus className="w-4 h-4" strokeWidth={2} />
                   Add Project
                 </Button>
-              </DialogTrigger>
+              )}
               <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                 {/* ── Step 1: URL Input ── */}
                 {dialogStep === "url" && (
@@ -894,17 +945,8 @@ export function Projects() {
             </Dialog>
           </div>
 
-          {/* Search + Filters */}
-          <div className="mt-4 space-y-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" strokeWidth={2} />
-              <Input
-                placeholder="Search projects by name, description, or tech stack…"
-                value={searchInput}
-                onChange={e => setSearchInput(e.target.value)}
-                className="pl-10"
-              />
-            </div>
+          {/* Filter chips */}
+          <div className="mt-3 space-y-2">
             <div className="flex flex-wrap gap-2">
               {(["ALL", "FEATURED", "TRENDING", "GITHUB", "PERSONAL"] as FilterType[]).map(f => {
                 const icons: Record<FilterType, React.ReactNode> = {

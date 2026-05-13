@@ -367,6 +367,17 @@ export const typeDefs = gql`
     resetsAt:  DateTime!
   }
 
+  # Daily roast generation quota — works for both authed and anonymous callers.
+  # Anonymous callers are identified by their public network IP (NAT router),
+  # so all devices on the same network share one quota.
+  type RoastQuota {
+    used:      Int!   # roasts already generated today
+    remaining: Int!   # roasts still available today
+    limit:     Int!   # total daily allowance (1 for anon, 3 for authed)
+    resetsAt:  String! # ISO-8601 UTC timestamp of next midnight reset
+    isAnon:    Boolean! # true when the caller is not authenticated
+  }
+
   # Scraped project info from URL (Jina Reader + GitHub API + AI classification)
   type ScrapedProjectInfo {
     name: String!
@@ -732,6 +743,8 @@ export const typeDefs = gql`
     roast(id: ID!): Roast
     # Daily 🔥 Roast Token balance for the current user (requires auth)
     myRoastTokens: RoastTokenStatus!
+    # Daily roast generation quota (no auth required — anon uses network IP)
+    roastQuota: RoastQuota!
     # List of profiles who gave a 🔥 Roast React to a post (post author only)
     roastReactors(postId: ID!): [Profile!]!
 

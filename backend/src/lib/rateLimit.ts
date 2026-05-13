@@ -70,20 +70,116 @@ export class PerUserRateLimiter {
   }
 }
 
+// ─── Calendar-day Rate Limiter ────────────────────────────────────────────────
+
+/**
+ * Resets the counter at UTC midnight each day, so "N per day" means N requests
+ * from 00:00 to 23:59 UTC — not a rolling 24-hour window.
+ *
+ * For anonymous roast limits the key is the public network IP from
+ * X-Forwarded-For. Because most home/office networks use NAT, all devices
+ * behind the same router share one public IP, satisfying the requirement that
+ * "even different devices on the same network count as one user".
+ */
+export class DailyRateLimiter {
+  private readonly maxRequests: number;
+  private readonly action: string;
+  /** key → { date: "YYYY-MM-DD" (UTC), count: number } */
+  private readonly store = new Map<string, { date: string; count: number }>();
+
+  constructor(options: { maxRequests: number; action?: string }) {
+    this.maxRequests = options.maxRequests;
+    this.action = options.action ?? "this action";
+  }
+
+  private todayUtc(): string {
+    return new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+  }
+
+  check(key: string): void {
+    const today = this.todayUtc();
+    const entry = this.store.get(key);
+
+    // First request today — allow and record
+    if (!entry || entry.date !== today) {
+      this.store.set(key, { date: today, count: 1 });
+      return;
+    }
+
+    if (entry.count >= this.maxRequests) {
+      const now = new Date();
+      const midnight = new Date(Date.UTC(
+        now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1
+      ));
+      const secsLeft = Math.ceil((midnight.getTime() - now.getTime()) / 1000);
+      const h = Math.floor(secsLeft / 3600);
+      const m = Math.floor((secsLeft % 3600) / 60);
+      throw new Error(
+        `Daily limit reached for ${this.action}. Resets in ${h}h ${m}m (at UTC midnight).`
+      );
+    }
+
+    entry.count += 1;
+  }
+
+  /** How many requests this key has used today */
+  getCount(key: string): number {
+    const entry = this.store.get(key);
+    if (!entry || entry.date !== this.todayUtc()) return 0;
+    return entry.count;
+  }
+
+  /** How many requests this key still has left today */
+  getRemaining(key: string): number {
+    return Math.max(0, this.maxRequests - this.getCount(key));
+  }
+
+  /** Evict entries from past days to prevent unbounded memory growth */
+  prune(): void {
+    const today = this.todayUtc();
+    for (const [key, entry] of this.store.entries()) {
+      if (entry.date !== today) this.store.delete(key);
+    }
+  }
+}
+
 // ─── Shared limiters for expensive resolver operations ───────────────────────
 
-/** generateRoast (authenticated): max 10 per user per hour */
-export const roastRateLimiter = new PerUserRateLimiter({
-  windowMs: 60 * 60 * 1000,
-  maxRequests: 10,
+/**
+ * generateRoast (authenticated): 3 roasts per user per calendar day (UTC).
+ * Keyed on the stable Supabase user ID.
+ */
+export const roastDailyLimiter = new DailyRateLimiter({
+  maxRequests: 3,
   action: "AI roast generation",
 });
 
-/** generateRoast (anonymous): max 3 per IP per hour */
+/**
+ * generateRoast (anonymous): 1 roast per network IP per calendar day (UTC).
+ *
+ * Keyed on the public IP from X-Forwarded-For[0]. Because home/office networks
+ * use NAT, every device on the same router shares one public IP — so the limit
+ * is effectively per-network, not per-device, exactly as intended.
+ */
+export const ipRoastDailyLimiter = new DailyRateLimiter({
+  maxRequests: 1,
+  action: "anonymous AI roast generation",
+});
+
+// ── Keep old sliding-window limiters for non-roast uses ──────────────────────
+
+/** @deprecated Use roastDailyLimiter instead */
+export const roastRateLimiter = new PerUserRateLimiter({
+  windowMs: 60 * 60 * 1000,
+  maxRequests: 10,
+  action: "AI roast generation (legacy)",
+});
+
+/** @deprecated Use ipRoastDailyLimiter instead */
 export const ipRoastLimiter = new PerUserRateLimiter({
   windowMs: 60 * 60 * 1000,
   maxRequests: 3,
-  action: "anonymous AI roast generation",
+  action: "anonymous AI roast generation (legacy)",
 });
 
 /** scrapeProjectInfo: max 10 per user per 10 minutes */
@@ -105,6 +201,8 @@ export const searchRateLimiter = new PerUserRateLimiter({
 
 // Prune stale entries every 30 minutes to prevent memory leaks
 setInterval(() => {
+  roastDailyLimiter.prune();
+  ipRoastDailyLimiter.prune();
   roastRateLimiter.prune();
   ipRoastLimiter.prune();
   scrapeRateLimiter.prune();
