@@ -508,15 +508,22 @@ export function RoastResult() {
       .catch((err) => {
         const msg: string = err?.message ?? "";
         const msgLower = msg.toLowerCase();
+        // Apollo passes through GraphQLError extensions — check for RATE_LIMITED code too
+        const code: string = err?.graphQLErrors?.[0]?.extensions?.code ?? "";
         const isNetworkErr =
           msgLower.includes("failed to fetch") ||
           msgLower.includes("load failed") ||       // Safari mobile
           msgLower.includes("networkerror") ||
           msgLower.includes("network request failed") ||
           err?.networkError != null;                // Apollo NetworkError wrapper
+        const isRateLimitErr =
+          code === "RATE_LIMITED" ||
+          msgLower.includes("rate limit") ||
+          msgLower.includes("daily limit") ||
+          msgLower.includes("too many");
         if (isNetworkErr) {
           setMutationError("NETWORK");
-        } else if (msgLower.includes("rate limit") || msgLower.includes("too many")) {
+        } else if (isRateLimitErr) {
           setMutationError(user ? "AUTH_LIMIT" : "FREE_LIMIT");
         } else {
           setMutationError(msg || "Something went wrong. Please try again.");
@@ -635,9 +642,9 @@ export function RoastResult() {
                 </p>
                 <p className="text-xs text-muted-foreground/60 mt-1 leading-relaxed normal-case">
                   {isAnonLimit
-                    ? "You've used your 3 free roasts this hour. Sign in to get 10 roasts per hour."
+                    ? "You've used your 1 free roast for today. Sign in to get 3 roasts per day."
                     : isAuthLimit
-                    ? "You've hit your 10 roasts per hour. Come back in a bit!"
+                    ? "You've used all 3 roasts for today. Come back tomorrow!"
                     : isNetwork
                     ? "Couldn't reach the server — check your connection and try again."
                     : mutationError}

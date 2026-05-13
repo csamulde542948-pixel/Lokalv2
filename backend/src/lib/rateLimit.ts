@@ -11,6 +11,8 @@
  *   limiter.check(userId); // throws if over limit
  */
 
+import { GraphQLError } from "graphql";
+
 export interface PerUserRateLimiterOptions {
   /** Rolling window in milliseconds */
   windowMs: number;
@@ -47,8 +49,9 @@ export class PerUserRateLimiter {
     if (timestamps.length >= this.maxRequests) {
       const oldestInWindow = timestamps[0];
       const retryAfterSec = Math.ceil((oldestInWindow + this.windowMs - now) / 1000);
-      throw new Error(
-        `Rate limit exceeded for ${this.action}. Try again in ${retryAfterSec} second(s).`
+      throw new GraphQLError(
+        `Rate limit exceeded for ${this.action}. Try again in ${retryAfterSec} second(s).`,
+        { extensions: { code: "RATE_LIMITED" } }
       );
     }
 
@@ -114,8 +117,9 @@ export class DailyRateLimiter {
       const secsLeft = Math.ceil((midnight.getTime() - now.getTime()) / 1000);
       const h = Math.floor(secsLeft / 3600);
       const m = Math.floor((secsLeft % 3600) / 60);
-      throw new Error(
-        `Daily limit reached for ${this.action}. Resets in ${h}h ${m}m (at UTC midnight).`
+      throw new GraphQLError(
+        `Daily limit reached for ${this.action}. Resets in ${h}h ${m}m (at UTC midnight).`,
+        { extensions: { code: "RATE_LIMITED" } }
       );
     }
 
