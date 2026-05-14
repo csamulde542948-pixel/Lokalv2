@@ -18,4 +18,8 @@ logs/
 
 # OS
 .DS_Store
+
+# Google service account keys — NEVER commit these
+*service-account*.json
+risc-service-account.json
 Thumbs.db
