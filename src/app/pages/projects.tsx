@@ -69,6 +69,8 @@ import {
   Twitter,
   Linkedin,
   Youtube,
+  Rocket,
+  Zap,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useLocation } from "react-router";
@@ -641,15 +643,8 @@ export function Projects() {
               </div>
             </div>
 
-            {/* RIGHT: CTA block — project count on top, URL+button below — takes all remaining space */}
+            {/* RIGHT: CTA block — URL+button only */}
             <div className="flex flex-col items-end gap-2 flex-1 min-w-0">
-              {/* project count */}
-              {!loading && (
-                <span className="text-[11px] text-white/35 tabular-nums">
-                  {projects.length} project{projects.length !== 1 ? "s" : ""}
-                </span>
-              )}
-
               {/* URL input + Add Project — CTA pill, full width of right column */}
               {user && (
                 <div className="flex items-stretch w-full rounded-xl overflow-hidden border border-white/20 bg-white/10 backdrop-blur-md shadow-xl shadow-black/40 hover:border-white/30 focus-within:border-white/40 focus-within:bg-white/15 transition-all">
@@ -719,26 +714,39 @@ export function Projects() {
             </div>
           )}
 
-          {/* ── Row 3: Filter pills ── */}
-          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide pb-0.5">
-            {(["ALL", "TRENDING", "FEATURED", "GITHUB", "PERSONAL"] as FilterType[]).map(f => (
-              <button
-                key={f}
-                onClick={() => setActiveFilter(f)}
-                className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold uppercase tracking-wide border transition-all duration-150 ${
-                  activeFilter === f
-                    ? "bg-white text-black border-white"
-                    : "bg-white/10 text-white/70 border-white/20 hover:bg-white/20 hover:text-white"
-                }`}
-              >
-                {f === "ALL" ? "All" : f.replace("_", " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
-              </button>
-            ))}
-            <div className="h-4 w-px bg-white/20 mx-1 flex-shrink-0" />
+          {/* ── Row 3: Filter pills + Project count ── */}
+          <div className="flex items-center justify-between gap-3">
+            {/* Filter pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
+              {(["ALL", "TRENDING", "FEATURED", "GITHUB", "PERSONAL"] as FilterType[]).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setActiveFilter(f)}
+                  className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold uppercase tracking-wide border transition-all duration-150 ${
+                    activeFilter === f
+                      ? "bg-white text-black border-white"
+                      : "bg-white/10 text-white/70 border-white/20 hover:bg-white/20 hover:text-white"
+                  }`}
+                >
+                  {f === "ALL" ? "All" : f.replace("_", " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
+                </button>
+              ))}
+            </div>
+
+            {/* Project count badge - matches brand design style */}
             {!loading && (
-              <span className="text-[11px] text-white/40 whitespace-nowrap flex-shrink-0 md:hidden">
-                {projects.length} project{projects.length !== 1 ? "s" : ""}
-              </span>
+              <div className="live-counter-border inline-block rounded-full p-[1.5px] shadow-sm shadow-black/10">
+                <div className="inline-flex items-center gap-2 rounded-full bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground">
+                  <span className="relative flex items-center justify-center">
+                    <span className="absolute inset-[-3px] rounded-full bg-primary/20 icon-pulse-bg"></span>
+                    <Rocket className="h-3.5 w-3.5 text-primary fill-primary relative z-10" strokeWidth={2} />
+                  </span>
+                  <span>
+                    <span className="font-semibold text-foreground tabular-nums inline-block">{projects.length}</span>
+                    <span> project{projects.length !== 1 ? "s" : ""}</span>
+                  </span>
+                </div>
+              </div>
             )}
           </div>
         </div>

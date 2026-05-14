@@ -313,4 +313,35 @@
   .animate-fade-in {
     animation: fade-in 0.2s ease-out forwards;
   }
+
+  /* Project counter animations */
+  @keyframes border-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+
+  .live-counter-border {
+    position: relative;
+    background: linear-gradient(90deg, 
+      hsl(var(--primary) / 0.3), 
+      hsl(var(--primary) / 0.8), 
+      hsl(var(--primary) / 0.3)
+    );
+    background-size: 200% 100%;
+    animation: border-gradient 3s linear infinite;
+  }
+
+  @keyframes border-gradient {
+    0%, 100% { background-position: 0% 50%; }
+    50%      { background-position: 100% 50%; }
+  }
+
+  @keyframes icon-pulse {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.3); }
+  }
+
+  .icon-pulse-bg {
+    animation: icon-pulse 2s ease-in-out infinite;
+  }
 }
