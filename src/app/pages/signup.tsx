@@ -95,18 +95,30 @@ export function Signup() {
   };
 
   const handleGoogleSignup = async () => {
+    if (!agreeToTerms) {
+      toast.error("Please agree to the Terms of Service and Privacy Policy");
+      return;
+    }
     saveOAuthRedirect();
     const { error } = await signInWithGoogle();
     if (error) toast.error(error.message);
   };
 
   const handleGithubSignup = async () => {
+    if (!agreeToTerms) {
+      toast.error("Please agree to the Terms of Service and Privacy Policy");
+      return;
+    }
     saveOAuthRedirect();
     const { error } = await signInWithGithub();
     if (error) toast.error(error.message);
   };
 
   const handleWeb3Signup = async () => {
+    if (!agreeToTerms) {
+      toast.error("Please agree to the Terms of Service and Privacy Policy");
+      return;
+    }
     saveOAuthRedirect();
     setWeb3Loading(true);
     const { error } = await signInWithWeb3();
