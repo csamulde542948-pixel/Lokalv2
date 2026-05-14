@@ -1,4 +1,4 @@
-import { GraphQLContext } from "../context";
+﻿import { GraphQLContext } from "../context";
 import { awardXp, checkAndAwardRoles } from "../../services/xp";
 import { assertCanCreateProject } from "../../services/rankLimits";
 import { addActivityToFeed } from "../../lib/stream";
@@ -113,10 +113,10 @@ export const projectResolvers = {
       { url }: { url: string },
       { user }: GraphQLContext
     ) => {
-      // Require authentication — prevents unauthenticated server-side URL fetching (SSRF)
+      // Require authentication Ã¢â‚¬â€ prevents unauthenticated server-side URL fetching (SSRF)
       if (!user) throw new Error("Unauthorized");
 
-      // Medium #19: Per-user rate limit — max 10 scrapes per 10 minutes
+      // Medium #19: Per-user rate limit Ã¢â‚¬â€ max 10 scrapes per 10 minutes
       scrapeRateLimiter.check(user.id);
 
       // SSRF protection: validate URL before fetching
@@ -161,7 +161,7 @@ export const projectResolvers = {
       console.log('[CREATE PROJECT] Request received', { user, inputKeys: Object.keys(input) });
       if (!user) throw new Error("Unauthorized");
 
-      // ── Verify profile exists ──────────────────────────────────────────────
+      // Ã¢â€â‚¬Ã¢â€â‚¬ Verify profile exists Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
       console.log('[CREATE PROJECT] Looking up profile for user:', user.id);
       const profile = await prisma.profile.findUnique({
         where: { id: user.id },
@@ -171,7 +171,7 @@ export const projectResolvers = {
         throw new Error("Profile not found. Please complete onboarding first.");
       }
 
-      // ── Rank-based project slot check ──────────────────────────────────────
+      // Ã¢â€â‚¬Ã¢â€â‚¬ Rank-based project slot check Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
       // Throws with a descriptive message if the user has hit their rank limit.
       await assertCanCreateProject(user.id);
 
@@ -208,7 +208,7 @@ export const projectResolvers = {
             tags: { include: { tag: true } },
           },
         });
-      });
+      }, { timeout: 15000 });
 
       // Auto-capture screenshot in background (non-blocking)
       if (input.projectUrl) {
@@ -253,7 +253,7 @@ export const projectResolvers = {
       console.log('[UPDATE PROJECT] Updating project:', { id, authorId: existing.authorId, inputKeys: Object.keys(input) });
 
       return prisma.$transaction(async (tx: any) => {
-        // Medium #14: Whitelist — never spread raw input directly into Prisma
+        // Medium #14: Whitelist Ã¢â‚¬â€ never spread raw input directly into Prisma
         const allowed = [
           "name", "tagline", "description", "iconUrl", "bannerUrl",
           "projectUrl", "githubUrl", "twitterUrl", "linkedinUrl", "facebookUrl", "youtubeUrl",
@@ -340,7 +340,7 @@ export const projectResolvers = {
         });
       }
 
-      // Already liked — return project unchanged
+      // Already liked Ã¢â‚¬â€ return project unchanged
       return prisma.project.findUnique({
         where: { id: projectId },
         include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
@@ -367,7 +367,7 @@ export const projectResolvers = {
         });
       }
 
-      // No like existed — return project unchanged
+      // No like existed Ã¢â‚¬â€ return project unchanged
       return prisma.project.findUnique({
         where: { id: projectId },
         include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
@@ -398,7 +398,7 @@ export const projectResolvers = {
         });
       }
 
-      // Already starred — return project unchanged
+      // Already starred Ã¢â‚¬â€ return project unchanged
       return prisma.project.findUnique({
         where: { id: projectId },
         include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
@@ -425,7 +425,7 @@ export const projectResolvers = {
         });
       }
 
-      // No star existed — return project unchanged
+      // No star existed Ã¢â‚¬â€ return project unchanged
       return prisma.project.findUnique({
         where: { id: projectId },
         include: { author: { include: { rank: true } }, tags: { include: { tag: true } } },
