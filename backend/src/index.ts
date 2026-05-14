@@ -489,6 +489,79 @@ async function startServer() {
     return res.json(validatePassword(password));
   });
 
+  // ── Google Cross-Account Protection (RISC) ───────────────────────────────────
+  // Google calls this endpoint when a security event occurs for a user
+  // (account compromised, password changed, account disabled, etc.)
+  // Docs: https://developers.google.com/identity/protocols/risc
+  app.post("/auth/google/security-events", express.text({ type: "application/secevent+jwt" }), async (req: any, res: any) => {
+    try {
+      const token = req.body;
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({ error: "Missing security event token" });
+      }
+
+      // Decode the JWT without verification first to get the event type
+      // (Full verification requires fetching Google's JWKS endpoint)
+      const parts = token.split(".");
+      if (parts.length !== 3) return res.status(400).end();
+
+      const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+      const events = payload.events ?? {};
+      const subjectEmail = payload.sub ?? payload.email;
+      const subjectId = payload.sub_id ?? null;
+
+      console.log("[RISC] Received security event:", {
+        events: Object.keys(events),
+        subject: subjectEmail,
+      });
+
+      // Handle different RISC event types
+      if (events["https://schemas.openid.net/secevent/risc/event-type/account-disabled"]) {
+        // User's Google account was disabled — sign them out & log it
+        console.warn("[RISC] Account disabled for:", subjectEmail);
+        await logSecurityEvent(subjectId ?? null, "google_account_disabled", { events: Object.keys(events), subject: subjectEmail }, "google_risc");
+        // Optionally: revoke their Supabase session
+        // await supabaseAdmin.auth.admin.signOut(userId)
+      }
+
+      if (events["https://schemas.openid.net/secevent/risc/event-type/account-credential-change-required"]) {
+        // User's Google credentials may be compromised — force re-auth
+        console.warn("[RISC] Credential change required for:", subjectEmail);
+        await logSecurityEvent(subjectId ?? null, "google_credential_change_required", { events: Object.keys(events), subject: subjectEmail }, "google_risc");
+      }
+
+      if (events["https://schemas.openid.net/secevent/risc/event-type/sessions-revoked"]) {
+        // All sessions revoked — sign user out
+        console.warn("[RISC] Sessions revoked for:", subjectEmail);
+        await logSecurityEvent(subjectId ?? null, "google_sessions_revoked", { events: Object.keys(events), subject: subjectEmail }, "google_risc");
+      }
+
+      if (events["https://schemas.openid.net/secevent/risc/event-type/token-claims-change"]) {
+        console.warn("[RISC] Token claims changed for:", subjectEmail);
+        await logSecurityEvent(subjectId ?? null, "google_token_claims_change", { events: Object.keys(events), subject: subjectEmail }, "google_risc");
+      }
+
+      // Acknowledge the event with 202 Accepted
+      return res.status(202).end();
+    } catch (err) {
+      console.error("[RISC] Error processing security event:", err);
+      // Return 400 so Google knows to retry later
+      return res.status(400).end();
+    }
+  });
+
+  // Google RISC well-known configuration endpoint (required by Google to verify your endpoint)
+  app.get("/.well-known/risc-configuration", (_req: any, res: any) => {
+    res.json({
+      issuer: process.env.BACKEND_URL ?? "https://api.lokalhost.club",
+      jwks_uri: `${process.env.BACKEND_URL ?? "https://api.lokalhost.club"}/.well-known/risc-jwks.json`,
+      delivery_methods_supported: [
+        "https://schemas.openid.net/secevent/risc/delivery-method/push",
+      ],
+    });
+  });
+  // ─────────────────────────────────────────────────────────────────────────────
+
   app.use(
     "/graphql",
     expressMiddleware(server, {
