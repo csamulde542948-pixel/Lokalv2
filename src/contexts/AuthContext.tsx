@@ -43,7 +43,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Load initial session
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(({ data, error }) => {
+      console.log('[AUTH CONTEXT] Initial session loaded:', { 
+        hasSession: !!data.session, 
+        user: data.session?.user?.email,
+        error 
+      });
       setSession(data.session);
       setUser(data.session?.user ?? null);
       setLoading(false);
@@ -53,17 +58,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, newSession) => {
+      console.log('[AUTH CONTEXT] Auth state changed:', { 
+        event, 
+        hasSession: !!newSession, 
+        user: newSession?.user?.email 
+      });
       setSession(newSession);
       setUser(newSession?.user ?? null);
       setLoading(false);
 
       // Security: Auto-sign out if token was revoked
       if (event === "TOKEN_REFRESHED" && !newSession) {
+        console.log('[AUTH CONTEXT] Token refresh failed, signing out');
         supabase.auth.signOut();
       }
 
       // Security: Clear state on sign-out
       if (event === "SIGNED_OUT") {
+        console.log('[AUTH CONTEXT] User signed out');
         setSession(null);
         setUser(null);
       }
@@ -103,12 +115,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signInWithGoogle = useCallback(async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
+    console.log('[AUTH] Attempting Google sign-in, redirect URL:', `${window.location.origin}/auth/callback`);
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'select_account',
+        },
       },
     });
+    console.log('[AUTH] Google sign-in result:', { data, error });
     return { error };
   }, []);
 

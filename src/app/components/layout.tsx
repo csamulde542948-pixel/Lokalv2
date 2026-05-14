@@ -2,11 +2,11 @@ import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import { 
   HomeIcon as HomeSolid, 
   TrophyIcon as TrophySolid,
-  RocketLaunchIcon as RocketSolid,
   FireIcon as FireSolid,
-  UserIcon as UserSolid
+  UserIcon as UserSolid,
+  RocketLaunchIcon as RocketSolid,
 } from "@heroicons/react/24/solid";
-import { Search, Bell, MessageSquare, Menu, Code2, X, User, Users, FolderKanban, BarChart3, Settings, LogOut, Shield, Briefcase } from "lucide-react";
+import { Search, Bell, MessageSquare, Menu, Code2, X, User, Users, BarChart3, Settings, LogOut, Shield, Briefcase } from "lucide-react";
 import { BrandLogo } from "./brand-logo";
 import { AvatarFrame } from "./avatar-frame";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
@@ -118,7 +118,7 @@ export function Layout() {
   const menuItems = [
     { icon: User, label: "Your Profile", path: "/profile" },
     { icon: Users, label: "Friends", path: "/friends" },
-    { icon: FolderKanban, label: "Projects", path: "/projects" },
+    { icon: RocketSolid, label: "Projects", path: "/projects" },
     { icon: BarChart3, label: "Analytics", path: "/analytics" },
     { icon: Settings, label: "Settings", path: "/settings" },
   ];
@@ -255,9 +255,9 @@ export function Layout() {
                 <HomeSolid className="w-6 h-6" />
               </Link>
               <Link
-                to="/launchpad"
+                to="/projects"
                 className={`flex items-center justify-center w-24 h-16 border-b-[3px] transition-colors relative group ${
-                  isActive("/launchpad")
+                  isActive("/projects")
                     ? "border-primary text-primary"
                     : "border-transparent text-muted-foreground hover:bg-muted/50 rounded-lg"
                 }`}
@@ -408,20 +408,16 @@ export function Layout() {
                   <span className="text-sm">Home</span>
                 </Link>
                 <Link
-                  to="/launchpad"
+                  to="/projects"
                   onClick={() => setShowMobileMenu(false)}
                   className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
-                    isActive("/launchpad")
+                    isActive("/projects")
                       ? "bg-primary/10 text-primary font-medium"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   }`}
                 >
-                  {isActive("/launchpad") ? (
-                    <RocketSolid className="w-5 h-5" />
-                  ) : (
-                    <RocketSolid className="w-5 h-5" />
-                  )}
-                  <span className="text-sm">Launchpad</span>
+                  <RocketSolid className="w-5 h-5" />
+                  <span className="text-sm">Projects</span>
                 </Link>
                 <Link
                   to="/roast"
@@ -545,14 +541,14 @@ export function Layout() {
             <span className="text-[10px] font-medium">Home</span>
           </Link>
           <Link
-            to="/launchpad"
+            to="/projects"
             onClick={() => setShowMobileMenu(false)}
             className={`flex flex-col items-center justify-center flex-1 h-full gap-0.5 transition-colors ${
-              isActive("/launchpad") ? "text-primary" : "text-muted-foreground"
+              isActive("/projects") ? "text-primary" : "text-muted-foreground"
             }`}
           >
             <RocketSolid className="w-5 h-5" />
-            <span className="text-[10px] font-medium">Launch</span>
+            <span className="text-[10px] font-medium">Projects</span>
           </Link>
           <Link
             to="/roast"

@@ -25,8 +25,14 @@ export async function authMiddleware(
     if (token) {
       const user = await verifySupabaseToken(token);
       req.user = user;
+      if (user) {
+        console.log('[AUTH] User authenticated:', { id: user.id, email: user.email });
+      } else {
+        console.log('[AUTH] Token verification failed');
+      }
     } else {
       req.user = null;
+      console.log('[AUTH] No token provided');
     }
   } catch {
     req.user = null;

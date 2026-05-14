@@ -11,11 +11,6 @@ import { Skeleton } from "../components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
 } from "../components/ui/dialog";
 import {
   AlertDialog,
@@ -71,6 +66,9 @@ import {
   Upload,
   Trash2,
   MoreVertical,
+  Twitter,
+  Linkedin,
+  Youtube,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useLocation } from "react-router";
@@ -104,6 +102,7 @@ const GET_PROJECTS = gql`
       projectUrl
       githubUrl
       screenshotUrl
+      screenshots
     }
   }
 `;
@@ -129,8 +128,10 @@ const SCRAPE_PROJECT_INFO = gql`
       name
       tagline
       description
+      summary
       iconUrl
       bannerUrl
+      screenshots
       techStack
       category
       githubUrl
@@ -139,6 +140,11 @@ const SCRAPE_PROJECT_INFO = gql`
       githubForks
       githubLanguage
       githubTopics
+      brandColor
+      twitterUrl
+      linkedinUrl
+      facebookUrl
+      youtubeUrl
     }
   }
 `;
@@ -203,8 +209,14 @@ interface ProjectFormData {
   techStack: string;
   projectUrl: string;
   githubUrl: string;
+  twitterUrl: string;
+  linkedinUrl: string;
+  facebookUrl: string;
+  youtubeUrl: string;
   iconUrl: string;
   bannerUrl: string;
+  brandColor: string;
+  scrapedScreenshots: string[];
 }
 
 // File upload state (kept separate from form data)
@@ -220,7 +232,9 @@ const INITIAL_FORM: ProjectFormData = {
   name: "", tagline: "", description: "",
   type: "PERSONAL", category: "WEB_APP", visibility: "PUBLIC",
   techStack: "", projectUrl: "", githubUrl: "",
+  twitterUrl: "", linkedinUrl: "", facebookUrl: "", youtubeUrl: "", brandColor: "",
   iconUrl: "", bannerUrl: "",
+  scrapedScreenshots: [],
 };
 
 const INITIAL_UPLOADS: UploadFiles = {
@@ -237,6 +251,65 @@ const SCAN_MESSAGES = [
   "Almost there…",
 ];
 
+// ─── ASCII Fire Animation ─────────────────────────────────────────────────────
+const FIRE_CHARS_P = [" ", ".", ":", "^", "*", "x", "X", "$", "#", "M"];
+const FIRE_COLORS_P = [
+  "transparent", "#1a0000", "#3d0000", "#7a1000", "#b02000",
+  "#d44000", "#e86010", "#f09030", "#f8c050", "#fff8a0",
+];
+const CELL_PX_P = 9;
+
+function AsciiFireAnimation() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    let animId: number;
+    const resize = () => { canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight; };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas);
+    const tick = () => {
+      const W = canvas.width, H = canvas.height;
+      const COLS = Math.ceil(W / CELL_PX_P), ROWS = Math.ceil(H / CELL_PX_P);
+      if (!(tick as any).grid || (tick as any).cols !== COLS || (tick as any).rows !== ROWS) {
+        (tick as any).grid = Array.from({ length: ROWS }, () => new Uint8Array(COLS));
+        (tick as any).cols = COLS; (tick as any).rows = ROWS;
+      }
+      const grid: Uint8Array[] = (tick as any).grid;
+      for (let x = 0; x < COLS; x++) {
+        grid[ROWS - 1][x] = Math.random() < 0.92 ? Math.floor(Math.random() * 2) + 8 : Math.floor(Math.random() * 2);
+        if (ROWS > 1) grid[ROWS - 2][x] = Math.random() < 0.85 ? Math.floor(Math.random() * 2) + 7 : 0;
+        if (ROWS > 2) grid[ROWS - 3][x] = Math.random() < 0.70 ? Math.floor(Math.random() * 2) + 6 : 0;
+        if (ROWS > 3) grid[ROWS - 4][x] = Math.random() < 0.55 ? Math.floor(Math.random() * 2) + 5 : 0;
+      }
+      for (let y = 0; y < ROWS - 4; y++) {
+        for (let x = 0; x < COLS; x++) {
+          const below = grid[y + 1][x], left = grid[y + 1][(x - 1 + COLS) % COLS], right = grid[y + 1][(x + 1) % COLS];
+          grid[y][x] = Math.max(0, Math.round((below + left + right) / 3 - Math.random() * 0.25));
+        }
+      }
+      ctx.clearRect(0, 0, W, H);
+      ctx.font = `bold ${CELL_PX_P}px monospace`;
+      ctx.textBaseline = "top";
+      for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+          const val = grid[y][x];
+          if (val === 0) continue;
+          ctx.fillStyle = FIRE_COLORS_P[Math.min(val, FIRE_COLORS_P.length - 1)];
+          ctx.fillText(FIRE_CHARS_P[Math.min(val, FIRE_CHARS_P.length - 1)], x * CELL_PX_P, y * CELL_PX_P);
+        }
+      }
+      animId = requestAnimationFrame(tick);
+    };
+    animId = requestAnimationFrame(tick);
+    return () => { cancelAnimationFrame(animId); ro.disconnect(); };
+  }, []);
+  return <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-[1]" style={{ width: "100%", height: "100%" }} aria-hidden />;
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function Projects() {
@@ -247,10 +320,8 @@ export function Projects() {
   const [search, setSearch]                 = useState("");
   const [activeFilter, setActiveFilter]     = useState<FilterType>("ALL");
   const [activeCategory, setActiveCategory] = useState<CategoryType>("ALL");
-  const [showAddDialog, setShowAddDialog]   = useState(false);
+  const [showFormDialog, setShowFormDialog]  = useState(false);
 
-  // Dialog state
-  const [dialogStep, setDialogStep]         = useState<DialogStep>("url");
   const [urlInput, setUrlInput]             = useState("");
   const [formData, setFormData]             = useState<ProjectFormData>(INITIAL_FORM);
   const [uploads, setUploads]               = useState<UploadFiles>(INITIAL_UPLOADS);
@@ -266,18 +337,11 @@ export function Projects() {
   useEffect(() => {
     const state = location.state as { prefillProjectUrl?: string; prefillProjectName?: string } | null;
     if (!state?.prefillProjectUrl) return;
-    // Pre-fill the URL step and jump straight to the detail form
     const url = state.prefillProjectUrl;
     const name = state.prefillProjectName ?? "";
     setUrlInput(url);
-    setFormData(f => ({
-      ...f,
-      projectUrl: url,
-      name: name,
-    }));
-    setDialogStep("url");
-    setShowAddDialog(true);
-    // Clear the navigation state so refreshing doesn't re-open the dialog
+    setFormData(f => ({ ...f, projectUrl: url, name }));
+    // URL bar is always visible; just prefill it (form opens after scan)
     window.history.replaceState({}, "", location.pathname);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -333,12 +397,11 @@ export function Projects() {
     return () => { if (scanTimerRef.current) clearInterval(scanTimerRef.current); };
   }, [scanning]);
 
-  const resetDialog = useCallback(() => {
-    setDialogStep("url");
+  const resetAddPanel = useCallback(() => {
+    setShowFormDialog(false);
     setUrlInput("");
     setFormData(INITIAL_FORM);
     setUploads(prev => {
-      // Revoke object URLs to avoid memory leaks
       if (prev.iconPreview) URL.revokeObjectURL(prev.iconPreview);
       if (prev.bannerPreview) URL.revokeObjectURL(prev.bannerPreview);
       prev.screenshotFiles.forEach(s => URL.revokeObjectURL(s.preview));
@@ -348,11 +411,6 @@ export function Projects() {
     setScanMsgIdx(0);
     setUploadProgress(null);
   }, []);
-
-  const handleDialogOpenChange = useCallback((open: boolean) => {
-    setShowAddDialog(open);
-    if (!open) resetDialog();
-  }, [resetDialog]);
 
   // ─── File Upload Helpers ──────────────────────────────────────────────────
 
@@ -403,24 +461,46 @@ export function Projects() {
     });
   }
 
-  const handleScan = useCallback(async () => {
-    const trimmedUrl = urlInput.trim();
-    if (!trimmedUrl) return;
+  function removeScrapedScreenshot(idx: number) {
+    setFormData(prev => ({
+      ...prev,
+      scrapedScreenshots: prev.scrapedScreenshots.filter((_, i) => i !== idx),
+    }));
+  }
 
-    // Basic URL validation
-    if (!/^https?:\/\/.+/i.test(trimmedUrl)) {
-      setScanError("Please enter a valid URL starting with http:// or https://");
+  /** Normalize a raw URL string — adds https:// if missing, handles www. bare input */
+  function normalizeUrl(raw: string): string {
+    let url = raw.trim();
+    if (!url) return url;
+    // If it already has a protocol, leave it alone
+    if (/^https?:\/\//i.test(url)) return url;
+    // Handle //domain.com style
+    if (url.startsWith("//")) return "https:" + url;
+    // Bare www. or any hostname — prepend https://
+    return "https://" + url;
+  }
+
+  const handleScan = useCallback(async () => {
+    if (!user) { setScanError("You must be logged in to add a project."); return; }
+    const normalized = normalizeUrl(urlInput);
+    if (!normalized) return;
+    // Sync the input so the user sees the cleaned value
+    setUrlInput(normalized);
+
+    // Basic URL validation after normalization
+    try { new URL(normalized); } catch {
+      setScanError("That doesn't look like a valid URL. Try: github.com/user/repo or myproject.com");
       return;
     }
 
     setScanError(null);
     try {
-      const { data: result } = await scrapeProject({ variables: { url: trimmedUrl } });
+      const { data: result } = await scrapeProject({ variables: { url: normalized } });
       const info = result?.scrapeProjectInfo;
       if (!info) throw new Error("No data returned");
 
       // Detect type
-      const isGithub = info.isGithubRepo || trimmedUrl.includes("github.com");
+      const isGithub = info.isGithubRepo || normalized.includes("github.com");
 
       setFormData({
         name: info.name || "",
@@ -430,21 +510,27 @@ export function Projects() {
         category: info.category || "OTHER",
         visibility: "PUBLIC",
         techStack: info.techStack?.join(", ") || "",
-        projectUrl: trimmedUrl,
-        githubUrl: info.githubUrl || (isGithub ? trimmedUrl : ""),
+        projectUrl: normalized,
+        githubUrl: info.githubUrl || (isGithub ? normalized : ""),
+        twitterUrl: info.twitterUrl || "",
+        linkedinUrl: info.linkedinUrl || "",
+        facebookUrl: info.facebookUrl || "",
+        youtubeUrl: info.youtubeUrl || "",
+        brandColor: info.brandColor || "",
         iconUrl: info.iconUrl || "",
-        bannerUrl: info.bannerUrl || "",
+        bannerUrl: info.bannerUrl || (info.screenshots?.[0] || ""),
+        scrapedScreenshots: Array.isArray(info.screenshots) ? info.screenshots : [],
       });
-      setDialogStep("form");
+      setShowFormDialog(true);
     } catch (err: any) {
       setScanError(err?.message || "Failed to scan URL. You can add the project manually.");
     }
-  }, [urlInput, scrapeProject]);
+  }, [urlInput, scrapeProject, user]);
 
   const handleGoManual = useCallback(() => {
-    setFormData({ ...INITIAL_FORM, projectUrl: urlInput.trim() });
+    setFormData({ ...INITIAL_FORM, projectUrl: normalizeUrl(urlInput) });
     setScanError(null);
-    setDialogStep("form");
+    setShowFormDialog(true);
   }, [urlInput]);
 
   const handleAddProject = useCallback(async () => {
@@ -474,6 +560,12 @@ export function Projects() {
         );
       }
 
+      // Combine AI-scraped screenshots with manually uploaded ones
+      const allScreenshots = [
+        ...formData.scrapedScreenshots, // AI-crawled screenshots (already URLs)
+        ...screenshotUrls,              // Manually uploaded screenshots (newly uploaded URLs)
+      ].filter(Boolean);
+
       setUploadProgress("Creating project…");
       await createProject({
         variables: {
@@ -487,13 +579,17 @@ export function Projects() {
             tags: formData.techStack.split(",").map(t => t.trim()).filter(Boolean),
             projectUrl: formData.projectUrl || undefined,
             githubUrl: formData.githubUrl || undefined,
+            twitterUrl: formData.twitterUrl || undefined,
+            linkedinUrl: formData.linkedinUrl || undefined,
+            facebookUrl: formData.facebookUrl || undefined,
+            youtubeUrl: formData.youtubeUrl || undefined,
             iconUrl,
             bannerUrl,
-            screenshots: screenshotUrls.length > 0 ? screenshotUrls : undefined,
+            screenshots: allScreenshots.length > 0 ? allScreenshots : undefined,
           },
         },
       });
-      handleDialogOpenChange(false);
+      resetAddPanel();
       toast.success("Project submitted!", { description: "Your project is now live on Lokal." });
     } catch (err: any) {
       const msg: string = err?.message ?? "";
@@ -507,49 +603,545 @@ export function Projects() {
         toast.error("Failed to create project", { description: msg || "Something went wrong. Please try again." });
       }
     } finally { setUploadProgress(null); }
-  }, [formData, uploads, createProject, handleDialogOpenChange]);
+  }, [formData, uploads, createProject, resetAddPanel]);
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Hero Banner */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-blue-500/5 to-cyan-500/10 border-b">
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute -top-24 -right-24 w-96 h-96 bg-primary/10 rounded-full blur-3xl" />
-          <div className="absolute -bottom-12 -left-12 w-64 h-64 bg-cyan-500/10 rounded-full blur-2xl" />
-        </div>
-        <div className="container mx-auto px-4 py-10 relative z-10">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-            <div className="max-w-xl">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-9 h-9 rounded-xl bg-primary/15 flex items-center justify-center">
-                  <FolderKanban className="w-5 h-5 text-primary" strokeWidth={2} />
-                </div>
-                <span className="text-xs font-semibold uppercase tracking-widest text-primary">Projects</span>
+      {/* Hero Banner — fire bg + integrated search/filter */}
+      <div className="relative overflow-hidden bg-black border-b sticky top-0 z-10" style={{ minHeight: 200 }}>
+        <AsciiFireAnimation />
+        {/* gradient: only darken the very bottom strip for text legibility, keep fire visible */}
+        <div className="absolute inset-0 z-[2] bg-gradient-to-r from-black/70 via-black/30 to-transparent pointer-events-none" />
+        <div className="absolute inset-0 z-[2] bg-gradient-to-t from-black/75 via-black/20 to-transparent pointer-events-none" />
+
+        <div className="absolute inset-0 z-[3] flex flex-col justify-between px-6 md:px-10 py-4 gap-2">
+
+          {/* ── Top area: left block (title+search) floats left, CTA block floats right ── */}
+          <div className="flex items-end justify-between gap-85">
+
+            {/* LEFT: title → search stacked — search inherits the same natural width as the title block */}
+            <div className="flex flex-col gap-2 min-w-0 shrink-0">
+              <div>
+                <h1 className="text-xl md:text-2xl font-bold tracking-tight text-white leading-tight">
+                  What the community is building
+                </h1>
+                <p className="text-white/50 text-xs mt-0.5">
+                  Discover repos, personal projects, and shipped products from Lokal developers.
+                </p>
               </div>
-              <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-2">
-                What the community is building
-              </h1>
-              <p className="text-muted-foreground text-base leading-relaxed">
-                Discover open-source repos, personal projects, and shipped products from developers in the Lokal community.
-              </p>
+              {/* Search — naturally same width as the title container above */}
+              <div className="relative w-full">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/35" strokeWidth={2} />
+                <input
+                  placeholder="Search projects…"
+                  value={searchInput}
+                  onChange={e => setSearchInput(e.target.value)}
+                  className="w-full pl-9 pr-4 py-1.5 rounded-lg bg-white/10 border border-white/15 text-white placeholder:text-white/30 text-sm focus:outline-none focus:ring-1 focus:ring-white/25 focus:border-white/30 transition-all"
+                />
+              </div>
             </div>
-            {user && (
+
+            {/* RIGHT: CTA block — project count on top, URL+button below — takes all remaining space */}
+            <div className="flex flex-col items-end gap-2 flex-1 min-w-0">
+              {/* project count */}
+              {!loading && (
+                <span className="text-[11px] text-white/35 tabular-nums">
+                  {projects.length} project{projects.length !== 1 ? "s" : ""}
+                </span>
+              )}
+
+              {/* URL input + Add Project — CTA pill, full width of right column */}
+              {user && (
+                <div className="flex items-stretch w-full rounded-xl overflow-hidden border border-white/20 bg-white/10 backdrop-blur-md shadow-xl shadow-black/40 hover:border-white/30 focus-within:border-white/40 focus-within:bg-white/15 transition-all">
+                  {/* Input side */}
+                  <div className="flex items-center flex-1 min-w-0 pl-3 gap-2">
+                    <Sparkles className="w-4 h-4 text-white/60 flex-shrink-0" strokeWidth={1.5} />
+                    <input
+                      type="url"
+                      placeholder="Paste your project URL — github.com/user/repo or myapp.com"
+                      value={urlInput}
+                      onChange={e => { setUrlInput(e.target.value); setScanError(null); }}
+                      onBlur={e => { if (e.target.value.trim()) setUrlInput(normalizeUrl(e.target.value)); }}
+                      onKeyDown={e => { if (e.key === "Enter" && !scanning) handleScan(); }}
+                      disabled={scanning}
+                      className="flex-1 min-w-0 py-2.5 bg-transparent text-white text-sm placeholder:text-white/30 focus:outline-none disabled:opacity-50"
+                    />
+                    {urlInput.trim() && !scanning && (
+                      <button onClick={() => { setUrlInput(""); setScanError(null); }} className="mr-1 text-white/25 hover:text-white/60 transition-colors flex-shrink-0">
+                        <X className="w-3 h-3" strokeWidth={2.5} />
+                      </button>
+                    )}
+                  </div>
+                  {/* Divider */}
+                  <div className="w-px bg-white/15 my-2 flex-shrink-0" />
+                  {/* Add Project button */}
+                  <button
+                    onClick={handleScan}
+                    disabled={scanning}
+                    className="relative flex items-center gap-2 px-5 py-2.5 bg-orange-500 hover:bg-orange-400 active:bg-orange-600 disabled:opacity-60 transition-colors flex-shrink-0 overflow-hidden"
+                  >
+                    {/* pulse ring when idle */}
+                    {!scanning && !urlInput.trim() && (
+                      <span className="absolute inset-0 bg-orange-400/20 animate-ping opacity-75 pointer-events-none" />
+                    )}
+                    {scanning
+                      ? <Loader2 className="w-3.5 h-3.5 text-white animate-spin relative z-10" strokeWidth={2} />
+                      : <Plus className="w-3.5 h-3.5 text-white relative z-10" strokeWidth={2.5} />}
+                    <span className="text-sm font-bold text-white tracking-wide whitespace-nowrap relative z-10">
+                      {scanning ? "Scanning…" : "Add Project"}
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Scan feedback */}
+          {(scanning || scanError) && (
+            <div className="flex flex-col gap-1">
+              {scanning && (
+                <div className="flex items-center gap-3">
+                  <p className="text-xs text-orange-300 font-medium">{SCAN_MESSAGES[scanMsgIdx]}</p>
+                  <div className="flex-1 h-0.5 bg-white/10 rounded-full overflow-hidden">
+                    <div className="h-full bg-orange-500 rounded-full transition-all duration-500" style={{ width: `${Math.min(20 + scanMsgIdx * 20, 95)}%` }} />
+                  </div>
+                </div>
+              )}
+              {scanError && (
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" strokeWidth={2} />
+                  <p className="text-xs text-red-400">{scanError}</p>
+                  <button onClick={handleGoManual} className="text-[11px] text-white/50 hover:text-white underline underline-offset-2 transition-colors ml-1 whitespace-nowrap">
+                    Add manually
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Row 3: Filter pills ── */}
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide pb-0.5">
+            {(["ALL", "TRENDING", "FEATURED", "GITHUB", "PERSONAL"] as FilterType[]).map(f => (
               <button
-                onClick={() => setShowAddDialog(true)}
-                className="group flex-shrink-0 flex items-center gap-3 px-5 py-4 rounded-2xl border-2 border-dashed border-primary/40 bg-primary/5 hover:bg-primary/10 hover:border-primary/60 transition-all duration-200 text-left"
+                key={f}
+                onClick={() => setActiveFilter(f)}
+                className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold uppercase tracking-wide border transition-all duration-150 ${
+                  activeFilter === f
+                    ? "bg-white text-black border-white"
+                    : "bg-white/10 text-white/70 border-white/20 hover:bg-white/20 hover:text-white"
+                }`}
               >
-                <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center group-hover:bg-primary/25 transition-colors">
-                  <Plus className="w-5 h-5 text-primary" strokeWidth={2.5} />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-primary">Share your project</p>
-                  <p className="text-xs text-muted-foreground">Paste a URL — we'll fill in the rest</p>
-                </div>
+                {f === "ALL" ? "All" : f.replace("_", " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
               </button>
+            ))}
+            <div className="h-4 w-px bg-white/20 mx-1 flex-shrink-0" />
+            {!loading && (
+              <span className="text-[11px] text-white/40 whitespace-nowrap flex-shrink-0 md:hidden">
+                {projects.length} project{projects.length !== 1 ? "s" : ""}
+              </span>
             )}
           </div>
         </div>
       </div>
+
+      {/* ── Add / Edit Project Dialog ── */}
+      <Dialog open={showFormDialog} onOpenChange={open => { if (!open) resetAddPanel(); }}>
+        <DialogContent className="w-screen max-w-[96vw] xl:max-w-6xl p-0 gap-0 overflow-hidden h-[95vh] max-h-[95vh] flex flex-col [&>button]:hidden">
+
+          {/* ── Top bar ── */}
+          <div className="flex-shrink-0 flex items-center justify-between px-5 py-2.5 border-b bg-muted/30">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Live Preview — edit directly</span>
+            </div>
+            <button onClick={resetAddPanel} className="w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+              <X className="w-3.5 h-3.5" strokeWidth={2} />
+            </button>
+          </div>
+
+          {/* ── Scrollable preview body ── */}
+          <div className="flex-1 overflow-y-auto">
+
+            {/* Hero banner — mirrors project-detail hero */}
+            <div className="relative h-52 md:h-64 bg-gradient-to-br from-primary/15 via-primary/5 to-muted overflow-hidden group">
+              <input ref={bannerInputRef} type="file" accept="image/*" className="hidden" onChange={handleBannerFileChange} />
+              {(uploads.bannerPreview || formData.bannerUrl) ? (
+                <img
+                  src={uploads.bannerPreview || formData.bannerUrl}
+                  alt="Banner"
+                  className="w-full h-full object-cover"
+                  onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                />
+              ) : null}
+              <div className="absolute inset-0 bg-gradient-to-t from-background via-background/20 to-transparent pointer-events-none" />
+              {/* hover edit overlay */}
+              <div
+                className="absolute inset-0 flex items-center justify-center cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={() => bannerInputRef.current?.click()}
+              >
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/60 backdrop-blur-sm text-white text-xs font-medium">
+                  <ImagePlus className="w-3.5 h-3.5" strokeWidth={2} /> Change Banner
+                </div>
+              </div>
+              {(uploads.bannerPreview || formData.bannerUrl) && (
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); if (uploads.bannerPreview) URL.revokeObjectURL(uploads.bannerPreview); setUploads(u => ({ ...u, bannerFile: null, bannerPreview: null })); setFormData(f => ({ ...f, bannerUrl: "" })); }}
+                  className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/80"
+                >
+                  <X className="w-3 h-3" strokeWidth={2.5} />
+                </button>
+              )}
+            </div>
+
+            {/* Header row — icon + name + tagline + pills, overlapping banner */}
+            <div className="px-6">
+              <div className="relative -mt-12 flex items-start gap-4 pb-5">
+                {/* Icon */}
+                <input ref={iconInputRef} type="file" accept="image/*" className="hidden" onChange={handleIconFileChange} />
+                <div
+                  className="w-24 h-24 rounded-2xl bg-card border-4 border-background shadow-xl flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer group/icon"
+                  onClick={() => iconInputRef.current?.click()}
+                >
+                  {(uploads.iconPreview || formData.iconUrl) ? (
+                    <img
+                      src={uploads.iconPreview || formData.iconUrl}
+                      alt="Icon"
+                      className="w-full h-full object-cover group-hover/icon:opacity-80 transition-opacity"
+                      onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center gap-1 text-muted-foreground group-hover/icon:text-foreground transition-colors">
+                      <Upload className="w-6 h-6" strokeWidth={1.5} />
+                      <span className="text-[9px] font-medium">Icon</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Name + tagline + meta pills */}
+                <div className="flex-1 min-w-0 pt-4 sm:pt-6">
+                  <input
+                    placeholder="Project name *"
+                    value={formData.name}
+                    onChange={e => setFormData(f => ({ ...f, name: e.target.value }))}
+                    className="w-full text-2xl md:text-3xl font-bold bg-transparent border-b border-transparent hover:border-muted-foreground/30 focus:border-orange-500/60 focus:outline-none pb-0.5 mb-1.5 placeholder:text-muted-foreground/30 tracking-tight transition-colors"
+                  />
+                  <input
+                    placeholder="One-line tagline *"
+                    value={formData.tagline}
+                    onChange={e => setFormData(f => ({ ...f, tagline: e.target.value }))}
+                    className="w-full text-base text-muted-foreground bg-transparent border-b border-transparent hover:border-muted-foreground/20 focus:border-orange-500/40 focus:outline-none pb-0.5 mb-3 placeholder:text-muted-foreground/30 transition-colors"
+                  />
+                  {/* Category + Visibility + Type pills */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Select value={formData.category} onValueChange={v => setFormData(f => ({ ...f, category: v }))}>
+                      <SelectTrigger className="h-6 text-[11px] rounded-full px-2.5 border-orange-500/30 bg-orange-500/10 text-orange-400 w-auto gap-1 hover:bg-orange-500/20 transition-colors">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="WEB_APP">🌐 Web App</SelectItem>
+                        <SelectItem value="MOBILE_APP">📱 Mobile App</SelectItem>
+                        <SelectItem value="LIBRARY">📦 Library</SelectItem>
+                        <SelectItem value="CLI_TOOL">⌨️ CLI Tool</SelectItem>
+                        <SelectItem value="PORTFOLIO">🎨 Portfolio</SelectItem>
+                        <SelectItem value="OTHER">✨ Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={formData.visibility} onValueChange={v => setFormData(f => ({ ...f, visibility: v }))}>
+                      <SelectTrigger className="h-6 text-[11px] rounded-full px-2.5 border w-auto gap-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PUBLIC"><div className="flex items-center gap-1.5"><Globe className="w-3 h-3" strokeWidth={2} />Public</div></SelectItem>
+                        <SelectItem value="PRIVATE"><div className="flex items-center gap-1.5"><Lock className="w-3 h-3" strokeWidth={2} />Private</div></SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {(["PERSONAL", "GITHUB"] as const).map(t => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setFormData(f => ({ ...f, type: t }))}
+                        className={`flex items-center gap-1 h-6 px-2.5 rounded-full text-[11px] font-semibold border transition-all ${
+                          formData.type === t
+                            ? "bg-foreground text-background border-foreground"
+                            : "bg-transparent text-muted-foreground border-muted-foreground/20 hover:border-muted-foreground/40"
+                        }`}
+                      >
+                        {t === "GITHUB" ? <Github className="w-3 h-3" strokeWidth={2} /> : <Code2 className="w-3 h-3" strokeWidth={2} />}
+                        {t === "GITHUB" ? "GitHub" : "Personal"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Action bar — mirrors project-detail action row */}
+              <div className="flex flex-wrap items-center gap-2 pb-5 border-b">
+                {/* Fire button preview */}
+                <div className="flex items-center gap-0 h-8 rounded-lg overflow-hidden border border-orange-500/40">
+                  <span className="flex items-center gap-1.5 px-2.5 h-full text-orange-500 text-xs font-semibold">
+                    🔥 Fire
+                  </span>
+                  <span className="w-px h-4 bg-orange-500/30" />
+                  <span className="px-2.5 h-full flex items-center text-xs font-bold text-orange-500">0</span>
+                </div>
+                <div className="flex-1" />
+                {formData.githubUrl && (
+                  <div className="flex items-center gap-1.5 h-8 px-3 rounded-md border text-xs font-medium text-muted-foreground">
+                    <Code2 className="w-3.5 h-3.5" strokeWidth={2} /> Source Code
+                  </div>
+                )}
+                {formData.projectUrl && (
+                  <div className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-primary text-primary-foreground text-xs font-medium">
+                    <Globe className="w-3.5 h-3.5" strokeWidth={2} /> Visit Project
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Two-column body — mirrors project-detail grid */}
+            <div className="px-6 py-5 grid grid-cols-1 md:grid-cols-3 gap-6">
+
+              {/* Left (2 cols): About + Tech + Screenshots */}
+              <div className="md:col-span-2 space-y-6">
+
+                {/* About */}
+                <div>
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">About</h3>
+                  <Textarea
+                    placeholder="What does it do? Who is it for? What problem does it solve?"
+                    value={formData.description}
+                    onChange={e => setFormData(f => ({ ...f, description: e.target.value }))}
+                    className="min-h-[88px] resize-none text-sm bg-muted/30 border-muted-foreground/15 focus-visible:border-orange-500/50 focus-visible:ring-orange-500/20"
+                  />
+                </div>
+
+                {/* Tech Stack */}
+                <div>
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Tech Stack</h3>
+                  <Input
+                    placeholder="React, TypeScript, Node.js, PostgreSQL…"
+                    value={formData.techStack}
+                    onChange={e => setFormData(f => ({ ...f, techStack: e.target.value }))}
+                    className="text-sm bg-muted/30 border-muted-foreground/15 focus-visible:border-orange-500/50 focus-visible:ring-orange-500/20 mb-2"
+                  />
+                  {formData.techStack && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {formData.techStack.split(",").map(t => t.trim()).filter(Boolean).map(t => (
+                        <span key={t} className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 text-[11px] font-medium">{t}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Screenshots strip */}
+                <div>
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                    Screenshots
+                    {(formData.scrapedScreenshots.length > 0 || uploads.screenshotFiles.length > 0) && (
+                      <span className="font-normal normal-case opacity-50 ml-1">
+                        — {formData.scrapedScreenshots.length + uploads.screenshotFiles.length} page{(formData.scrapedScreenshots.length + uploads.screenshotFiles.length) !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </h3>
+                  <input ref={screenshotInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleScreenshotFilesChange} />
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {/* AI-crawled screenshots */}
+                    {formData.scrapedScreenshots.map((url, i) => (
+                      <div key={`scraped-${i}`} className="relative group/ss flex-shrink-0">
+                        <img
+                          src={url}
+                          alt={i === 0 ? "Home" : `Page ${i + 1}`}
+                          className="w-full rounded-xl border object-cover aspect-video"
+                        />
+                        <div className="absolute bottom-0 inset-x-0 px-2 py-1 bg-gradient-to-t from-black/70 to-transparent rounded-b-xl">
+                          <span className="text-[10px] text-white/80 font-medium">{i === 0 ? "Home" : `Page ${i + 1}`}</span>
+                        </div>
+                        <button type="button" onClick={() => removeScrapedScreenshot(i)} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive text-destructive-foreground rounded-full flex items-center justify-center opacity-0 group-hover/ss:opacity-100 transition-opacity shadow-md">
+                          <X className="w-3 h-3" strokeWidth={2.5} />
+                        </button>
+                      </div>
+                    ))}
+                    {/* Manually uploaded screenshots */}
+                    {uploads.screenshotFiles.map((s, i) => (
+                      <div key={`upload-${i}`} className="relative group/ss flex-shrink-0">
+                        <img src={s.preview} alt={`Upload ${i + 1}`} className="w-full rounded-xl border object-cover aspect-video" />
+                        <button type="button" onClick={() => removeScreenshot(i)} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive text-destructive-foreground rounded-full flex items-center justify-center opacity-0 group-hover/ss:opacity-100 transition-opacity shadow-md">
+                          <X className="w-3 h-3" strokeWidth={2.5} />
+                        </button>
+                      </div>
+                    ))}
+                    {/* Add button */}
+                    {uploads.screenshotFiles.length < 5 && (
+                      <button
+                        type="button"
+                        onClick={() => screenshotInputRef.current?.click()}
+                        className="rounded-xl border-2 border-dashed border-muted-foreground/20 flex flex-col items-center justify-center gap-1 hover:border-orange-500/40 hover:bg-orange-500/5 transition-colors text-muted-foreground hover:text-orange-500 aspect-video"
+                      >
+                        <Camera className="w-5 h-5" strokeWidth={1.5} />
+                        <span className="text-[10px]">Add photo</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Right (1 col): Links card + Brand color */}
+              <div className="space-y-4">
+
+                {/* Links card — mirrors project-detail sidebar links card */}
+                <div className="rounded-xl border bg-card p-4">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Links</h4>
+                  <div className="space-y-1">
+                    {/* Website */}
+                    <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-muted/50 transition-colors">
+                      <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <Globe className="w-3.5 h-3.5 text-primary" strokeWidth={2} />
+                      </div>
+                      <input
+                        placeholder="https://myproject.com"
+                        value={formData.projectUrl}
+                        onChange={e => setFormData(f => ({ ...f, projectUrl: e.target.value }))}
+                        className="flex-1 bg-transparent text-xs focus:outline-none placeholder:text-muted-foreground/40 min-w-0"
+                      />
+                    </div>
+                    {/* GitHub */}
+                    <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-muted/50 transition-colors">
+                      <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+                        <Github className="w-3.5 h-3.5" strokeWidth={2} />
+                      </div>
+                      <input
+                        placeholder="https://github.com/…"
+                        value={formData.githubUrl}
+                        onChange={e => setFormData(f => ({ ...f, githubUrl: e.target.value }))}
+                        className="flex-1 bg-transparent text-xs focus:outline-none placeholder:text-muted-foreground/40 min-w-0"
+                      />
+                    </div>
+                    {/* Twitter */}
+                    <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-muted/50 transition-colors">
+                      <div className="w-7 h-7 rounded-lg bg-sky-500/10 flex items-center justify-center flex-shrink-0">
+                        <Twitter className="w-3.5 h-3.5 text-sky-500" strokeWidth={2} />
+                      </div>
+                      <input
+                        placeholder="https://x.com/…"
+                        value={formData.twitterUrl}
+                        onChange={e => setFormData(f => ({ ...f, twitterUrl: e.target.value }))}
+                        className="flex-1 bg-transparent text-xs focus:outline-none placeholder:text-muted-foreground/40 min-w-0"
+                      />
+                      {formData.twitterUrl && <span className="text-[9px] text-sky-400 font-semibold bg-sky-400/10 px-1.5 py-0.5 rounded-full flex-shrink-0">AI</span>}
+                    </div>
+                    {/* LinkedIn */}
+                    <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-muted/50 transition-colors">
+                      <div className="w-7 h-7 rounded-lg bg-blue-600/10 flex items-center justify-center flex-shrink-0">
+                        <Linkedin className="w-3.5 h-3.5 text-blue-600" strokeWidth={2} />
+                      </div>
+                      <input
+                        placeholder="https://linkedin.com/…"
+                        value={formData.linkedinUrl}
+                        onChange={e => setFormData(f => ({ ...f, linkedinUrl: e.target.value }))}
+                        className="flex-1 bg-transparent text-xs focus:outline-none placeholder:text-muted-foreground/40 min-w-0"
+                      />
+                      {formData.linkedinUrl && <span className="text-[9px] text-blue-500 font-semibold bg-blue-500/10 px-1.5 py-0.5 rounded-full flex-shrink-0">AI</span>}
+                    </div>
+                    {/* Facebook */}
+                    <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-muted/50 transition-colors">
+                      <div className="w-7 h-7 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+                        {/* Facebook icon — lucide doesn't have one, use SVG */}
+                        <svg className="w-3.5 h-3.5 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" />
+                        </svg>
+                      </div>
+                      <input
+                        placeholder="https://facebook.com/…"
+                        value={formData.facebookUrl}
+                        onChange={e => setFormData(f => ({ ...f, facebookUrl: e.target.value }))}
+                        className="flex-1 bg-transparent text-xs focus:outline-none placeholder:text-muted-foreground/40 min-w-0"
+                      />
+                      {formData.facebookUrl && <span className="text-[9px] text-blue-500 font-semibold bg-blue-500/10 px-1.5 py-0.5 rounded-full flex-shrink-0">AI</span>}
+                    </div>
+                    {/* YouTube */}
+                    <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-muted/50 transition-colors">
+                      <div className="w-7 h-7 rounded-lg bg-red-500/10 flex items-center justify-center flex-shrink-0">
+                        <Youtube className="w-3.5 h-3.5 text-red-500" strokeWidth={2} />
+                      </div>
+                      <input
+                        placeholder="https://youtube.com/@…"
+                        value={formData.youtubeUrl}
+                        onChange={e => setFormData(f => ({ ...f, youtubeUrl: e.target.value }))}
+                        className="flex-1 bg-transparent text-xs focus:outline-none placeholder:text-muted-foreground/40 min-w-0"
+                      />
+                      {formData.youtubeUrl && <span className="text-[9px] text-red-400 font-semibold bg-red-500/10 px-1.5 py-0.5 rounded-full flex-shrink-0">AI</span>}
+                    </div>
+                  </div>
+
+                  {/* Brand color row */}
+                  {formData.brandColor && (
+                    <div className="mt-3 pt-3 border-t flex items-center gap-2.5 px-2.5 py-1.5">
+                      <span className="w-7 h-7 rounded-lg flex-shrink-0 border border-white/10 shadow-sm" style={{ background: formData.brandColor }} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium">Brand color</p>
+                        <p className="text-[10px] font-mono text-muted-foreground">{formData.brandColor}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Stats preview card — mirrors sidebar stats */}
+                <div className="rounded-xl border bg-card p-4">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">After publishing</h4>
+                  <div className="space-y-2 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-orange-500/10 flex items-center justify-center text-orange-500 text-[10px]">🔥</span>
+                      <span>0 fires — be the first to react</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Star className="w-3.5 h-3.5 text-yellow-500 flex-shrink-0" strokeWidth={2} />
+                      <span>0 stars</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Award className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" strokeWidth={2} />
+                      <span>+XP awarded on publish</span>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+
+          {/* ── Sticky footer ── */}
+          <div className="flex-shrink-0 flex items-center justify-between gap-3 px-6 py-3.5 border-t bg-background/95 backdrop-blur-sm">
+            <div className="flex-1">
+              {uploadProgress && (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" strokeWidth={2} />
+                  <span className="text-xs text-muted-foreground">{uploadProgress}</span>
+                </div>
+              )}
+              {(!formData.name || !formData.tagline) && !uploadProgress && (
+                <p className="text-xs text-muted-foreground/60">Name and tagline are required to publish</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={resetAddPanel} className="text-muted-foreground hover:text-foreground">
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAddProject}
+                disabled={!formData.name || !formData.tagline || creating || !!uploadProgress}
+                className="gap-2 bg-orange-500 hover:bg-orange-400 active:bg-orange-600 text-white border-none min-w-36 font-bold shadow-lg shadow-orange-500/25 disabled:opacity-50"
+              >
+                {(creating || uploadProgress)
+                  ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2} />
+                  : <Sparkles className="w-4 h-4" strokeWidth={2} />}
+                {creating ? "Publishing…" : "Publish Project"}
+              </Button>
+            </div>
+          </div>
+
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
@@ -573,414 +1165,6 @@ export function Projects() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Sticky Filter Bar */}
-      <div className="border-b bg-card/95 backdrop-blur-sm sticky top-0 z-10">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex items-center gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" strokeWidth={2} />
-              <Input
-                placeholder="Search by name, description, or tech stack…"
-                value={searchInput}
-                onChange={e => setSearchInput(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            {!loading && (
-              <span className="text-xs text-muted-foreground hidden sm:block whitespace-nowrap">
-                {projects.length} project{projects.length !== 1 ? "s" : ""}
-              </span>
-            )}
-
-            <Dialog open={showAddDialog} onOpenChange={handleDialogOpenChange}>
-              {!user && (
-                <DialogTrigger asChild>
-                  <Button className="gap-2 flex-shrink-0">
-                    <Plus className="w-4 h-4" strokeWidth={2} />
-                    Add Project
-                  </Button>
-                </DialogTrigger>
-              )}
-              {user && (
-                <Button className="gap-2 flex-shrink-0" onClick={() => setShowAddDialog(true)}>
-                  <Plus className="w-4 h-4" strokeWidth={2} />
-                  Add Project
-                </Button>
-              )}
-              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                {/* ── Step 1: URL Input ── */}
-                {dialogStep === "url" && (
-                  <>
-                    <DialogHeader>
-                      <DialogTitle className="flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-primary" strokeWidth={2} />
-                        Add New Project
-                      </DialogTitle>
-                      <DialogDescription>
-                        Paste your project URL and we'll auto-fill the details using AI
-                      </DialogDescription>
-                    </DialogHeader>
-
-                    <div className="py-6 space-y-5">
-                      {/* URL input */}
-                      <div className="space-y-2">
-                        <Label className="text-sm font-medium">Project URL</Label>
-                        <div className="relative">
-                          <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" strokeWidth={2} />
-                          <Input
-                            type="url"
-                            placeholder="https://github.com/user/repo or https://myproject.com"
-                            value={urlInput}
-                            onChange={e => { setUrlInput(e.target.value); setScanError(null); }}
-                            onKeyDown={e => { if (e.key === "Enter" && !scanning) handleScan(); }}
-                            className="pl-10 h-12 text-sm"
-                            autoFocus
-                            disabled={scanning}
-                          />
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          Works with GitHub repos, deployed apps, portfolio sites, npm packages, etc.
-                        </p>
-                      </div>
-
-                      {/* Scanning state */}
-                      {scanning && (
-                        <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
-                          <div className="flex items-center gap-3">
-                            <div className="relative">
-                              <Loader2 className="w-5 h-5 text-primary animate-spin" strokeWidth={2} />
-                            </div>
-                            <div className="flex-1">
-                              <p className="text-sm font-medium text-primary">Scanning project…</p>
-                              <p className="text-xs text-muted-foreground mt-0.5 transition-all">
-                                {SCAN_MESSAGES[scanMsgIdx]}
-                              </p>
-                            </div>
-                          </div>
-                          {/* Progress bar */}
-                          <div className="mt-3 w-full h-1.5 bg-primary/10 rounded-full overflow-hidden">
-                            <div className="h-full bg-primary rounded-full animate-pulse" style={{ width: `${Math.min(20 + scanMsgIdx * 20, 95)}%`, transition: "width 0.5s ease" }} />
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Error state */}
-                      {scanError && (
-                        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-                          <div className="flex items-start gap-3">
-                            <AlertCircle className="w-4 h-4 text-destructive mt-0.5 flex-shrink-0" strokeWidth={2} />
-                            <div className="flex-1">
-                              <p className="text-sm text-destructive">{scanError}</p>
-                              <Button
-                                variant="link"
-                                size="sm"
-                                className="h-auto p-0 mt-1 text-xs text-destructive/80 hover:text-destructive"
-                                onClick={handleGoManual}
-                              >
-                                Add manually instead →
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <DialogFooter className="flex-col sm:flex-row gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleGoManual}
-                        className="text-muted-foreground"
-                      >
-                        <Pencil className="w-3.5 h-3.5 mr-1.5" strokeWidth={2} />
-                        Add manually
-                      </Button>
-                      <div className="flex-1" />
-                      <Button variant="outline" onClick={() => handleDialogOpenChange(false)}>
-                        Cancel
-                      </Button>
-                      <Button
-                        onClick={handleScan}
-                        disabled={!urlInput.trim() || scanning}
-                        className="gap-2"
-                      >
-                        {scanning ? (
-                          <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2} />
-                        ) : (
-                          <Sparkles className="w-4 h-4" strokeWidth={2} />
-                        )}
-                        {scanning ? "Scanning…" : "Scan & Auto-fill"}
-                      </Button>
-                    </DialogFooter>
-                  </>
-                )}
-
-                {/* ── Step 2: Editable Form ── */}
-                {dialogStep === "form" && (
-                  <>
-                    <DialogHeader>
-                      <DialogTitle className="flex items-center gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 -ml-1 mr-1"
-                          onClick={() => setDialogStep("url")}
-                        >
-                          <ArrowLeft className="w-4 h-4" strokeWidth={2} />
-                        </Button>
-                        Review &amp; Add Project
-                      </DialogTitle>
-                      <DialogDescription>
-                        {uploads.iconPreview || formData.iconUrl || formData.projectUrl
-                          ? "We've pre-filled the details — review and edit anything before adding."
-                          : "Fill in your project details below"}
-                      </DialogDescription>
-                    </DialogHeader>
-
-                    {/* Scanned preview banner */}
-                    {(uploads.iconPreview || formData.iconUrl) && (
-                      <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
-                        <img
-                          src={uploads.iconPreview || formData.iconUrl}
-                          alt=""
-                          className="w-10 h-10 rounded-lg border border-border object-cover flex-shrink-0"
-                          onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{formData.name || "Untitled"}</p>
-                          <p className="text-xs text-muted-foreground truncate">{formData.projectUrl}</p>
-                        </div>
-                        <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" strokeWidth={2} />
-                      </div>
-                    )}
-
-                    <div className="space-y-4 py-2">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Project Type</Label>
-                          <Select value={formData.type} onValueChange={v => setFormData(f => ({ ...f, type: v }))}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="GITHUB"><div className="flex items-center gap-2"><Github className="w-4 h-4" strokeWidth={2} />GitHub Repo</div></SelectItem>
-                              <SelectItem value="PERSONAL"><div className="flex items-center gap-2"><Layers className="w-4 h-4" strokeWidth={2} />Personal Project</div></SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Visibility</Label>
-                          <Select value={formData.visibility} onValueChange={v => setFormData(f => ({ ...f, visibility: v }))}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="PUBLIC"><div className="flex items-center gap-2"><Globe className="w-4 h-4" strokeWidth={2} />Public</div></SelectItem>
-                              <SelectItem value="PRIVATE"><div className="flex items-center gap-2"><Lock className="w-4 h-4" strokeWidth={2} />Private</div></SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Project Name *</Label>
-                        <Input placeholder="My Awesome Project" value={formData.name} onChange={e => setFormData(f => ({ ...f, name: e.target.value }))} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Tagline *</Label>
-                        <Input placeholder="Brief one-liner describing your project" value={formData.tagline} onChange={e => setFormData(f => ({ ...f, tagline: e.target.value }))} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Description</Label>
-                        <Textarea placeholder="Detailed description…" rows={4} value={formData.description} onChange={e => setFormData(f => ({ ...f, description: e.target.value }))} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Category</Label>
-                        <Select value={formData.category} onValueChange={v => setFormData(f => ({ ...f, category: v }))}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="WEB_APP">Web App</SelectItem>
-                            <SelectItem value="MOBILE_APP">Mobile App</SelectItem>
-                            <SelectItem value="LIBRARY">Library</SelectItem>
-                            <SelectItem value="CLI_TOOL">CLI Tool</SelectItem>
-                            <SelectItem value="PORTFOLIO">Portfolio</SelectItem>
-                            <SelectItem value="OTHER">Other</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Tech Stack <span className="text-muted-foreground font-normal">(comma separated)</span></Label>
-                        <Input placeholder="React, TypeScript, Node.js" value={formData.techStack} onChange={e => setFormData(f => ({ ...f, techStack: e.target.value }))} />
-                        {formData.techStack && (
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {formData.techStack.split(",").map(t => t.trim()).filter(Boolean).map(t => (
-                              <Badge key={t} variant="secondary" className="text-xs py-0 rounded-md font-normal">{t}</Badge>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Project URL</Label>
-                          <Input type="url" placeholder="https://myproject.com" value={formData.projectUrl} onChange={e => setFormData(f => ({ ...f, projectUrl: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>GitHub URL</Label>
-                          <Input type="url" placeholder="https://github.com/…" value={formData.githubUrl} onChange={e => setFormData(f => ({ ...f, githubUrl: e.target.value }))} />
-                        </div>
-                      </div>
-                      {/* Icon & Banner uploads */}
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Icon</Label>
-                          <input ref={iconInputRef} type="file" accept="image/*" className="hidden" onChange={handleIconFileChange} />
-                          {uploads.iconPreview || formData.iconUrl ? (
-                            <div className="relative w-16 h-16 group">
-                              <img
-                                src={uploads.iconPreview || formData.iconUrl}
-                                alt="Icon"
-                                className="w-16 h-16 rounded-lg border border-border object-cover"
-                                onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (uploads.iconPreview) URL.revokeObjectURL(uploads.iconPreview);
-                                  setUploads(u => ({ ...u, iconFile: null, iconPreview: null }));
-                                  setFormData(f => ({ ...f, iconUrl: "" }));
-                                }}
-                                className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => iconInputRef.current?.click()}
-                              className="w-16 h-16 rounded-lg border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-1 hover:border-primary/50 hover:bg-accent/50 transition-colors"
-                            >
-                              <Upload className="w-4 h-4 text-muted-foreground" />
-                              <span className="text-[10px] text-muted-foreground">Icon</span>
-                            </button>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Banner</Label>
-                          <input ref={bannerInputRef} type="file" accept="image/*" className="hidden" onChange={handleBannerFileChange} />
-                          {uploads.bannerPreview || formData.bannerUrl ? (
-                            <div className="relative h-16 group">
-                              <img
-                                src={uploads.bannerPreview || formData.bannerUrl}
-                                alt="Banner"
-                                className="w-full h-16 rounded-lg border border-border object-cover"
-                                onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (uploads.bannerPreview) URL.revokeObjectURL(uploads.bannerPreview);
-                                  setUploads(u => ({ ...u, bannerFile: null, bannerPreview: null }));
-                                  setFormData(f => ({ ...f, bannerUrl: "" }));
-                                }}
-                                className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => bannerInputRef.current?.click()}
-                              className="w-full h-16 rounded-lg border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-1 hover:border-primary/50 hover:bg-accent/50 transition-colors"
-                            >
-                              <ImagePlus className="w-4 h-4 text-muted-foreground" />
-                              <span className="text-[10px] text-muted-foreground">Upload banner image</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Screenshots upload */}
-                      <div className="space-y-2">
-                        <Label>Screenshots <span className="text-muted-foreground text-xs font-normal">(up to 5)</span></Label>
-                        <input ref={screenshotInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleScreenshotFilesChange} />
-                        <div className="flex flex-wrap gap-2">
-                          {uploads.screenshotFiles.map((s, i) => (
-                            <div key={i} className="relative w-20 h-14 group">
-                              <img src={s.preview} alt={`Screenshot ${i + 1}`} className="w-20 h-14 rounded-md border border-border object-cover" />
-                              <button
-                                type="button"
-                                onClick={() => removeScreenshot(i)}
-                                className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ))}
-                          {uploads.screenshotFiles.length < 5 && (
-                            <button
-                              type="button"
-                              onClick={() => screenshotInputRef.current?.click()}
-                              className="w-20 h-14 rounded-md border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-0.5 hover:border-primary/50 hover:bg-accent/50 transition-colors"
-                            >
-                              <Camera className="w-3.5 h-3.5 text-muted-foreground" />
-                              <span className="text-[9px] text-muted-foreground">Add</span>
-                            </button>
-                          )}
-                        </div>
-                        {formData.projectUrl && (
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
-                            <Camera className="w-3 h-3" /> A screenshot will also be auto-captured from your project URL
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => handleDialogOpenChange(false)}>Cancel</Button>
-                      <Button onClick={handleAddProject} disabled={!formData.name || !formData.tagline || creating || !!uploadProgress} className="gap-2">
-                        {(creating || uploadProgress) ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2} /> : <Plus className="w-4 h-4" strokeWidth={2} />}
-                        {uploadProgress || (creating ? "Adding…" : "Add Project")}
-                      </Button>
-                    </DialogFooter>
-                  </>
-                )}
-              </DialogContent>
-            </Dialog>
-          </div>
-
-          {/* Filter chips */}
-          <div className="mt-3 space-y-2">
-            <div className="flex flex-wrap gap-2">
-              {(["ALL", "FEATURED", "TRENDING", "GITHUB", "PERSONAL"] as FilterType[]).map(f => {
-                const icons: Record<FilterType, React.ReactNode> = {
-                  ALL: <Layers className="w-3.5 h-3.5" strokeWidth={2} />,
-                  FEATURED: <Award className="w-3.5 h-3.5" strokeWidth={2} />,
-                  TRENDING: <TrendingUp className="w-3.5 h-3.5" strokeWidth={2} />,
-                  GITHUB: <Github className="w-3.5 h-3.5" strokeWidth={2} />,
-                  PERSONAL: <Code2 className="w-3.5 h-3.5" strokeWidth={2} />,
-                };
-                const labels: Record<FilterType, string> = {
-                  ALL: "All Projects", FEATURED: "Featured", TRENDING: "Trending",
-                  GITHUB: "GitHub", PERSONAL: "Personal",
-                };
-                return (
-                  <Button key={f} size="sm" variant={activeFilter === f ? "default" : "outline"} onClick={() => setActiveFilter(f)} className="gap-2">
-                    {icons[f]}{labels[f]}
-                  </Button>
-                );
-              })}
-            </div>
-            <div className="flex flex-wrap gap-2 items-center">
-              <span className="text-xs text-muted-foreground flex items-center gap-1 px-2">
-                <Filter className="w-3 h-3" strokeWidth={2} />Categories:
-              </span>
-              {(["ALL", "WEB_APP", "MOBILE_APP", "LIBRARY", "CLI_TOOL", "PORTFOLIO", "OTHER"] as CategoryType[]).map(c => (
-                <Button key={c} size="sm" variant={activeCategory === c ? "secondary" : "ghost"} onClick={() => setActiveCategory(c)} className="gap-1.5 text-xs h-7">
-                  {c !== "ALL" && getCategoryIcon(c)}
-                  {CATEGORY_LABELS[c]}
-                </Button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
 
       {/* Content */}
       <div className="container mx-auto px-4 py-6">

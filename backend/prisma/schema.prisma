@@ -444,6 +444,8 @@ model Project {
   githubUrl   String?         @db.Text
   twitterUrl  String?         @db.Text
   linkedinUrl String?         @db.Text
+  facebookUrl String?         @db.Text
+  youtubeUrl  String?         @db.Text
   screenshotUrl String?       @db.Text          // auto-captured screenshot of project URL
   screenshots   String[]      @default([])      // user-uploaded gallery screenshots
   type        ProjectType     @default(PERSONAL)

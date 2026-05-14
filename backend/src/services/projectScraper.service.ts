@@ -14,8 +14,10 @@ export interface ScrapedProjectInfo {
   name: string;
   tagline: string;
   description: string;
+  summary: string | null;
   iconUrl: string | null;
   bannerUrl: string | null;
+  screenshots: string[];
   techStack: string[];
   category: string; // ProjectCategory enum value
   githubUrl: string | null;
@@ -24,6 +26,13 @@ export interface ScrapedProjectInfo {
   githubForks: number | null;
   githubLanguage: string | null;
   githubTopics: string[];
+  // Branding
+  brandColor: string | null;      // hex from <meta name="theme-color">
+  // Social links auto-detected from the site
+  twitterUrl: string | null;
+  linkedinUrl: string | null;
+  facebookUrl: string | null;
+  youtubeUrl: string | null;
 }
 
 // ─── GitHub URL Detection ─────────────────────────────────────────────────────
@@ -80,61 +89,222 @@ async function fetchGitHubRepo(owner: string, repo: string): Promise<GitHubApiRe
   }
 }
 
-// ─── Step 2: Scrape with Firecrawl ───────────────────────────────────────────
+// ─── Step 2: Crawl with Firecrawl (map core pages + screenshot each) ─────────
 
 interface FirecrawlMetadata {
   title?: string;
   description?: string;
   ogImage?: string;
   favicon?: string;
+  themeColor?: string;        // <meta name="theme-color">
+  twitterSite?: string;       // <meta name="twitter:site">
+  twitterCreator?: string;    // <meta name="twitter:creator">
   [key: string]: unknown;
 }
 
-interface FirecrawlResult {
+interface FirecrawlPageResult {
+  url: string;
   markdown: string;
   screenshotUrl: string | null;
   metadata: FirecrawlMetadata;
 }
 
+interface FirecrawlResult {
+  markdown: string;
+  screenshotUrl: string | null;
+  screenshots: string[];
+  metadata: FirecrawlMetadata;
+}
+
+// ─── Social link extraction from scraped markdown ─────────────────────────────
+
+interface SocialLinks {
+  twitterUrl: string | null;
+  linkedinUrl: string | null;
+  facebookUrl: string | null;
+  youtubeUrl: string | null;
+}
+
+function extractSocialLinks(markdown: string, metadata: FirecrawlMetadata): SocialLinks {
+  // Twitter / X
+  let twitterUrl: string | null = null;
+
+  // From metadata twitter:site or twitter:creator (e.g. "@myapp")
+  const twitterHandle = metadata.twitterSite ?? metadata.twitterCreator ?? null;
+  if (twitterHandle) {
+    const handle = twitterHandle.replace(/^@/, "");
+    if (handle && !handle.includes(" ")) {
+      twitterUrl = `https://x.com/${handle}`;
+    }
+  }
+  if (!twitterUrl) {
+    // From markdown links
+    const twMatch = markdown.match(
+      /https?:\/\/(?:www\.)?(?:x\.com|twitter\.com)\/([A-Za-z0-9_]{1,50})(?:\/|$|\s|\)|\])/
+    );
+    if (twMatch) twitterUrl = `https://x.com/${twMatch[1]}`;
+  }
+
+  // LinkedIn
+  let linkedinUrl: string | null = null;
+  const liMatch = markdown.match(
+    /https?:\/\/(?:www\.)?linkedin\.com\/(?:in|company)\/[A-Za-z0-9_-]+(?:\/|$|\s|\)|\])/
+  );
+  if (liMatch) linkedinUrl = liMatch[0].replace(/[\s\)\]]+$/, "");
+
+  // Facebook
+  let facebookUrl: string | null = null;
+  const fbMatch = markdown.match(
+    /https?:\/\/(?:www\.)?facebook\.com\/[A-Za-z0-9_.%-]+(?:\/|$|\s|\)|\])/
+  );
+  if (fbMatch) facebookUrl = fbMatch[0].replace(/[\s\)\]]+$/, "");
+
+  // YouTube
+  let youtubeUrl: string | null = null;
+  const ytMatch = markdown.match(
+    /https?:\/\/(?:www\.)?youtube\.com\/(?:@[A-Za-z0-9_.-]+|channel\/[A-Za-z0-9_-]+|c\/[A-Za-z0-9_-]+)(?:\/|$|\s|\)|\])/
+  );
+  if (ytMatch) youtubeUrl = ytMatch[0].replace(/[\s\)\]]+$/, "");
+
+  return { twitterUrl, linkedinUrl, facebookUrl, youtubeUrl };
+}
+
+// ─── Brand color extraction ───────────────────────────────────────────────────
+
+function extractBrandColor(metadata: FirecrawlMetadata): string | null {
+  const raw = metadata.themeColor as string | undefined;
+  if (!raw) return null;
+  // Normalise — keep only valid 3- or 6-digit hex colours
+  const hex = raw.trim().toLowerCase();
+  if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/.test(hex)) return hex;
+  // Some sites write "rgb(r, g, b)" — convert to hex
+  const rgb = hex.match(/^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/);
+  if (rgb) {
+    return (
+      "#" +
+      [rgb[1], rgb[2], rgb[3]]
+        .map((n) => parseInt(n).toString(16).padStart(2, "0"))
+        .join("")
+    );
+  }
+  return null;
+}
+
 async function scrapeWithFirecrawl(url: string): Promise<FirecrawlResult> {
-  const apiKey = process.env.FIRECRAWL_API_KEY;
+  // Prefer a dedicated key for project scraping so it never shares the
+  // 2-concurrent-browser quota with the roast engine's key pool.
+  // Set FIRECRAWL_API_KEY_PROJECTS in .env; falls back to the legacy key.
+  const apiKey =
+    process.env.FIRECRAWL_API_KEY_PROJECTS ??
+    process.env.FIRECRAWL_API_KEY;
   if (!apiKey || apiKey.startsWith("fc-your")) {
-    throw new Error("FIRECRAWL_API_KEY is not configured in backend/.env");
+    throw new Error(
+      "No Firecrawl key configured for project scraping. " +
+      "Set FIRECRAWL_API_KEY_PROJECTS (or FIRECRAWL_API_KEY) in backend/.env"
+    );
   }
 
-  const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      url,
-      formats: ["markdown", "screenshot"],
-      waitFor: 1500,
-    }),
-    signal: AbortSignal.timeout(45_000),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => res.statusText);
-    throw new Error(`Firecrawl scrape failed: ${res.status} ${errText}`);
+  // ── Step 1: Map core pages ─────────────────────────────────────────────────
+  // Use Firecrawl's /map endpoint to discover the most important URLs
+  let coreUrls: string[] = [url];
+  try {
+    const mapRes = await fetch("https://api.firecrawl.dev/v1/map", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ url, limit: 10 }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (mapRes.ok) {
+      const mapData = (await mapRes.json()) as { success: boolean; links?: string[] };
+      if (mapData.success && Array.isArray(mapData.links) && mapData.links.length > 0) {
+        // Score each URL — prefer homepage-like, about, features, pricing, docs
+        const scored = mapData.links.map((u) => {
+          const path = new URL(u).pathname.toLowerCase();
+          let score = 0;
+          if (path === "/" || path === "") score += 100;
+          else if (/about|features|product|home/.test(path)) score += 80;
+          else if (/pricing|plans|docs|documentation/.test(path)) score += 60;
+          else if (path.split("/").filter(Boolean).length === 1) score += 40; // shallow path
+          return { url: u, score };
+        });
+        scored.sort((a, b) => b.score - a.score);
+        // Take up to 5 core pages, always include the root URL first
+        const selected = scored.slice(0, 5).map((s) => s.url);
+        if (!selected.includes(url)) selected.unshift(url);
+        coreUrls = selected.slice(0, 5);
+      }
+    }
+  } catch {
+    // Map failed — fall back to single page scrape
+    coreUrls = [url];
   }
 
-  const data = (await res.json()) as {
-    success: boolean;
-    data?: {
-      markdown?: string;
-      screenshot?: string;
-      metadata?: FirecrawlMetadata;
-    };
+  // ── Step 2: Scrape + screenshot each core page in parallel ─────────────────
+  const scrapeOne = async (pageUrl: string): Promise<FirecrawlPageResult | null> => {
+    try {
+      const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          url: pageUrl,
+          formats: ["markdown", "screenshot"],
+          waitFor: 1500,
+        }),
+        signal: AbortSignal.timeout(40_000),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as {
+        success: boolean;
+        data?: {
+          markdown?: string;
+          screenshot?: string;
+          metadata?: FirecrawlMetadata;
+        };
+      };
+      const d = data.data ?? {};
+      return {
+        url: pageUrl,
+        markdown: (d.markdown ?? "").slice(0, 4000),
+        screenshotUrl: d.screenshot ?? null,
+        metadata: d.metadata ?? {},
+      };
+    } catch {
+      return null;
+    }
   };
 
-  const d = data.data ?? {};
+  // Run scrapes in parallel (Firecrawl allows concurrent requests)
+  const results = (await Promise.all(coreUrls.map(scrapeOne))).filter(Boolean) as FirecrawlPageResult[];
+
+  if (results.length === 0) {
+    throw new Error("Firecrawl could not scrape any pages from this URL.");
+  }
+
+  // Home page result (first successful one)
+  const home = results[0];
+
+  // Collect all screenshots (deduplicated, non-null)
+  const screenshots = results
+    .map((r) => r.screenshotUrl)
+    .filter((s): s is string => !!s);
+
+  // Combine markdown from all pages for richer AI classification
+  const combinedMarkdown = results
+    .map((r) => `\n\n--- Page: ${r.url} ---\n${r.markdown}`)
+    .join("")
+    .slice(0, 8000);
+
   return {
-    markdown: (d.markdown ?? "").slice(0, 8000),
-    screenshotUrl: d.screenshot ?? null,
-    metadata: d.metadata ?? {},
+    markdown: combinedMarkdown,
+    screenshotUrl: home.screenshotUrl,
+    screenshots,
+    metadata: home.metadata,
   };
 }
 
@@ -321,8 +491,10 @@ export async function scrapeProjectInfo(url: string): Promise<ScrapedProjectInfo
         name: aiResult.name || ghData.name,
         tagline: aiResult.tagline || ghData.description?.slice(0, 100) || "",
         description: aiResult.description || ghData.description || "",
+        summary: aiResult.tagline || null,
         iconUrl: ghData.owner.avatar_url,
         bannerUrl: null,
+        screenshots: [],
         techStack: deduplicateTechStack([
           ...aiResult.techStack,
           ...(ghData.language ? [ghData.language] : []),
@@ -335,6 +507,11 @@ export async function scrapeProjectInfo(url: string): Promise<ScrapedProjectInfo
         githubForks: ghData.forks_count,
         githubLanguage: ghData.language,
         githubTopics: ghData.topics,
+        brandColor: null,
+        twitterUrl: null,
+        linkedinUrl: null,
+        facebookUrl: null,
+        youtubeUrl: null,
       };
     }
   }
@@ -356,17 +533,24 @@ export async function scrapeProjectInfo(url: string): Promise<ScrapedProjectInfo
   // Build icon URL: favicon → Google S2 favicon fallback
   const iconUrl = meta.favicon || getFaviconUrl(url);
   // Prefer real Firecrawl screenshot, fall back to og:image
-  const bannerUrl = fcResult.screenshotUrl || meta.ogImage || null;
+  const bannerUrl = fcResult.screenshotUrl || (meta.ogImage as string | undefined) || null;
+  const screenshots = fcResult.screenshots.length > 0 ? fcResult.screenshots : (bannerUrl ? [bannerUrl] : []);
 
   // Try to detect GitHub link from scraped content
   const githubUrlFromContent = extractGitHubUrl(fcResult.markdown);
+
+  // Extract branding + social links from crawled content
+  const brandColor = extractBrandColor(meta);
+  const socialLinks = extractSocialLinks(fcResult.markdown, meta);
 
   return {
     name: aiResult.name,
     tagline: aiResult.tagline,
     description: aiResult.description,
+    summary: aiResult.tagline || null,
     iconUrl,
     bannerUrl,
+    screenshots,
     techStack: deduplicateTechStack(aiResult.techStack),
     category: aiResult.category,
     githubUrl: githubUrlFromContent,
@@ -375,6 +559,11 @@ export async function scrapeProjectInfo(url: string): Promise<ScrapedProjectInfo
     githubForks: null,
     githubLanguage: null,
     githubTopics: [],
+    brandColor,
+    twitterUrl: socialLinks.twitterUrl,
+    linkedinUrl: socialLinks.linkedinUrl,
+    facebookUrl: socialLinks.facebookUrl,
+    youtubeUrl: socialLinks.youtubeUrl,
   };
 }
 

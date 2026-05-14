@@ -41,11 +41,9 @@ import {
   Star,
   Globe,
   ExternalLink,
-  Heart,
   Share2,
   Code2,
   Lock,
-  GitFork,
   AlertCircle,
   BadgeCheck,
   Camera,
@@ -66,7 +64,23 @@ import {
   Pencil,
   Twitter,
   Linkedin,
+  Youtube,
+  Github,
+  Sparkles,
+  Upload,
 } from "lucide-react";
+
+// ─── Fire Icon ────────────────────────────────────────────────────────────────
+function FireIcon({ className }: { className?: string }) {
+  return (
+    <svg fill="none" height="20" viewBox="0 0 20 20" width="20" xmlns="http://www.w3.org/2000/svg" className={className}>
+      <path
+        d="M13.7605 6.61389C13.138 6.79867 12.6687 7.21667 12.3251 7.67073C12.2513 7.76819 12.0975 7.69495 12.1268 7.57552C12.7848 4.86978 11.9155 2.6209 9.20582 1.51393C9.06836 1.4576 8.92527 1.58097 8.96132 1.72519C10.1939 6.67417 5.00941 6.25673 5.66459 11.8671C5.67585 11.9634 5.56769 12.0293 5.48882 11.973C5.2432 11.7967 4.96885 11.4288 4.78069 11.1702C4.72548 11.0942 4.60605 11.1156 4.5807 11.2063C4.43085 11.7482 4.35986 12.2586 4.35986 12.7656C4.35986 14.7373 5.37333 16.473 6.90734 17.4791C6.99522 17.5366 7.10789 17.4543 7.07804 17.3535C6.99917 17.0887 6.95466 16.8093 6.95128 16.5203C6.95128 16.3429 6.96255 16.1615 6.99015 15.9925C7.05438 15.5677 7.20197 15.1632 7.44985 14.7948C8.29995 13.5188 10.0041 12.2862 9.73199 10.6125C9.71453 10.5066 9.83959 10.4368 9.91846 10.5094C11.119 11.6063 11.3567 13.0817 11.1595 14.405C11.1426 14.5199 11.2868 14.5813 11.3595 14.4912C11.5432 14.2613 11.7674 14.0596 12.0113 13.9081C12.0722 13.8703 12.1533 13.8991 12.1764 13.9667C12.3121 14.3616 12.5138 14.7323 12.7042 15.1029C12.9318 15.5485 13.0529 16.0573 13.0338 16.5958C13.0242 16.8578 12.9808 17.1113 12.9082 17.3524C12.8772 17.4543 12.9887 17.5394 13.0783 17.4808C14.6134 16.4747 15.6275 14.739 15.6275 12.7662C15.6275 12.0806 15.5075 11.4085 15.2804 10.7787C14.8044 9.45766 13.5966 8.46561 13.9019 6.74403C13.9166 6.66178 13.8405 6.59023 13.7605 6.61389Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
 
 // ─── GraphQL ──────────────────────────────────────────────────────────────────
 
@@ -94,6 +108,8 @@ const GET_PROJECT = gql`
       githubUrl
       twitterUrl
       linkedinUrl
+      facebookUrl
+      youtubeUrl
       screenshotUrl
       screenshots
       isVerified
@@ -136,14 +152,20 @@ const UPDATE_PROJECT = gql`
       name
       tagline
       description
+      iconUrl
+      bannerUrl
       projectUrl
       githubUrl
       twitterUrl
       linkedinUrl
+      facebookUrl
+      youtubeUrl
       visibility
       category
+      type
       status
       progress
+      screenshots
       tags { name }
     }
   }
@@ -283,7 +305,8 @@ export function ProjectDetail() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
-  const [editForm, setEditForm] = useState<Record<string, string>>({});
+  const [editForm, setEditForm] = useState<Record<string, any>>({});
+  const [editScreenshots, setEditScreenshots] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   // Open edit dialog pre-filled with current project data
@@ -294,15 +317,21 @@ export function ProjectDetail() {
       name: p.name ?? "",
       tagline: p.tagline ?? "",
       description: p.description ?? "",
+      iconUrl: p.iconUrl ?? "",
+      bannerUrl: p.bannerUrl ?? "",
       projectUrl: p.projectUrl ?? "",
       githubUrl: p.githubUrl ?? "",
       twitterUrl: p.twitterUrl ?? "",
       linkedinUrl: p.linkedinUrl ?? "",
+      facebookUrl: p.facebookUrl ?? "",
+      youtubeUrl: p.youtubeUrl ?? "",
       visibility: p.visibility ?? "PUBLIC",
       category: p.category ?? "OTHER",
-      status: p.status ?? "IN_DEVELOPMENT",
+      type: p.type ?? "PERSONAL",
       tags: (p.tags ?? []).map((t: any) => t.name).join(", "),
     });
+    // Set screenshots separately in their own state
+    setEditScreenshots(p.screenshots ?? []);
     setShowEditDialog(true);
   }
 
@@ -332,26 +361,45 @@ export function ProjectDetail() {
   async function handleSaveEdit() {
     setSaving(true);
     try {
-      await updateProjectMutation({
-        variables: {
-          id,
-          input: {
-            name: editForm.name,
-            tagline: editForm.tagline,
-            description: editForm.description || undefined,
-            projectUrl: editForm.projectUrl || undefined,
-            githubUrl: editForm.githubUrl || undefined,
-            twitterUrl: editForm.twitterUrl || undefined,
-            linkedinUrl: editForm.linkedinUrl || undefined,
-            visibility: editForm.visibility,
-            category: editForm.category,
-            status: editForm.status || undefined,
-            tags: editForm.tags.split(",").map((t: string) => t.trim()).filter(Boolean),
-          },
-        },
+      // Build input object, filtering out empty strings
+      const input: any = {
+        name: editForm.name,
+        tagline: editForm.tagline,
+        visibility: editForm.visibility,
+        category: editForm.category,
+        type: editForm.type,
+      };
+
+      // Only add optional fields if they have values
+      if (editForm.description?.trim()) input.description = editForm.description;
+      if (editForm.iconUrl?.trim()) input.iconUrl = editForm.iconUrl;
+      if (editForm.bannerUrl?.trim()) input.bannerUrl = editForm.bannerUrl;
+      if (editForm.projectUrl?.trim()) input.projectUrl = editForm.projectUrl;
+      if (editForm.githubUrl?.trim()) input.githubUrl = editForm.githubUrl;
+      if (editForm.twitterUrl?.trim()) input.twitterUrl = editForm.twitterUrl;
+      if (editForm.linkedinUrl?.trim()) input.linkedinUrl = editForm.linkedinUrl;
+      if (editForm.facebookUrl?.trim()) input.facebookUrl = editForm.facebookUrl;
+      if (editForm.youtubeUrl?.trim()) input.youtubeUrl = editForm.youtubeUrl;
+      
+      // Handle tags
+      const tagsList = editForm.tags?.split(",").map((t: string) => t.trim()).filter(Boolean) || [];
+      if (tagsList.length > 0) input.tags = tagsList;
+      
+      // Handle screenshots
+      if (editScreenshots.length > 0) input.screenshots = editScreenshots;
+
+      console.log("🔄 Saving project changes...", { id, input });
+
+      const result = await updateProjectMutation({
+        variables: { id, input },
       });
+      
+      console.log("✅ Project saved successfully:", result);
       setShowEditDialog(false);
-    } catch (_) { /* Apollo surfaces the error */ }
+    } catch (error) {
+      console.error("❌ Error saving project:", error);
+      alert("Failed to save changes: " + (error as any)?.message);
+    }
     finally { setSaving(false); }
   }
 
@@ -432,102 +480,334 @@ export function ProjectDetail() {
 
       {/* Edit Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Pencil className="w-4 h-4 text-primary" strokeWidth={2} />
-              Edit Project
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Project Name *</Label>
-              <Input value={editForm.name ?? ""} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
+        <DialogContent className="w-screen max-w-[96vw] xl:max-w-6xl p-0 gap-0 overflow-hidden h-[95vh] max-h-[95vh] flex flex-col [&>button]:hidden">
+
+          {/* ── Top bar ── */}
+          <div className="flex-shrink-0 flex items-center justify-between px-5 py-2.5 border-b bg-muted/30">
+            <div className="flex items-center gap-2">
+              <Pencil className="w-3.5 h-3.5 text-primary" strokeWidth={2} />
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Edit Project — Live Preview</span>
             </div>
-            <div className="space-y-1.5">
-              <Label>Tagline *</Label>
-              <Input value={editForm.tagline ?? ""} onChange={e => setEditForm(f => ({ ...f, tagline: e.target.value }))} />
+            <button onClick={() => setShowEditDialog(false)} className="w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+              <X className="w-3.5 h-3.5" strokeWidth={2} />
+            </button>
+          </div>
+
+          {/* ── Scrollable preview body ── */}
+          <div className="flex-1 overflow-y-auto">
+
+            {/* Hero banner — mirrors project-detail hero */}
+            <div className="relative h-52 md:h-64 bg-gradient-to-br from-primary/15 via-primary/5 to-muted overflow-hidden">
+              {editForm.bannerUrl ? (
+                <img
+                  src={editForm.bannerUrl}
+                  alt="Banner"
+                  className="w-full h-full object-cover"
+                  onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                />
+              ) : null}
+              <div className="absolute inset-0 bg-gradient-to-t from-background via-background/20 to-transparent pointer-events-none" />
             </div>
-            <div className="space-y-1.5">
-              <Label>Description</Label>
-              <Textarea rows={4} value={editForm.description ?? ""} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} />
+
+            {/* Header row — icon + name + tagline + pills, overlapping banner */}
+            <div className="px-6">
+              <div className="relative -mt-12 flex items-start gap-4 pb-5">
+                {/* Icon */}
+                <div className="w-24 h-24 rounded-2xl bg-card border-4 border-background shadow-xl flex items-center justify-center overflow-hidden flex-shrink-0">
+                  {editForm.iconUrl ? (
+                    <img
+                      src={editForm.iconUrl}
+                      alt="Icon"
+                      className="w-full h-full object-cover"
+                      onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center gap-1 text-muted-foreground">
+                      <Upload className="w-6 h-6" strokeWidth={1.5} />
+                      <span className="text-[9px] font-medium">Icon</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Name + tagline + meta pills */}
+                <div className="flex-1 min-w-0 pt-4 sm:pt-6">
+                  <input
+                    placeholder="Project name *"
+                    value={editForm.name ?? ""}
+                    onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                    className="w-full text-2xl md:text-3xl font-bold bg-transparent border-b border-transparent hover:border-muted-foreground/30 focus:border-primary/60 focus:outline-none pb-0.5 mb-1.5 placeholder:text-muted-foreground/30 tracking-tight transition-colors"
+                  />
+                  <input
+                    placeholder="One-line tagline *"
+                    value={editForm.tagline ?? ""}
+                    onChange={e => setEditForm(f => ({ ...f, tagline: e.target.value }))}
+                    className="w-full text-base text-muted-foreground bg-transparent border-b border-transparent hover:border-muted-foreground/20 focus:border-primary/40 focus:outline-none pb-0.5 mb-3 placeholder:text-muted-foreground/30 transition-colors"
+                  />
+                  {/* Category + Visibility + Type pills */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Select value={editForm.category} onValueChange={v => setEditForm(f => ({ ...f, category: v }))}>
+                      <SelectTrigger className="h-6 text-[11px] rounded-full px-2.5 border-primary/30 bg-primary/10 text-primary w-auto gap-1 hover:bg-primary/20 transition-colors">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="WEB_APP">🌐 Web App</SelectItem>
+                        <SelectItem value="MOBILE_APP">📱 Mobile App</SelectItem>
+                        <SelectItem value="LIBRARY">📦 Library</SelectItem>
+                        <SelectItem value="CLI_TOOL">⌨️ CLI Tool</SelectItem>
+                        <SelectItem value="PORTFOLIO">🎨 Portfolio</SelectItem>
+                        <SelectItem value="OTHER">✨ Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={editForm.visibility} onValueChange={v => setEditForm(f => ({ ...f, visibility: v }))}>
+                      <SelectTrigger className="h-6 text-[11px] rounded-full px-2.5 border w-auto gap-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PUBLIC"><div className="flex items-center gap-1.5"><Globe className="w-3 h-3" strokeWidth={2} />Public</div></SelectItem>
+                        <SelectItem value="PRIVATE"><div className="flex items-center gap-1.5"><Lock className="w-3 h-3" strokeWidth={2} />Private</div></SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {(["PERSONAL", "GITHUB"] as const).map(t => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setEditForm(f => ({ ...f, type: t }))}
+                        className={`flex items-center gap-1 h-6 px-2.5 rounded-full text-[11px] font-semibold border transition-all ${
+                          editForm.type === t
+                            ? "bg-foreground text-background border-foreground"
+                            : "bg-transparent text-muted-foreground border-muted-foreground/20 hover:border-muted-foreground/40"
+                        }`}
+                      >
+                        {t === "GITHUB" ? <Github className="w-3 h-3" strokeWidth={2} /> : <Code2 className="w-3 h-3" strokeWidth={2} />}
+                        {t === "GITHUB" ? "GitHub" : "Personal"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Action bar — mirrors project-detail action row */}
+              <div className="flex flex-wrap items-center gap-2 pb-5 border-b">
+                {/* Fire button preview */}
+                <div className="flex items-center gap-0 h-8 rounded-lg overflow-hidden border border-orange-500/40">
+                  <span className="flex items-center gap-1.5 px-2.5 h-full text-orange-500 text-xs font-semibold">
+                    🔥 Fire
+                  </span>
+                  <span className="w-px h-4 bg-orange-500/30" />
+                  <span className="px-2.5 h-full flex items-center text-xs font-bold text-orange-500">0</span>
+                </div>
+                <div className="flex-1" />
+                {editForm.githubUrl && (
+                  <div className="flex items-center gap-1.5 h-8 px-3 rounded-md border text-xs font-medium text-muted-foreground">
+                    <Code2 className="w-3.5 h-3.5" strokeWidth={2} /> Source Code
+                  </div>
+                )}
+                {editForm.projectUrl && (
+                  <div className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-primary text-primary-foreground text-xs font-medium">
+                    <Globe className="w-3.5 h-3.5" strokeWidth={2} /> Visit Project
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Category</Label>
-                <Select value={editForm.category} onValueChange={v => setEditForm(f => ({ ...f, category: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="WEB_APP">Web App</SelectItem>
-                    <SelectItem value="MOBILE_APP">Mobile App</SelectItem>
-                    <SelectItem value="LIBRARY">Library</SelectItem>
-                    <SelectItem value="CLI_TOOL">CLI Tool</SelectItem>
-                    <SelectItem value="PORTFOLIO">Portfolio</SelectItem>
-                    <SelectItem value="OTHER">Other</SelectItem>
-                  </SelectContent>
-                </Select>
+
+            {/* Two-column body — mirrors project-detail grid */}
+            <div className="px-6 py-5 grid grid-cols-1 md:grid-cols-3 gap-6">
+
+              {/* Left (2 cols): About + Tech */}
+              <div className="md:col-span-2 space-y-6">
+
+                {/* About */}
+                <div>
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">About</h3>
+                  <Textarea
+                    placeholder="What does it do? Who is it for? What problem does it solve?"
+                    value={editForm.description ?? ""}
+                    onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
+                    className="min-h-[88px] resize-none text-sm bg-muted/30 border-muted-foreground/15 focus-visible:border-primary/50 focus-visible:ring-primary/20"
+                  />
+                </div>
+
+                {/* Tech Stack */}
+                <div>
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Tech Stack</h3>
+                  <Input
+                    placeholder="React, TypeScript, Node.js, PostgreSQL…"
+                    value={editForm.tags ?? ""}
+                    onChange={e => setEditForm(f => ({ ...f, tags: e.target.value }))}
+                    className="text-sm bg-muted/30 border-muted-foreground/15 focus-visible:border-primary/50 focus-visible:ring-primary/20 mb-2"
+                  />
+                  {editForm.tags && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {editForm.tags.split(",").map((t: string) => t.trim()).filter(Boolean).map((t: string) => (
+                        <span key={t} className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-primary text-[11px] font-medium">{t}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Screenshots */}
+                <div>
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                    Screenshots
+                    {editScreenshots.length > 0 && (
+                      <span className="font-normal normal-case opacity-50 ml-1">
+                        — {editScreenshots.length} page{editScreenshots.length !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {editScreenshots.map((url, i) => (
+                      <div key={i} className="relative group aspect-video rounded-lg border bg-muted/30 overflow-hidden">
+                        <img src={url} alt={`Screenshot ${i + 1}`} className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditScreenshots(prev => prev.filter((_, idx) => idx !== i));
+                            }}
+                            className="w-8 h-8 rounded-full bg-red-500/90 hover:bg-red-500 text-white flex items-center justify-center transition-colors"
+                          >
+                            <X className="w-4 h-4" strokeWidth={2} />
+                          </button>
+                        </div>
+                        <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-white font-medium">
+                          {i + 1}
+                        </div>
+                      </div>
+                    ))}
+                    {/* Add screenshot button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = prompt("Enter screenshot URL:");
+                        if (url) {
+                          setEditScreenshots(prev => [...prev, url]);
+                        }
+                      }}
+                      className="aspect-video rounded-lg border-2 border-dashed border-muted-foreground/20 hover:border-primary/40 hover:bg-primary/5 transition-colors flex flex-col items-center justify-center gap-2 text-muted-foreground hover:text-primary"
+                    >
+                      <Upload className="w-5 h-5" strokeWidth={1.5} />
+                      <span className="text-[10px] font-medium">Add Screenshot</span>
+                    </button>
+                  </div>
+                </div>
+
               </div>
-              <div className="space-y-1.5">
-                <Label>Visibility</Label>
-                <Select value={editForm.visibility} onValueChange={v => setEditForm(f => ({ ...f, visibility: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PUBLIC">Public</SelectItem>
-                    <SelectItem value="PRIVATE">Private</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Status</Label>
-                <Select value={editForm.status} onValueChange={v => setEditForm(f => ({ ...f, status: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="IN_DEVELOPMENT">In Development</SelectItem>
-                    <SelectItem value="BETA">Beta</SelectItem>
-                    <SelectItem value="LAUNCHED">Launched</SelectItem>
-                    <SelectItem value="ARCHIVED">Archived</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Tech Stack <span className="text-muted-foreground text-xs font-normal">(comma separated)</span></Label>
-                <Input placeholder="React, TypeScript…" value={editForm.tags ?? ""} onChange={e => setEditForm(f => ({ ...f, tags: e.target.value }))} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Project URL</Label>
-                <Input type="url" placeholder="https://…" value={editForm.projectUrl ?? ""} onChange={e => setEditForm(f => ({ ...f, projectUrl: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>GitHub URL</Label>
-                <Input type="url" placeholder="https://github.com/…" value={editForm.githubUrl ?? ""} onChange={e => setEditForm(f => ({ ...f, githubUrl: e.target.value }))} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>X (Twitter) URL</Label>
-                <Input type="url" placeholder="https://x.com/…" value={editForm.twitterUrl ?? ""} onChange={e => setEditForm(f => ({ ...f, twitterUrl: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>LinkedIn URL</Label>
-                <Input type="url" placeholder="https://linkedin.com/company/…" value={editForm.linkedinUrl ?? ""} onChange={e => setEditForm(f => ({ ...f, linkedinUrl: e.target.value }))} />
+
+              {/* Right (1 col): Links card */}
+              <div className="space-y-4">
+
+                {/* Links card — mirrors project-detail sidebar links card */}
+                <div className="rounded-xl border bg-card p-4">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Links</h4>
+                  <div className="space-y-1">
+                    {/* Website */}
+                    <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-muted/50 transition-colors">
+                      <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <Globe className="w-3.5 h-3.5 text-primary" strokeWidth={2} />
+                      </div>
+                      <input
+                        placeholder="https://myproject.com"
+                        value={editForm.projectUrl ?? ""}
+                        onChange={e => setEditForm(f => ({ ...f, projectUrl: e.target.value }))}
+                        className="flex-1 bg-transparent text-xs focus:outline-none placeholder:text-muted-foreground/40 min-w-0"
+                      />
+                    </div>
+                    {/* GitHub */}
+                    <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-muted/50 transition-colors">
+                      <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+                        <Github className="w-3.5 h-3.5" strokeWidth={2} />
+                      </div>
+                      <input
+                        placeholder="https://github.com/…"
+                        value={editForm.githubUrl ?? ""}
+                        onChange={e => setEditForm(f => ({ ...f, githubUrl: e.target.value }))}
+                        className="flex-1 bg-transparent text-xs focus:outline-none placeholder:text-muted-foreground/40 min-w-0"
+                      />
+                    </div>
+                    {/* Twitter */}
+                    <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-muted/50 transition-colors">
+                      <div className="w-7 h-7 rounded-lg bg-sky-500/10 flex items-center justify-center flex-shrink-0">
+                        <Twitter className="w-3.5 h-3.5 text-sky-500" strokeWidth={2} />
+                      </div>
+                      <input
+                        placeholder="https://x.com/…"
+                        value={editForm.twitterUrl ?? ""}
+                        onChange={e => setEditForm(f => ({ ...f, twitterUrl: e.target.value }))}
+                        className="flex-1 bg-transparent text-xs focus:outline-none placeholder:text-muted-foreground/40 min-w-0"
+                      />
+                    </div>
+                    {/* LinkedIn */}
+                    <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-muted/50 transition-colors">
+                      <div className="w-7 h-7 rounded-lg bg-blue-600/10 flex items-center justify-center flex-shrink-0">
+                        <Linkedin className="w-3.5 h-3.5 text-blue-600" strokeWidth={2} />
+                      </div>
+                      <input
+                        placeholder="https://linkedin.com/…"
+                        value={editForm.linkedinUrl ?? ""}
+                        onChange={e => setEditForm(f => ({ ...f, linkedinUrl: e.target.value }))}
+                        className="flex-1 bg-transparent text-xs focus:outline-none placeholder:text-muted-foreground/40 min-w-0"
+                      />
+                    </div>
+                    {/* Facebook */}
+                    <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-muted/50 transition-colors">
+                      <div className="w-7 h-7 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+                        <svg className="w-3.5 h-3.5 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" />
+                        </svg>
+                      </div>
+                      <input
+                        placeholder="https://facebook.com/…"
+                        value={editForm.facebookUrl ?? ""}
+                        onChange={e => setEditForm(f => ({ ...f, facebookUrl: e.target.value }))}
+                        className="flex-1 bg-transparent text-xs focus:outline-none placeholder:text-muted-foreground/40 min-w-0"
+                      />
+                    </div>
+                    {/* YouTube */}
+                    <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-muted/50 transition-colors">
+                      <div className="w-7 h-7 rounded-lg bg-red-500/10 flex items-center justify-center flex-shrink-0">
+                        <Youtube className="w-3.5 h-3.5 text-red-500" strokeWidth={2} />
+                      </div>
+                      <input
+                        placeholder="https://youtube.com/@…"
+                        value={editForm.youtubeUrl ?? ""}
+                        onChange={e => setEditForm(f => ({ ...f, youtubeUrl: e.target.value }))}
+                        className="flex-1 bg-transparent text-xs focus:outline-none placeholder:text-muted-foreground/40 min-w-0"
+                      />
+                    </div>
+                  </div>
+                </div>
+
               </div>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEditDialog(false)} disabled={saving}>Cancel</Button>
-            <Button onClick={handleSaveEdit} disabled={!editForm.name || !editForm.tagline || saving} className="gap-2">
-              {saving ? (
-                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : (
-                <Pencil className="w-4 h-4" strokeWidth={2} />
+
+          {/* ── Sticky footer ── */}
+          <div className="flex-shrink-0 flex items-center justify-between gap-3 px-6 py-3.5 border-t bg-background/95 backdrop-blur-sm">
+            <div className="flex-1">
+              {(!editForm.name || !editForm.tagline) && !saving && (
+                <p className="text-xs text-muted-foreground/60">Name and tagline are required</p>
               )}
-              {saving ? "Saving…" : "Save Changes"}
-            </Button>
-          </DialogFooter>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setShowEditDialog(false)} className="text-muted-foreground hover:text-foreground">
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveEdit}
+                disabled={!editForm.name || !editForm.tagline || saving}
+                className="gap-2 bg-primary hover:bg-primary/90 active:bg-primary text-primary-foreground border-none min-w-36 font-bold shadow-lg shadow-primary/25 disabled:opacity-50"
+              >
+                {saving ? (
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <Check className="w-4 h-4" strokeWidth={2} />
+                )}
+                {saving ? "Saving…" : "Save Changes"}
+              </Button>
+            </div>
+          </div>
+
         </DialogContent>
       </Dialog>
 
@@ -655,33 +935,21 @@ export function ProjectDetail() {
 
         {/* Action buttons row */}
         <div className="flex flex-wrap items-center gap-3 pb-6 border-b">
-          <Button
+          {/* Fire react button */}
+          <button
             onClick={() => starProject({ variables: { projectId: project.id } })}
-            variant="outline"
-            className="gap-2 h-9"
+            className="group flex items-center gap-0 h-9 rounded-lg overflow-hidden border border-orange-500/40 hover:border-orange-500 transition-all"
           >
-            <Star className="w-4 h-4" strokeWidth={2} />
-            Star
-            <Separator orientation="vertical" className="h-4" />
-            <span className="font-semibold tabular-nums">{project.starsCount}</span>
-          </Button>
-          <Button
-            onClick={() => likeProject({ variables: { projectId: project.id } })}
-            variant="outline"
-            className="gap-2 h-9"
-          >
-            <Heart className="w-4 h-4" strokeWidth={2} />
-            Like
-            <Separator orientation="vertical" className="h-4" />
-            <span className="font-semibold tabular-nums">{project.likesCount}</span>
-          </Button>
-          {project.forksCount > 0 && (
-            <div className="flex items-center gap-1.5 text-sm text-muted-foreground px-2">
-              <GitFork className="w-4 h-4" strokeWidth={2} />
-              <span className="font-semibold tabular-nums">{project.forksCount}</span>
-              <span>forks</span>
-            </div>
-          )}
+            <span className="flex items-center gap-1.5 px-3 h-full text-orange-500 group-hover:bg-orange-500/10 transition-colors">
+              <FireIcon className="w-4 h-4" />
+              <span className="text-sm font-semibold">Fire</span>
+            </span>
+            <span className="w-px h-5 bg-orange-500/30" />
+            <span className="px-3 h-full flex items-center text-sm font-bold tabular-nums text-orange-500 group-hover:bg-orange-500/10 transition-colors">
+              {project.starsCount ?? 0}
+            </span>
+          </button>
+
           <div className="flex-1" />
           {/* Owner-only action buttons */}
           {user && project.owner?.id === user.id && (
@@ -741,7 +1009,7 @@ export function ProjectDetail() {
                 {allScreenshots.length > 0 && (
                   <TabsTrigger value="screenshots" className="gap-1.5">
                     <Camera className="w-3.5 h-3.5" />
-                    Screenshots
+                    Pages
                     <Badge variant="secondary" className="ml-1 text-[10px] h-4 px-1.5 rounded-full">{allScreenshots.length}</Badge>
                   </TabsTrigger>
                 )}
@@ -766,30 +1034,36 @@ export function ProjectDetail() {
                   </div>
                 </div>
 
-                {/* Screenshot preview (first 2) */}
+                {/* Screenshot preview (first 3) — crawled pages gallery */}
                 {allScreenshots.length > 0 && (
                   <div>
-                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Preview</h3>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Pages Crawled</h3>
+                      <span className="text-[11px] text-muted-foreground">{allScreenshots.length} page{allScreenshots.length !== 1 ? "s" : ""} captured</span>
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {allScreenshots.slice(0, 2).map((url: string, i: number) => (
+                      {allScreenshots.slice(0, 4).map((url: string, i: number) => (
                         <button
                           key={i}
                           onClick={() => setLightboxIdx(i)}
-                          className="block rounded-xl overflow-hidden border hover:ring-2 hover:ring-primary/40 transition-all group/ss bg-muted/50"
+                          className="relative block rounded-xl overflow-hidden border hover:ring-2 hover:ring-orange-500/40 transition-all group/ss bg-muted/50"
                         >
                           <img
                             src={url}
-                            alt={`Screenshot ${i + 1}`}
-                            className="w-full object-contain group-hover/ss:scale-[1.02] transition-transform duration-300"
+                            alt={`Page ${i + 1}`}
+                            className="w-full object-cover aspect-video group-hover/ss:scale-[1.02] transition-transform duration-300"
                             loading="lazy"
                           />
+                          <div className="absolute bottom-0 inset-x-0 px-2 py-1.5 bg-gradient-to-t from-black/70 to-transparent">
+                            <span className="text-[11px] text-white/80 font-medium">
+                              {i === 0 ? "Home" : `Page ${i + 1}`}
+                            </span>
+                          </div>
                         </button>
                       ))}
                     </div>
-                    {allScreenshots.length > 2 && (
-                      <p className="text-xs text-muted-foreground mt-2">
-                        +{allScreenshots.length - 2} more — see Screenshots tab
-                      </p>
+                    {allScreenshots.length > 4 && (
+                      <p className="text-xs text-muted-foreground mt-2">+{allScreenshots.length - 4} more — see Screenshots tab</p>
                     )}
                   </div>
                 )}
@@ -832,19 +1106,26 @@ export function ProjectDetail() {
               {/* ─── Screenshots Tab ─── */}
               {allScreenshots.length > 0 && (
                 <TabsContent value="screenshots" className="space-y-4">
+                  <p className="text-xs text-muted-foreground">
+                    {allScreenshots.length} page{allScreenshots.length !== 1 ? "s" : ""} automatically crawled and captured from this project.
+                  </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {allScreenshots.map((url: string, i: number) => (
                       <button
                         key={i}
                         onClick={() => setLightboxIdx(i)}
-                        className="block rounded-xl overflow-hidden border hover:ring-2 hover:ring-primary/40 transition-all group/ss bg-muted/50"
+                        className="relative block rounded-xl overflow-hidden border hover:ring-2 hover:ring-orange-500/40 transition-all group/ss bg-muted/50"
                       >
                         <img
                           src={url}
-                          alt={`Screenshot ${i + 1}`}
-                          className="w-full object-contain group-hover/ss:scale-[1.02] transition-transform duration-300"
+                          alt={`Page ${i + 1}`}
+                          className="w-full object-cover aspect-video group-hover/ss:scale-[1.02] transition-transform duration-300"
                           loading="lazy"
                         />
+                        <div className="absolute bottom-0 inset-x-0 px-3 py-2 bg-gradient-to-t from-black/70 to-transparent flex items-end justify-between">
+                          <span className="text-xs text-white font-semibold">{i === 0 ? "Home" : `Page ${i + 1}`}</span>
+                          <span className="text-[10px] text-white/60">click to expand</span>
+                        </div>
                       </button>
                     ))}
                   </div>
@@ -905,18 +1186,12 @@ export function ProjectDetail() {
             {/* Stats card */}
             <div className="rounded-xl border bg-card p-5">
               <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">Stats</h4>
-              <div className="grid grid-cols-3 gap-3">
-                {[
-                  { icon: Star, label: "Stars", value: project.starsCount, color: "text-yellow-500" },
-                  { icon: Heart, label: "Likes", value: project.likesCount, color: "text-red-400" },
-                  { icon: GitFork, label: "Forks", value: project.forksCount, color: "text-blue-400" },
-                ].filter(s => s.value !== null && s.value !== undefined).map(s => (
-                  <div key={s.label} className="text-center py-3 rounded-lg bg-muted/40">
-                    <s.icon className={`w-4 h-4 mx-auto mb-1.5 ${s.color}`} strokeWidth={2} />
-                    <div className="text-lg font-bold tabular-nums">{(s.value ?? 0).toLocaleString()}</div>
-                    <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{s.label}</div>
-                  </div>
-                ))}
+              <div className="flex items-center justify-center py-3 rounded-lg bg-orange-500/5 border border-orange-500/20 gap-4">
+                <FireIcon className="w-7 h-7 text-orange-500" />
+                <div>
+                  <div className="text-3xl font-bold tabular-nums text-orange-500">{(project.starsCount ?? 0).toLocaleString()}</div>
+                  <div className="text-[11px] text-muted-foreground uppercase tracking-wide">fires</div>
+                </div>
               </div>
               {project.rating != null && project.rating > 0 && (
                 <>
@@ -1050,6 +1325,42 @@ export function ProjectDetail() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium group-hover:text-primary transition-colors">LinkedIn</p>
                         <p className="text-xs text-muted-foreground truncate">{project.linkedinUrl.replace(/^https?:\/\/(www\.)?linkedin\.com\//, "")}</p>
+                      </div>
+                      <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" strokeWidth={2} />
+                    </a>
+                  )}
+                  {project.facebookUrl && (
+                    <a
+                      href={project.facebookUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/60 transition-colors group"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+                        <svg className="w-4 h-4 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium group-hover:text-primary transition-colors">Facebook</p>
+                        <p className="text-xs text-muted-foreground truncate">{project.facebookUrl.replace(/^https?:\/\/(www\.)?facebook\.com\//, "")}</p>
+                      </div>
+                      <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" strokeWidth={2} />
+                    </a>
+                  )}
+                  {project.youtubeUrl && (
+                    <a
+                      href={project.youtubeUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/60 transition-colors group"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center flex-shrink-0">
+                        <Youtube className="w-4 h-4 text-red-500" strokeWidth={2} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium group-hover:text-primary transition-colors">YouTube</p>
+                        <p className="text-xs text-muted-foreground truncate">{project.youtubeUrl.replace(/^https?:\/\/(www\.)?youtube\.com\//, "")}</p>
                       </div>
                       <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" strokeWidth={2} />
                     </a>

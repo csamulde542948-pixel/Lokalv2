@@ -158,7 +158,18 @@ export const projectResolvers = {
       { input }: { input: any },
       { user, prisma, clientIp }: GraphQLContext
     ) => {
+      console.log('[CREATE PROJECT] Request received', { user, inputKeys: Object.keys(input) });
       if (!user) throw new Error("Unauthorized");
+
+      // ── Verify profile exists ──────────────────────────────────────────────
+      console.log('[CREATE PROJECT] Looking up profile for user:', user.id);
+      const profile = await prisma.profile.findUnique({
+        where: { id: user.id },
+      });
+      console.log('[CREATE PROJECT] Profile found:', profile ? { id: profile.id, username: profile.username } : 'NOT FOUND');
+      if (!profile) {
+        throw new Error("Profile not found. Please complete onboarding first.");
+      }
 
       // ── Rank-based project slot check ──────────────────────────────────────
       // Throws with a descriptive message if the user has hit their rank limit.
@@ -184,6 +195,8 @@ export const projectResolvers = {
             githubUrl: input.githubUrl,
             twitterUrl: input.twitterUrl,
             linkedinUrl: input.linkedinUrl,
+            facebookUrl: input.facebookUrl,
+            youtubeUrl: input.youtubeUrl,
             screenshots: input.screenshots ?? [],
             type: input.type,
             visibility: input.visibility,
@@ -230,30 +243,65 @@ export const projectResolvers = {
       { id, input }: { id: string; input: any },
       { user, prisma }: GraphQLContext
     ) => {
+      console.log('[UPDATE PROJECT] Request received', { id, user: user?.id, inputKeys: Object.keys(input) });
+      
       if (!user) throw new Error("Unauthorized");
       const existing = await prisma.project.findUnique({ where: { id } });
+      if (!existing) throw new Error("Project not found");
       if (existing?.authorId !== user.id) throw new Error("Forbidden");
 
-      // Medium #14: Whitelist — never spread raw input directly into Prisma
-      const allowed = [
-        "name", "tagline", "description", "iconUrl", "bannerUrl",
-        "projectUrl", "githubUrl", "twitterUrl", "linkedinUrl",
-        "screenshots", "visibility", "category", "status", "progress", "tags",
-      ] as const;
-      type AllowedKey = typeof allowed[number];
-      const safeData = Object.fromEntries(
-        allowed
-          .filter((k): k is AllowedKey => k in input)
-          .map((k) => [k, input[k]])
-      );
+      console.log('[UPDATE PROJECT] Updating project:', { id, authorId: existing.authorId, inputKeys: Object.keys(input) });
 
-      return prisma.project.update({
-        where: { id },
-        data: { ...safeData, updatedAt: new Date() },
-        include: {
-          author: { include: { rank: true } },
-          tags: { include: { tag: true } },
-        },
+      return prisma.$transaction(async (tx: any) => {
+        // Medium #14: Whitelist — never spread raw input directly into Prisma
+        const allowed = [
+          "name", "tagline", "description", "iconUrl", "bannerUrl",
+          "projectUrl", "githubUrl", "twitterUrl", "linkedinUrl", "facebookUrl", "youtubeUrl",
+          "screenshots", "visibility", "category", "type", "status", "progress",
+        ] as const;
+        type AllowedKey = typeof allowed[number];
+        const safeData = Object.fromEntries(
+          allowed
+            .filter((k): k is AllowedKey => k in input)
+            .map((k) => [k, input[k]])
+        );
+
+        console.log('[UPDATE PROJECT] Safe data prepared:', Object.keys(safeData));
+
+        // Handle tags separately (many-to-many relationship)
+        if (input.tags) {
+          console.log('[UPDATE PROJECT] Processing tags:', input.tags);
+          const tagNames: string[] = input.tags;
+          
+          // Upsert all tags
+          const tagRecords = await Promise.all(
+            tagNames.map((name: string) =>
+              tx.tag.upsert({ where: { name }, create: { name }, update: {} })
+            )
+          );
+
+          console.log('[UPDATE PROJECT] Tags upserted:', tagRecords.length);
+
+          // Delete existing tag associations
+          await tx.projectTag.deleteMany({ where: { projectId: id } });
+          console.log('[UPDATE PROJECT] Old tag associations deleted');
+
+          // Create new tag associations
+          safeData.tags = { create: tagRecords.map((t: any) => ({ tagId: t.id })) };
+          console.log('[UPDATE PROJECT] New tag associations prepared');
+        }
+
+        const updated = await tx.project.update({
+          where: { id },
+          data: { ...safeData, updatedAt: new Date() },
+          include: {
+            author: { include: { rank: true } },
+            tags: { include: { tag: true } },
+          },
+        });
+
+        console.log('[UPDATE PROJECT] Project updated successfully:', { id: updated.id, name: updated.name });
+        return updated;
       });
     },
 

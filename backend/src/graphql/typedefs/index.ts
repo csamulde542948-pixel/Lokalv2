@@ -295,6 +295,8 @@ export const typeDefs = gql`
     githubUrl: String
     twitterUrl: String
     linkedinUrl: String
+    facebookUrl: String
+    youtubeUrl: String
     screenshotUrl: String
     screenshots: [String!]!
     type: ProjectType!
@@ -383,8 +385,10 @@ export const typeDefs = gql`
     name: String!
     tagline: String!
     description: String!
+    summary: String
     iconUrl: String
     bannerUrl: String
+    screenshots: [String!]!
     techStack: [String!]!
     category: ProjectCategory!
     githubUrl: String
@@ -393,6 +397,11 @@ export const typeDefs = gql`
     githubForks: Int
     githubLanguage: String
     githubTopics: [String!]!
+    brandColor: String
+    twitterUrl: String
+    linkedinUrl: String
+    facebookUrl: String
+    youtubeUrl: String
   }
 
   # =============================================
@@ -1024,6 +1033,8 @@ export const typeDefs = gql`
     githubUrl: String
     twitterUrl: String
     linkedinUrl: String
+    facebookUrl: String
+    youtubeUrl: String
     screenshots: [String!]
     type: ProjectType!
     visibility: Visibility!
@@ -1041,9 +1052,12 @@ export const typeDefs = gql`
     githubUrl: String
     twitterUrl: String
     linkedinUrl: String
+    facebookUrl: String
+    youtubeUrl: String
     screenshots: [String!]
     visibility: Visibility
     category: ProjectCategory
+    type: ProjectType
     status: ProjectStatus
     progress: Int
     tags: [String!]

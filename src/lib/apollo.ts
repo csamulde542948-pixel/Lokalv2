@@ -21,8 +21,12 @@ supabase.auth.getSession().then(({ data }) => {
 
 // Attach the Supabase session JWT to every GraphQL request
 const authLink = setContext(async (_, { headers }) => {
-  // Use in-memory token first; fall back to async getSession only if null
-  const token = cachedToken ?? (await supabase.auth.getSession()).data.session?.access_token ?? null;
+  // Always do a fresh getSession() — it reads from localStorage and is fast.
+  // This prevents the race where cachedToken is still null on first load.
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token ?? cachedToken ?? null;
+  // Keep cache in sync
+  cachedToken = token;
 
   return {
     headers: {
