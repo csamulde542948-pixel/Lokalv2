@@ -6,6 +6,7 @@ import { assertSafeExternalUrl } from "../../lib/ssrf";
 import {
   roastDailyLimiter,
   ipRoastDailyLimiter,
+  ipAuthRoastDailyLimiter,
   normalizeRoastUrl,
   roastUrlCache,
   perUserUrlLimiter,
@@ -67,8 +68,14 @@ export const roastResolvers = {
       const resetsAt = nextUtcMidnightIso();
       if (user) {
         const limit = 3;
-        const used  = roastDailyLimiter.getCount(user.id);
-        return { used, remaining: Math.max(0, limit - used), limit, resetsAt, isAnon: false };
+        const usedByUser = roastDailyLimiter.getCount(user.id);
+        const usedByIp   = ipAuthRoastDailyLimiter.getCount(clientIp);
+        // The effective remaining is the minimum of both caps
+        const remainingByUser = Math.max(0, limit - usedByUser);
+        const remainingByIp   = Math.max(0, limit - usedByIp);
+        const remaining = Math.min(remainingByUser, remainingByIp);
+        const used = limit - remaining;
+        return { used, remaining, limit, resetsAt, isAnon: false };
       } else {
         const limit = 1;
         const used  = ipRoastDailyLimiter.getCount(clientIp);
@@ -110,6 +117,9 @@ export const roastResolvers = {
       if (user) {
         // Authenticated: 3 roasts per calendar day, keyed on stable user ID
         roastDailyLimiter.check(user.id);
+        // Also enforce a shared IP cap: all authenticated accounts on the same
+        // public network share a pool of 3 roasts/day. Blocks multi-account abuse.
+        ipAuthRoastDailyLimiter.check(clientIp);
       } else {
         // Anonymous: 1 roast per calendar day, keyed on public network IP.
         // X-Forwarded-For[0] is the NAT router IP — all devices on the same

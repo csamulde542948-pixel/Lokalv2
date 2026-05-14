@@ -170,6 +170,22 @@ export const ipRoastDailyLimiter = new DailyRateLimiter({
   action: "anonymous AI roast generation",
 });
 
+/**
+ * generateRoast (authenticated, per-IP): 3 roasts per network IP per calendar
+ * day (UTC), shared across ALL authenticated accounts originating from the
+ * same public IP.
+ *
+ * This prevents multi-account abuse where someone creates several accounts
+ * to multiply their daily roast quota. Every authenticated account on the
+ * same NAT network shares a single pool of 3 roasts per day.
+ *
+ * Keyed on the public IP from X-Forwarded-For[0].
+ */
+export const ipAuthRoastDailyLimiter = new DailyRateLimiter({
+  maxRequests: 3,
+  action: "AI roast generation (IP limit)",
+});
+
 // ── Keep old sliding-window limiters for non-roast uses ──────────────────────
 
 /** @deprecated Use roastDailyLimiter instead */
@@ -207,6 +223,7 @@ export const searchRateLimiter = new PerUserRateLimiter({
 setInterval(() => {
   roastDailyLimiter.prune();
   ipRoastDailyLimiter.prune();
+  ipAuthRoastDailyLimiter.prune();
   roastRateLimiter.prune();
   ipRoastLimiter.prune();
   scrapeRateLimiter.prune();
