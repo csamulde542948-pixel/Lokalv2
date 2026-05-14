@@ -610,16 +610,16 @@ export function Projects() {
   return (
     <div className="min-h-screen bg-background">
       {/* Hero Banner — fire bg + integrated search/filter */}
-      <div className="relative overflow-hidden bg-black border-b sticky top-0 z-10" style={{ minHeight: window.innerWidth < 768 ? 280 : 200 }}>
+      <div className="relative overflow-hidden bg-black border-b sticky top-0 z-50" style={{ minHeight: window.innerWidth < 768 ? 'auto' : 200 }}>
         <AsciiFireAnimation />
         {/* gradient: only darken the very bottom strip for text legibility, keep fire visible */}
         <div className="absolute inset-0 z-[2] bg-gradient-to-r from-black/70 via-black/30 to-transparent pointer-events-none" />
         <div className="absolute inset-0 z-[2] bg-gradient-to-t from-black/75 via-black/20 to-transparent pointer-events-none" />
 
-        <div className="absolute inset-0 z-[3] flex flex-col justify-between px-4 md:px-6 lg:px-10 py-3 md:py-4 gap-2">
+        <div className="relative z-[3] flex flex-col px-4 md:px-6 lg:px-10 py-3 md:py-4 gap-3 md:gap-2 md:absolute md:inset-0 md:justify-between">
 
           {/* ── Top area: left block (title+search) floats left, CTA block floats right ── */}
-          <div className="flex flex-col lg:flex-row items-start lg:items-end justify-between gap-3 lg:gap-8">
+          <div className="flex flex-col lg:flex-row items-start lg:items-end justify-between gap-2 lg:gap-8">
 
             {/* LEFT: title → search stacked — search inherits the same natural width as the title block */}
             <div className="flex flex-col gap-2 min-w-0 shrink-0 w-full lg:w-auto">
@@ -645,49 +645,87 @@ export function Projects() {
 
             {/* RIGHT: CTA block — URL+button only */}
             <div className="flex flex-col items-end gap-2 w-full lg:flex-1 min-w-0">
-              {/* URL input + Add Project — CTA pill, full width of right column */}
+              {/* URL input + Add Project — Different layouts for mobile vs desktop */}
               {user && (
-                <div className="flex flex-col sm:flex-row items-stretch w-full rounded-xl overflow-hidden border border-white/20 bg-white/10 backdrop-blur-md shadow-xl shadow-black/40 hover:border-white/30 focus-within:border-white/40 focus-within:bg-white/15 transition-all">
-                  {/* Input side */}
-                  <div className="flex items-center flex-1 min-w-0 pl-3 gap-2 py-2 sm:py-0">
-                    <Sparkles className="w-4 h-4 text-white/60 flex-shrink-0" strokeWidth={1.5} />
-                    <input
-                      type="url"
-                      placeholder={window.innerWidth < 640 ? "Paste your project URL…" : "Paste your project URL — github.com/user/repo or myapp.com"}
-                      value={urlInput}
-                      onChange={e => { setUrlInput(e.target.value); setScanError(null); }}
-                      onBlur={e => { if (e.target.value.trim()) setUrlInput(normalizeUrl(e.target.value)); }}
-                      onKeyDown={e => { if (e.key === "Enter" && !scanning) handleScan(); }}
-                      disabled={scanning}
-                      className="flex-1 min-w-0 py-2.5 bg-transparent text-white text-sm placeholder:text-white/30 focus:outline-none disabled:opacity-50"
-                    />
-                    {urlInput.trim() && !scanning && (
-                      <button onClick={() => { setUrlInput(""); setScanError(null); }} className="mr-1 text-white/25 hover:text-white/60 transition-colors flex-shrink-0">
-                        <X className="w-3 h-3" strokeWidth={2.5} />
-                      </button>
-                    )}
+                <>
+                  {/* Mobile Layout: Single row with input + button */}
+                  <div className="sm:hidden flex items-stretch w-full rounded-lg overflow-hidden border border-white/20 bg-white/10 backdrop-blur-md">
+                    {/* URL Input */}
+                    <div className="relative flex-1 min-w-0">
+                      <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/60 flex-shrink-0" strokeWidth={1.5} />
+                      <input
+                        type="url"
+                        placeholder="Paste URL…"
+                        value={urlInput}
+                        onChange={e => { setUrlInput(e.target.value); setScanError(null); }}
+                        onBlur={e => { if (e.target.value.trim()) setUrlInput(normalizeUrl(e.target.value)); }}
+                        onKeyDown={e => { if (e.key === "Enter" && !scanning) handleScan(); }}
+                        disabled={scanning}
+                        className="w-full pl-9 pr-3 py-2.5 bg-transparent text-white placeholder:text-white/30 text-sm focus:outline-none disabled:opacity-50"
+                      />
+                    </div>
+                    {/* Divider */}
+                    <div className="w-px bg-white/15 my-2 flex-shrink-0" />
+                    {/* Add Project Button */}
+                    <button
+                      onClick={handleScan}
+                      disabled={scanning || !urlInput.trim()}
+                      className="relative flex items-center justify-center gap-1.5 px-4 py-2.5 bg-orange-500 hover:bg-orange-400 active:bg-orange-600 disabled:opacity-60 transition-colors overflow-hidden flex-shrink-0"
+                    >
+                      {!scanning && !urlInput.trim() && (
+                        <span className="absolute inset-0 bg-orange-400/20 animate-ping opacity-75 pointer-events-none" />
+                      )}
+                      {scanning
+                        ? <Loader2 className="w-4 h-4 text-white animate-spin relative z-10" strokeWidth={2} />
+                        : <Plus className="w-4 h-4 text-white relative z-10" strokeWidth={2.5} />}
+                      <span className="text-sm font-bold text-white tracking-wide relative z-10 whitespace-nowrap">
+                        {scanning ? "Scan" : "Add"}
+                      </span>
+                    </button>
                   </div>
-                  {/* Divider */}
-                  <div className="hidden sm:block w-px bg-white/15 my-2 flex-shrink-0" />
-                  <div className="sm:hidden h-px bg-white/15 mx-2 flex-shrink-0" />
-                  {/* Add Project button */}
-                  <button
-                    onClick={handleScan}
-                    disabled={scanning}
-                    className="relative flex items-center justify-center gap-2 px-5 py-2.5 bg-orange-500 hover:bg-orange-400 active:bg-orange-600 disabled:opacity-60 transition-colors flex-shrink-0 overflow-hidden"
-                  >
-                    {/* pulse ring when idle */}
-                    {!scanning && !urlInput.trim() && (
-                      <span className="absolute inset-0 bg-orange-400/20 animate-ping opacity-75 pointer-events-none" />
-                    )}
-                    {scanning
-                      ? <Loader2 className="w-3.5 h-3.5 text-white animate-spin relative z-10" strokeWidth={2} />
-                      : <Plus className="w-3.5 h-3.5 text-white relative z-10" strokeWidth={2.5} />}
-                    <span className="text-sm font-bold text-white tracking-wide whitespace-nowrap relative z-10">
-                      {scanning ? "Scanning…" : "Add Project"}
-                    </span>
-                  </button>
-                </div>
+
+                  {/* Desktop Layout: Horizontal pill */}
+                  <div className="hidden sm:flex items-stretch w-full rounded-xl overflow-hidden border border-white/20 bg-white/10 backdrop-blur-md shadow-xl shadow-black/40 hover:border-white/30 focus-within:border-white/40 focus-within:bg-white/15 transition-all">
+                    {/* Input side */}
+                    <div className="flex items-center flex-1 min-w-0 pl-3 gap-2">
+                      <Sparkles className="w-4 h-4 text-white/60 flex-shrink-0" strokeWidth={1.5} />
+                      <input
+                        type="url"
+                        placeholder="Paste your project URL — github.com/user/repo or myapp.com"
+                        value={urlInput}
+                        onChange={e => { setUrlInput(e.target.value); setScanError(null); }}
+                        onBlur={e => { if (e.target.value.trim()) setUrlInput(normalizeUrl(e.target.value)); }}
+                        onKeyDown={e => { if (e.key === "Enter" && !scanning) handleScan(); }}
+                        disabled={scanning}
+                        className="flex-1 min-w-0 py-2.5 bg-transparent text-white text-sm placeholder:text-white/30 focus:outline-none disabled:opacity-50"
+                      />
+                      {urlInput.trim() && !scanning && (
+                        <button onClick={() => { setUrlInput(""); setScanError(null); }} className="mr-1 text-white/25 hover:text-white/60 transition-colors flex-shrink-0">
+                          <X className="w-3 h-3" strokeWidth={2.5} />
+                        </button>
+                      )}
+                    </div>
+                    {/* Divider */}
+                    <div className="w-px bg-white/15 my-2 flex-shrink-0" />
+                    {/* Add Project button */}
+                    <button
+                      onClick={handleScan}
+                      disabled={scanning}
+                      className="relative flex items-center justify-center gap-2 px-5 py-2.5 bg-orange-500 hover:bg-orange-400 active:bg-orange-600 disabled:opacity-60 transition-colors flex-shrink-0 overflow-hidden"
+                    >
+                      {/* pulse ring when idle */}
+                      {!scanning && !urlInput.trim() && (
+                        <span className="absolute inset-0 bg-orange-400/20 animate-ping opacity-75 pointer-events-none" />
+                      )}
+                      {scanning
+                        ? <Loader2 className="w-3.5 h-3.5 text-white animate-spin relative z-10" strokeWidth={2} />
+                        : <Plus className="w-3.5 h-3.5 text-white relative z-10" strokeWidth={2.5} />}
+                      <span className="text-sm font-bold text-white tracking-wide whitespace-nowrap relative z-10">
+                        {scanning ? "Scanning…" : "Add Project"}
+                      </span>
+                    </button>
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -734,9 +772,9 @@ export function Projects() {
               ))}
             </div>
 
-            {/* Project count badge - matches brand design style */}
+            {/* Project count badge - matches brand design style - Hidden on mobile */}
             {!loading && (
-              <div className="live-counter-border inline-block rounded-full p-[1.5px] shadow-sm shadow-black/10 sm:ml-auto">
+              <div className="hidden sm:inline-block live-counter-border rounded-full p-[1.5px] shadow-sm shadow-black/10 sm:ml-auto">
                 <div className="inline-flex items-center gap-2 rounded-full bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground">
                   <span className="relative flex items-center justify-center">
                     <span className="absolute inset-[-3px] rounded-full bg-primary/20 icon-pulse-bg"></span>
