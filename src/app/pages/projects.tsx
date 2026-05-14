@@ -610,24 +610,24 @@ export function Projects() {
   return (
     <div className="min-h-screen bg-background">
       {/* Hero Banner — fire bg + integrated search/filter */}
-      <div className="relative overflow-hidden bg-black border-b sticky top-0 z-10" style={{ minHeight: 200 }}>
+      <div className="relative overflow-hidden bg-black border-b sticky top-0 z-10" style={{ minHeight: window.innerWidth < 768 ? 280 : 200 }}>
         <AsciiFireAnimation />
         {/* gradient: only darken the very bottom strip for text legibility, keep fire visible */}
         <div className="absolute inset-0 z-[2] bg-gradient-to-r from-black/70 via-black/30 to-transparent pointer-events-none" />
         <div className="absolute inset-0 z-[2] bg-gradient-to-t from-black/75 via-black/20 to-transparent pointer-events-none" />
 
-        <div className="absolute inset-0 z-[3] flex flex-col justify-between px-6 md:px-10 py-4 gap-2">
+        <div className="absolute inset-0 z-[3] flex flex-col justify-between px-4 md:px-6 lg:px-10 py-3 md:py-4 gap-2">
 
           {/* ── Top area: left block (title+search) floats left, CTA block floats right ── */}
-          <div className="flex items-end justify-between gap-85">
+          <div className="flex flex-col lg:flex-row items-start lg:items-end justify-between gap-3 lg:gap-8">
 
             {/* LEFT: title → search stacked — search inherits the same natural width as the title block */}
-            <div className="flex flex-col gap-2 min-w-0 shrink-0">
+            <div className="flex flex-col gap-2 min-w-0 shrink-0 w-full lg:w-auto">
               <div>
-                <h1 className="text-xl md:text-2xl font-bold tracking-tight text-white leading-tight">
+                <h1 className="text-lg md:text-xl lg:text-2xl font-bold tracking-tight text-white leading-tight">
                   What the community is building
                 </h1>
-                <p className="text-white/50 text-xs mt-0.5">
+                <p className="text-white/50 text-[11px] md:text-xs mt-0.5">
                   Discover repos, personal projects, and shipped products from Lokal developers.
                 </p>
               </div>
@@ -644,16 +644,16 @@ export function Projects() {
             </div>
 
             {/* RIGHT: CTA block — URL+button only */}
-            <div className="flex flex-col items-end gap-2 flex-1 min-w-0">
+            <div className="flex flex-col items-end gap-2 w-full lg:flex-1 min-w-0">
               {/* URL input + Add Project — CTA pill, full width of right column */}
               {user && (
-                <div className="flex items-stretch w-full rounded-xl overflow-hidden border border-white/20 bg-white/10 backdrop-blur-md shadow-xl shadow-black/40 hover:border-white/30 focus-within:border-white/40 focus-within:bg-white/15 transition-all">
+                <div className="flex flex-col sm:flex-row items-stretch w-full rounded-xl overflow-hidden border border-white/20 bg-white/10 backdrop-blur-md shadow-xl shadow-black/40 hover:border-white/30 focus-within:border-white/40 focus-within:bg-white/15 transition-all">
                   {/* Input side */}
-                  <div className="flex items-center flex-1 min-w-0 pl-3 gap-2">
+                  <div className="flex items-center flex-1 min-w-0 pl-3 gap-2 py-2 sm:py-0">
                     <Sparkles className="w-4 h-4 text-white/60 flex-shrink-0" strokeWidth={1.5} />
                     <input
                       type="url"
-                      placeholder="Paste your project URL — github.com/user/repo or myapp.com"
+                      placeholder={window.innerWidth < 640 ? "Paste your project URL…" : "Paste your project URL — github.com/user/repo or myapp.com"}
                       value={urlInput}
                       onChange={e => { setUrlInput(e.target.value); setScanError(null); }}
                       onBlur={e => { if (e.target.value.trim()) setUrlInput(normalizeUrl(e.target.value)); }}
@@ -668,12 +668,13 @@ export function Projects() {
                     )}
                   </div>
                   {/* Divider */}
-                  <div className="w-px bg-white/15 my-2 flex-shrink-0" />
+                  <div className="hidden sm:block w-px bg-white/15 my-2 flex-shrink-0" />
+                  <div className="sm:hidden h-px bg-white/15 mx-2 flex-shrink-0" />
                   {/* Add Project button */}
                   <button
                     onClick={handleScan}
                     disabled={scanning}
-                    className="relative flex items-center gap-2 px-5 py-2.5 bg-orange-500 hover:bg-orange-400 active:bg-orange-600 disabled:opacity-60 transition-colors flex-shrink-0 overflow-hidden"
+                    className="relative flex items-center justify-center gap-2 px-5 py-2.5 bg-orange-500 hover:bg-orange-400 active:bg-orange-600 disabled:opacity-60 transition-colors flex-shrink-0 overflow-hidden"
                   >
                     {/* pulse ring when idle */}
                     {!scanning && !urlInput.trim() && (
@@ -715,9 +716,9 @@ export function Projects() {
           )}
 
           {/* ── Row 3: Filter pills + Project count ── */}
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
             {/* Filter pills */}
-            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide w-full sm:w-auto">
               {(["ALL", "TRENDING", "FEATURED", "GITHUB", "PERSONAL"] as FilterType[]).map(f => (
                 <button
                   key={f}
@@ -735,7 +736,7 @@ export function Projects() {
 
             {/* Project count badge - matches brand design style */}
             {!loading && (
-              <div className="live-counter-border inline-block rounded-full p-[1.5px] shadow-sm shadow-black/10">
+              <div className="live-counter-border inline-block rounded-full p-[1.5px] shadow-sm shadow-black/10 sm:ml-auto">
                 <div className="inline-flex items-center gap-2 rounded-full bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground">
                   <span className="relative flex items-center justify-center">
                     <span className="absolute inset-[-3px] rounded-full bg-primary/20 icon-pulse-bg"></span>
@@ -1175,7 +1176,7 @@ export function Projects() {
       </AlertDialog>
 
       {/* Content */}
-      <div className="container mx-auto px-4 py-6">
+      <div className="container mx-auto px-3 md:px-4 py-4 md:py-6">
         {error && (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive mb-6 font-mono">
             ⚠ {error.message}
@@ -1183,7 +1184,7 @@ export function Projects() {
         )}
 
         {loading && projects.length === 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
             {[...Array(6)].map((_, i) => <ProjectCardSkeleton key={i} />)}
           </div>
         ) : projects.length === 0 ? (
@@ -1197,7 +1198,7 @@ export function Projects() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-5">
             {projects.map((project: any) => {
               const previewImg = project.screenshotUrl || project.bannerUrl;
               return (
