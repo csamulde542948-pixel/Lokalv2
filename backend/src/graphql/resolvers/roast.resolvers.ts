@@ -4,23 +4,20 @@ import { generateAiRoast } from "../../services/roast.service";
 import { createNotification } from "../../lib/notifications";
 import { assertSafeExternalUrl } from "../../lib/ssrf";
 import {
-  roastDailyLimiter,
-  ipRoastDailyLimiter,
-  ipAuthRoastDailyLimiter,
   normalizeRoastUrl,
   roastUrlCache,
   perUserUrlLimiter,
 } from "../../lib/rateLimit";
+import {
+  commitRoastGenerationQuota,
+  getRoastGenerationQuotaStatus,
+  refundRoastGenerationQuota,
+  reserveRoastGenerationQuota,
+  RoastGenerationQuotaRule,
+} from "../../lib/roastGenerationQuota";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** ISO-8601 timestamp of the next UTC midnight */
-function nextUtcMidnightIso(): string {
-  const now = new Date();
-  return new Date(Date.UTC(
-    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1
-  )).toISOString();
-}
 import {
   checkAndConsumeRoastToken,
   getRoastTokenStatus,
@@ -30,6 +27,22 @@ const ROAST_INCLUDE = {
   reviewer: true,
   project: true,
 } as const;
+
+function buildRoastGenerationQuotaRules(
+  user: GraphQLContext["user"],
+  clientIp: string
+): RoastGenerationQuotaRule[] {
+  if (user) {
+    return [
+      { scope: "AUTH_USER", key: user.id, limit: 3, action: "AI roast generation" },
+      { scope: "AUTH_IP", key: clientIp, limit: 3, action: "AI roast generation (IP limit)" },
+    ];
+  }
+
+  return [
+    { scope: "ANON_IP", key: clientIp, limit: 1, action: "anonymous AI roast generation" },
+  ];
+}
 
 export const roastResolvers = {
   Query: {
@@ -64,23 +77,12 @@ export const roastResolvers = {
      * - Authenticated: 3/day, keyed on user ID
      * - Anonymous:     1/day, keyed on public network IP (NAT router IP)
      */
-    roastQuota: async (_: unknown, __: unknown, { user, clientIp }: GraphQLContext) => {
-      const resetsAt = nextUtcMidnightIso();
-      if (user) {
-        const limit = 3;
-        const usedByUser = roastDailyLimiter.getCount(user.id);
-        const usedByIp   = ipAuthRoastDailyLimiter.getCount(clientIp);
-        // The effective remaining is the minimum of both caps
-        const remainingByUser = Math.max(0, limit - usedByUser);
-        const remainingByIp   = Math.max(0, limit - usedByIp);
-        const remaining = Math.min(remainingByUser, remainingByIp);
-        const used = limit - remaining;
-        return { used, remaining, limit, resetsAt, isAnon: false };
-      } else {
-        const limit = 1;
-        const used  = ipRoastDailyLimiter.getCount(clientIp);
-        return { used, remaining: Math.max(0, limit - used), limit, resetsAt, isAnon: true };
-      }
+    roastQuota: async (_: unknown, __: unknown, { user, clientIp, prisma }: GraphQLContext) => {
+      const status = await getRoastGenerationQuotaStatus(
+        prisma,
+        buildRoastGenerationQuotaRules(user, clientIp)
+      );
+      return { ...status, isAnon: !user };
     },
 
     roastReactors: async (_: unknown, { postId }: { postId: string }, { user, prisma }: GraphQLContext) => {
@@ -104,28 +106,14 @@ export const roastResolvers = {
      *
      * Rate limits (calendar-day, resets at UTC midnight):
      *   - Anonymous : 1 roast per public network IP per day.
-     *                 Uses X-Forwarded-For[0] (the NAT router IP) so every device
      *                 on the same WiFi/network shares a single daily quota.
      *   - Authenticated: 3 roasts per user per day.
      */
     generateRoast: async (
       _: unknown,
       { input }: { input: { projectUrl: string; projectName: string } },
-      { user, clientIp }: GraphQLContext
+      { user, clientIp, prisma }: GraphQLContext
     ) => {
-      // Apply the appropriate daily rate limit based on auth state
-      if (user) {
-        // Authenticated: 3 roasts per calendar day, keyed on stable user ID
-        roastDailyLimiter.check(user.id);
-        // Also enforce a shared IP cap: all authenticated accounts on the same
-        // public network share a pool of 3 roasts/day. Blocks multi-account abuse.
-        ipAuthRoastDailyLimiter.check(clientIp);
-      } else {
-        // Anonymous: 1 roast per calendar day, keyed on public network IP.
-        // X-Forwarded-For[0] is the NAT router IP — all devices on the same
-        // home/office network share one quota automatically.
-        ipRoastDailyLimiter.check(clientIp);
-      }
 
       const { projectName } = input;
 
@@ -139,7 +127,7 @@ export const roastResolvers = {
 
       // 1) Per-user-per-URL: authenticated users can only re-generate a roast
       //    for the exact same URL once every 24 h. Return cached copy if seen.
-      if (user && perUserUrlLimiter.isDuplicate(user.id, canonicalUrl)) {
+      if (user && perUserUrlLimiter.hasDuplicate(user.id, canonicalUrl)) {
         const cached = roastUrlCache.get(canonicalUrl);
         if (cached) {
           return { ...cached, projectUrl, projectName };
@@ -155,15 +143,26 @@ export const roastResolvers = {
       const urlCached = roastUrlCache.get(canonicalUrl);
       if (urlCached) {
         // Register the user's "seen" entry so they also get dedup protection
-        if (user) perUserUrlLimiter.isDuplicate(user.id, canonicalUrl);
+        if (user) perUserUrlLimiter.record(user.id, canonicalUrl);
         return { ...urlCached, projectUrl, projectName };
       }
       // ────────────────────────────────────────────────────────────────────
 
-      const result = await generateAiRoast(projectUrl, projectName);
+      const quotaRules = buildRoastGenerationQuotaRules(user, clientIp);
+      await reserveRoastGenerationQuota(prisma, quotaRules);
+
+      let result;
+      try {
+        result = await generateAiRoast(projectUrl, projectName);
+        await commitRoastGenerationQuota(prisma, quotaRules);
+      } catch (err) {
+        await refundRoastGenerationQuota(prisma, quotaRules).catch(console.error);
+        throw err;
+      }
 
       // Cache the result for both dedup layers
       roastUrlCache.set(canonicalUrl, result as unknown as Record<string, unknown>);
+      if (user) perUserUrlLimiter.record(user.id, canonicalUrl);
 
       return {
         ...result,

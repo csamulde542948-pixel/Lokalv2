@@ -608,6 +608,24 @@ model RoastReaction {
   @@map("roast_reactions")
 }
 
+// Persistent generation quota for AI roast previews.
+// successfulCount is what the user has actually consumed today.
+// inFlightCount reserves capacity while Firecrawl/OpenRouter is running and is
+// refunded if generation fails.
+model RoastGenerationQuota {
+  scope           String   @db.VarChar(20)
+  quotaKey        String   @db.VarChar(255)
+  quotaDate       DateTime @db.Date
+  successfulCount Int      @default(0)
+  inFlightCount   Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@id([scope, quotaKey, quotaDate])
+  @@index([quotaDate])
+  @@map("roast_generation_quotas")
+}
+
 // ============================================================
 // JOBS BOARD
 // ============================================================

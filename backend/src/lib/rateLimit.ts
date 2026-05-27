@@ -336,6 +336,17 @@ export class PerUserUrlLimiter {
     return false;
   }
 
+  hasDuplicate(userId: string, canonicalUrl: string): boolean {
+    const key = `${userId}:${canonicalUrl}`;
+    const expiresAt = this.store.get(key);
+    return !!expiresAt && Date.now() < expiresAt;
+  }
+
+  record(userId: string, canonicalUrl: string): void {
+    const key = `${userId}:${canonicalUrl}`;
+    this.store.set(key, Date.now() + this.ttlMs);
+  }
+
   prune(): void {
     const now = Date.now();
     for (const [key, expiresAt] of this.store.entries()) {
