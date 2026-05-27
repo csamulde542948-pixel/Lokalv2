@@ -7,6 +7,8 @@ import { Badge } from "../components/ui/badge";
 import { Checkbox } from "../components/ui/checkbox";
 import { useAuth } from "../../contexts/AuthContext";
 
+const ROAST_MAINTENANCE = true;
+
 // ─── ASCII Fire Animation ─────────────────────────────────────────────────────
 // Renders directly onto a <canvas> — no React state, no flicker.
 
@@ -391,6 +393,7 @@ export function Roast() {
 
   // If url came in via query param, trigger immediately
   useEffect(() => {
+    if (ROAST_MAINTENANCE) return;
     let url = searchParams.get("url");
     if (url) {
       if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
@@ -414,6 +417,7 @@ export function Roast() {
   const rowTwo = [...[...recentRoasts].reverse(), ...[...recentRoasts].reverse()];
 
   const handleRoast = () => {
+    if (ROAST_MAINTENANCE) return;
     let url = projectUrl.trim();
     if (!url) return;
     // Auto-prepend https:// if the user omitted the protocol (common on mobile)
@@ -473,6 +477,22 @@ export function Roast() {
 
           {/* ── URL Input row ── */}
           <div className="w-full max-w-xl">
+            {ROAST_MAINTENANCE && (
+              <div className="mb-4 border border-orange-500/30 bg-orange-500/[0.08] px-4 py-3 text-left">
+                <div className="flex items-start gap-3">
+                  <Flame className="w-4 h-4 text-orange-400 mt-0.5 flex-shrink-0" strokeWidth={2} />
+                  <div className="space-y-1">
+                    <p className="font-mono text-xs font-black uppercase tracking-widest text-orange-300">
+                      Roast engine under maintenance
+                    </p>
+                    <p className="font-mono text-[11px] leading-relaxed text-muted-foreground/70">
+                      We are fixing bugs and preparing new tools and upcoming features.
+                      Roast generation is temporarily disabled.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="flex border border-border/50 bg-background/40 backdrop-blur-md">
               <input
                 type="url"
@@ -484,12 +504,14 @@ export function Roast() {
               />
               <button
                 onClick={handleRoast}
-                disabled={!projectUrl.trim()}
+                disabled={ROAST_MAINTENANCE || !projectUrl.trim()}
                 className="bg-orange-600 hover:bg-orange-500 active:bg-orange-700 disabled:opacity-30 disabled:cursor-not-allowed text-white font-mono font-bold text-xs sm:text-sm px-3 sm:px-5 py-3.5 flex items-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap flex-shrink-0"
                 style={{ boxShadow: "0 0 18px rgba(234,88,12,0.35)" }}
               >
                 <Flame className="w-4 h-4" strokeWidth={2} />
-                <span className="hidden sm:inline">GET ROASTED</span>
+                <span className="hidden sm:inline">
+                  {ROAST_MAINTENANCE ? "MAINTENANCE" : "GET ROASTED"}
+                </span>
               </button>
             </div>
             <p className="text-[10px] font-mono text-muted-foreground/40 mt-2 text-left pl-1">
