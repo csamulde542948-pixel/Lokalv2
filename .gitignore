@@ -7,23 +7,13 @@ node_modules/
 dist/
 build/
 
-# Environment files
-# ─ .env.local        → your personal local secrets (never commit) ❌
-# ─ .env              → local development secrets (never commit) ❌
-# ─ .env.production   → PRODUCTION secrets (never commit) ❌
-# ─ .env.staging      → STAGING secrets (never commit) ❌
-# ─ .env.*.local      → any local override (never commit) ❌
-# ─ .env.example      → template with placeholders (safe to commit) ✅
-# ─ .env.*.example    → templates with placeholders (safe to commit) ✅
+# Environment files (never commit — use local copies only)
 .env
-.env.local
-.env.production
-.env.staging
-.env.*.local
+.env.*
+**/.env
+**/.env.*
 backend/.env
-backend/.env.local
-backend/.env.production
-backend/.env.staging
+backend/.env.*
 
 # Logs
 logs/
@@ -42,18 +32,33 @@ Thumbs.db
 *.sln
 *.sw?
 .vercel
-.env*.local
 
-# One-off backend DB migration / audit / debug scripts
+# Documentation & agent skills (internal — not for public repo)
+*.md
+**/*.md
+.agents/
+
+# Local / debug / one-off scripts (may contain project refs or credentials)
+test-auth.html
+compare-supabase-config.md
 backend/add-*.mjs
 backend/apply-*.mjs
 backend/backfill-*.mjs
 backend/check-*.mjs
 backend/check-*.cjs
+backend/check-*.sql
+backend/audit-*.mjs
+backend/migrate-*.mjs
 backend/full-db-audit.mjs
+backend/pressure-test.mjs
+backend/register-risc.mjs
+backend/run-migrations.mjs
+backend/run-all-migrations.mjs
+backend/run-social-links-migrations.sql
+backend/PRODUCTION_MIGRATION.sql
 backend/railway-inspect.*
 backend/tmp_*
 backend/email-logo-trimmed.png
 
-# Infrastructure docs with real project refs — keep out of git
-guidelines/INFRASTRUCTURE_SETUP.md
+# Guidelines (internal specs)
+guidelines/
