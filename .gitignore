@@ -36,6 +36,7 @@ Thumbs.db
 # Documentation & agent skills (internal — not for public repo)
 *.md
 **/*.md
+!README.md
 .agents/
 
 # Local / debug / one-off scripts (may contain project refs or credentials)
