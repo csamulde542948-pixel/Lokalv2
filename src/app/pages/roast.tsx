@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { gql } from "@apollo/client/core";
 import { useQuery } from "@apollo/client/react";
 import { useNavigate, useSearchParams, Link } from "react-router";
-import { Flame, Palette } from "lucide-react";
+import { Flame, Palette, Globe, Languages } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Checkbox } from "../components/ui/checkbox";
 import { useAuth } from "../../contexts/AuthContext";
@@ -40,6 +40,17 @@ const GET_MY_CREDITS = gql`
   }
 `;
 
+// Lightweight viewer-geo probe — returns the CDN-injected ISO country
+// code. Always resolves (falls back to "PH" server-side) so we can
+// safely default the roast language on first paint.
+const GET_VIEWER_GEO = gql`
+  query GetViewerGeo {
+    viewerGeo {
+      country
+    }
+  }
+`;
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface RecentRoast {
@@ -56,6 +67,32 @@ interface CreditBalance {
   lifetimeCredits: number;
   lifetimeSpent: number;
   starterCredits: number;
+}
+
+type RoastLanguage = "taglish" | "english";
+const LANG_STORAGE_KEY = "lokal_roast_language_v1";
+const PH_COUNTRIES = new Set(["PH"]);
+
+/** Read the user's saved language override, or null if not set. */
+function readSavedLanguage(): RoastLanguage | null {
+  try {
+    const v = window.localStorage.getItem(LANG_STORAGE_KEY);
+    if (v === "taglish" || v === "english") return v;
+  } catch {}
+  return null;
+}
+
+/** Persist the user's language override so the choice survives reloads. */
+function writeSavedLanguage(lang: RoastLanguage) {
+  try {
+    window.localStorage.setItem(LANG_STORAGE_KEY, lang);
+  } catch {}
+}
+
+/** Pick the default language from the viewer's country. */
+function defaultLanguageFor(country: string | null | undefined): RoastLanguage {
+  if (!country) return "taglish";
+  return PH_COUNTRIES.has(country.toUpperCase()) ? "taglish" : "english";
 }
 
 function CreditBalanceBadge({ credits }: { credits: CreditBalance }) {
@@ -87,6 +124,22 @@ function CreditBalanceBadge({ credits }: { credits: CreditBalance }) {
         {" "}credit{credits.balance !== 1 ? "s" : ""} available
       </span>
     </div>
+  );
+}
+
+// Small inline tag for the current roast language (🇵🇭 taglish / 🇬🇧 english).
+function LanguageTag({ lang }: { lang: RoastLanguage }) {
+  if (lang === "taglish") {
+    return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm border border-orange-500/30 bg-orange-500/10 text-orange-300 font-bold uppercase tracking-wider text-[9px]">
+        <span aria-hidden>🇵🇭</span> taglish
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 font-bold uppercase tracking-wider text-[9px]">
+      <Globe className="w-2.5 h-2.5" /> english
+    </span>
   );
 }
 
@@ -179,6 +232,34 @@ export function Roast() {
   const [roastConsent, setRoastConsent] = useState(false);
   const [consentShake, setConsentShake] = useState(false);
 
+  // Roast language: defaults from viewer country (PH → taglish, else → english).
+  // User override is persisted in localStorage so the choice survives reloads.
+  const [language, setLanguageState] = useState<RoastLanguage>(() => {
+    return readSavedLanguage() ?? "taglish";
+  });
+  const [languageAuto, setLanguageAuto] = useState<boolean>(() => readSavedLanguage() === null);
+
+  const { data: geoData } = useQuery<{ viewerGeo: { country: string } }>(GET_VIEWER_GEO, {
+    fetchPolicy: "cache-first",
+  });
+
+  // Once we know the viewer's country, auto-pick a default the first time
+  // the user visits the page. We only auto-switch while the user hasn't
+  // expressed an explicit preference (languageAuto = true).
+  useEffect(() => {
+    if (!languageAuto) return;
+    const country = geoData?.viewerGeo?.country;
+    if (!country) return;
+    const next = defaultLanguageFor(country);
+    if (next !== language) setLanguageState(next);
+  }, [geoData, languageAuto, language]);
+
+  const setLanguage = (next: RoastLanguage) => {
+    setLanguageState(next);
+    setLanguageAuto(false);
+    writeSavedLanguage(next);
+  };
+
   const triggerConsentShake = () => {
     setConsentShake(true);
     setTimeout(() => setConsentShake(false), 600);
@@ -192,10 +273,10 @@ export function Roast() {
     if (url) {
       if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
       if (user) {
-        navigate("/roast/result", { state: { projectUrl: url, tool: toolMode }, replace: true });
+        navigate("/roast/result", { state: { projectUrl: url, tool: toolMode, language }, replace: true });
       }
     }
-  }, [authLoading, navigate, searchParams, toolMode, user]);
+  }, [authLoading, navigate, searchParams, toolMode, user, language]);
 
   const { data: recentData } = useQuery<{ recentRoastGenerations: RecentRoast[] }>(GET_RECENT_ROASTS, {
     fetchPolicy: "cache-and-network",
@@ -227,7 +308,7 @@ export function Roast() {
       navigate("/login", { state: { from: { pathname: "/roast", search: `?url=${encodeURIComponent(url)}` } } });
       return;
     }
-    navigate("/roast/result", { state: { projectUrl: url, tool: toolMode } });
+    navigate("/roast/result", { state: { projectUrl: url, tool: toolMode, language } });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -343,6 +424,28 @@ export function Roast() {
                 ? "Generate a formal design.md brand analysis from the landing page."
                 : "Enter your landing page URL (e.g., your-sh*t.com)"}
             </p>
+
+            {/* Roast language indicator — auto-picked from viewer country, user-overridable */}
+            {toolMode === "roast" && (
+              <div className="mt-2 flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground/50 pl-1">
+                <Languages className="w-3 h-3" />
+                <span>auto:</span>
+                <LanguageTag lang={language} />
+                {geoData?.viewerGeo?.country && (
+                  <span className="text-muted-foreground/40">
+                    ({languageAuto ? "detected" : "set"})
+                  </span>
+                )}
+                <span className="text-muted-foreground/30">·</span>
+                <button
+                  type="button"
+                  onClick={() => setLanguage(language === "taglish" ? "english" : "taglish")}
+                  className="text-[10px] font-mono text-orange-400/80 hover:text-orange-300 underline-offset-2 hover:underline transition-colors"
+                >
+                  switch to {language === "taglish" ? "english" : "taglish"}
+                </button>
+              </div>
+            )}
 
             {/* Credit balance indicator */}
             {creditData?.myCredits && (

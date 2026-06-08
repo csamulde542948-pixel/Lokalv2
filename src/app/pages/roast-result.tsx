@@ -37,6 +37,7 @@ const GENERATE_ROAST = gql`
       ogImageUrl
       projectUrl
       projectName
+      language
     }
   }
 `;
@@ -48,6 +49,7 @@ const GET_ROAST_GENERATION = gql`
       title
       quickRoast
       fullRoast
+      language
       screenshotUrl
       faviconUrl
       ogImageUrl
@@ -130,10 +132,12 @@ function clearRoastSession() {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ToolMode = "roast" | "brand";
+type RoastLanguage = "taglish" | "english";
 
 interface IncomingState {
   projectUrl: string;
   tool?: ToolMode;
+  language?: RoastLanguage;
 }
 
 interface GeneratedRoast {
@@ -146,6 +150,7 @@ interface GeneratedRoast {
   ogImageUrl: string | null;
   projectUrl: string;
   projectName: string;
+  language: RoastLanguage;
 }
 
 interface BrandColorToken {
@@ -949,6 +954,7 @@ export function RoastResult() {
       title: saved.title,
       quickRoast: saved.quickRoast,
       fullRoast: saved.fullRoast,
+      language: saved.language ?? "taglish",
       screenshotUrl: saved.screenshotUrl,
       faviconUrl: saved.faviconUrl,
       ogImageUrl: saved.ogImageUrl,
@@ -1021,7 +1027,15 @@ export function RoastResult() {
       return;
     }
 
-    generateRoast({ variables: { input: { projectUrl: url, projectName: name } } })
+    generateRoast({
+      variables: {
+        input: {
+          projectUrl: url,
+          projectName: name,
+          language: incoming?.language ?? "taglish",
+        },
+      },
+    })
       .then(({ data }) => {
         if (data?.generateRoast) {
           setRoast(data.generateRoast);
@@ -1387,9 +1401,23 @@ export function RoastResult() {
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <h1 className="text-base font-black uppercase tracking-tight text-foreground truncate">
-                    {subject.projectName}
-                  </h1>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <h1 className="text-base font-black uppercase tracking-tight text-foreground truncate">
+                      {subject.projectName}
+                    </h1>
+                    {activeTool === "roast" && roast?.language && (
+                      <span
+                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm border font-mono font-bold uppercase tracking-wider text-[9px] flex-shrink-0 ${
+                          roast.language === "english"
+                            ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-300"
+                            : "border-orange-500/30 bg-orange-500/10 text-orange-300"
+                        }`}
+                        title={`Roasted in ${roast.language === "english" ? "English" : "Taglish"}`}
+                      >
+                        {roast.language === "english" ? "🇬🇧 EN" : "🇵🇭 TL"}
+                      </span>
+                    )}
+                  </div>
                   <a href={subject.projectUrl} target="_blank" rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-[11px] text-orange-400/60 hover:text-orange-400 transition-colors mt-0.5">
                     <ExternalLink className="w-3 h-3 flex-shrink-0" />

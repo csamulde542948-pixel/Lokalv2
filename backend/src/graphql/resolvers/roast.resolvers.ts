@@ -1,6 +1,6 @@
 import { GraphQLContext } from "../context";
 import { awardXp, checkAndAwardRoles } from "../../services/xp";
-import { generateAiRoast } from "../../services/roast.service";
+import { generateAiRoast, getRoastLanguage } from "../../services/roast.service";
 import { generateBrandDesignAnalysis } from "../../services/brandAnalysis.service";
 import { createNotification } from "../../lib/notifications";
 import { assertSafeExternalUrl } from "../../lib/ssrf";
@@ -30,6 +30,17 @@ const ROAST_INCLUDE = {
 
 export const roastResolvers = {
   Query: {
+    /**
+     * viewerGeo — returns the requester's ISO country code, derived
+     * from the CDN-set headers (cf-ipcountry / x-vercel-ip-country)
+     * in the GraphQL context. Always returns a value: "PH" when no
+     * header is present. Powers the auto-default for the roast
+     * language on the frontend (Taglish for PH, English elsewhere).
+     */
+    viewerGeo: async (_: unknown, __: unknown, { userCountry }: GraphQLContext) => {
+      return { country: userCountry };
+    },
+
     roasts: async (
       _: unknown,
       { limit = 20, offset = 0, projectId }: { limit?: number; offset?: number; projectId?: string },
@@ -61,6 +72,7 @@ export const roastResolvers = {
           title,
           "quickRoast",
           "fullRoast",
+          language,
           "screenshotUrl",
           "faviconUrl",
           "ogImageUrl",
@@ -111,6 +123,7 @@ export const roastResolvers = {
           title,
           "quickRoast",
           "fullRoast",
+          language,
           "screenshotUrl",
           "faviconUrl",
           "ogImageUrl",
@@ -154,12 +167,13 @@ export const roastResolvers = {
      */
     generateRoast: async (
       _: unknown,
-      { input }: { input: { projectUrl: string; projectName: string } },
+      { input }: { input: { projectUrl: string; projectName: string; language?: string } },
       { user, prisma }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
 
       const { projectName } = input;
+      const language = getRoastLanguage(input.language);
 
       // SSRF protection: validate URL before sending to Jina Reader
       const projectUrl = await assertSafeExternalUrl(input.projectUrl);
@@ -174,7 +188,7 @@ export const roastResolvers = {
       if (perUserUrlLimiter.hasDuplicate(user.id, canonicalUrl)) {
         const cached = roastUrlCache.get(canonicalUrl);
         if (cached) {
-          return { ...cached, projectUrl, projectName };
+          return { ...cached, projectUrl, projectName, language };
         }
         // Cache expired but dedup window hasn't — still block and ask to wait
         throw new Error(
@@ -188,12 +202,12 @@ export const roastResolvers = {
       if (urlCached) {
         // Register the user's "seen" entry so they also get dedup protection
         perUserUrlLimiter.record(user.id, canonicalUrl);
-        return { ...urlCached, projectUrl, projectName };
+        return { ...urlCached, projectUrl, projectName, language };
       }
       // ────────────────────────────────────────────────────────────────────
 
       await assertHasCredits(user.id, TOOL_CREDIT_COSTS.AI_ROAST, prisma);
-      const result = await generateAiRoast(projectUrl, projectName);
+      const result = await generateAiRoast(projectUrl, projectName, language);
       await spendCredits({
         profileId: user.id,
         tool: "AI_ROAST",
@@ -215,7 +229,8 @@ export const roastResolvers = {
           "fullRoast",
           "screenshotUrl",
           "faviconUrl",
-          "ogImageUrl"
+          "ogImageUrl",
+          language
         )
         VALUES (
           gen_random_uuid()::text,
@@ -228,7 +243,8 @@ export const roastResolvers = {
           ${result.fullRoast ?? null},
           ${result.screenshotUrl ?? null},
           ${result.faviconUrl ?? null},
-          ${result.ogImageUrl ?? null}
+          ${result.ogImageUrl ?? null},
+          ${result.language}
         )
         RETURNING id
       `;

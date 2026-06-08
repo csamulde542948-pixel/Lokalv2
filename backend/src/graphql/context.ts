@@ -13,6 +13,13 @@ export interface GraphQLContext {
   prisma: PrismaClient;
   /** Client IP address (for anonymous rate limiting) */
   clientIp: string;
+  /**
+   * ISO 3166-1 alpha-2 country code for the request, derived from
+   * `cf-ipcountry` (Cloudflare) or `x-vercel-ip-country` (Vercel). Defaults
+   * to "PH" when no header is present (safe default = keep the existing
+   * Taglish roast engine behaviour for unidentified users).
+   */
+  userCountry: string;
   /** DataLoaders for batching DB queries (prevents N+1) */
   loaders: {
     profileLoader: DataLoader<string, any>;

@@ -349,6 +349,13 @@ export const typeDefs = gql`
     createdAt: DateTime!
   }
 
+  # Minimal viewer info derived from request headers (CDN country
+  # headers — Cloudflare / Vercel). Always returns a 2-letter ISO
+  # country code, falling back to "PH" when no header is present.
+  type ViewerGeo {
+    country: String!
+  }
+
   # AI-generated roast preview (before saving to DB)
   type GeneratedRoast {
     generationId: String
@@ -360,6 +367,12 @@ export const typeDefs = gql`
     ogImageUrl: String
     projectUrl: String!
     projectName: String!
+    """
+    Which language the roast was generated in. "taglish" (PH audience)
+    or "english" (non-PH audience). Useful for the UI to badge the
+    output and persist on the saved generation.
+    """
+    language: String!
   }
 
   type GeneratedBrandAnalysis {
@@ -399,6 +412,11 @@ export const typeDefs = gql`
     screenshotUrl: String
     faviconUrl: String
     ogImageUrl: String
+    """
+    Which language the roast was generated in. "taglish" (default, PH
+    audience) or "english" (non-PH or opted-in users).
+    """
+    language: String!
     publishedRoastId: String
     publishedAt: DateTime
     createdAt: DateTime!
@@ -758,6 +776,10 @@ export const typeDefs = gql`
   type Query {
     # Auth / Me
     me: Profile
+
+    # Lightweight viewer info (no auth, no DB hit). Used to auto-pick
+    # the default roast language based on the requester's country.
+    viewerGeo: ViewerGeo!
 
     # Profiles
     profile(username: String!): Profile
@@ -1127,6 +1149,11 @@ export const typeDefs = gql`
   input GenerateRoastInput {
     projectUrl: String!
     projectName: String!
+    """
+    Roast language. "taglish" (default — Filipino/English mix, for PH audience)
+    or "english" (pure American English, for non-PH or opted-in users).
+    """
+    language: String
   }
 
   # Save a roast to the DB (auth required)

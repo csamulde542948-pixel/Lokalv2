@@ -43,6 +43,54 @@ STRUCTURE — exactly 4 paragraphs:
 
 Each paragraph: 3 to 4 sentences. Dense and punchy — no sentence should exceed 30 words. No padding, no repetition, no throat-clearing.`;
 
+// Pure-English system prompt — used when the requester is detected outside
+// the Philippines (or explicitly opts in to English). Same voice, same
+// structure, but written in clean, profane American English. No Tagalog.
+const SYSTEM_PROMPT_ENGLISH = `You are a brilliant, arrogant, senior full stack developer and serial startup critic. You roast websites with surgical, specific, technically grounded brutality. You sound like a jaded Silicon Valley engineer who has seen too many of these garbage products — ranting in a Slack thread at 2am, not performing for an audience.
+
+LANGUAGE — ABSOLUTE RULE:
+Write in PURE ENGLISH. No Tagalog, no Filipino, no Taglish. Profanity is welcome and encouraged when it lands harder than a clean word — "this is ass," "what the fuck," "are you kidding me" — but keep the entire roast in English. Violations of this rule (Tagalog mixed in) make the entire roast worthless.
+
+ROASTING STRATEGY:
+You are given two things: (1) what the product CLAIMS to be — their brand positioning, tagline, og description, meta keywords — and (2) what they actually BUILT — the real page content. Your job is to expose the gap between the fantasy and the execution. Use their own words against them. If they say "powerful" and the product is a form with three inputs, destroy that word. If they say "AI-powered" and there's nothing AI about it, eviscerate the lie. Specific contradictions hit harder than generic insults.
+
+TONE:
+Arrogant. Sarcastic. Technically sharp. Emotionally authentic — like you actually care that another mediocre product is wasting the internet's time. Use profanity when it punches harder than any clean word could. Never sound sanitized. Never sound like an AI performing anger.
+
+FORMAT RULES — NON-NEGOTIABLE:
+- No headers, titles, labels, section names.
+- No markdown, asterisks, bold, bullets, lists.
+- Plain paragraphs only.
+- Never open a paragraph by announcing what you are about to say.
+- Jump straight into the observation, the joke, or the gut punch.
+- Vary sentence length aggressively — short stabs, long escalating builds, rhetorical questions.
+- Do not repeat the same attack angle twice across paragraphs.
+- Do not soften anything. No "to be fair." No "but if you look at it another way."
+
+STRUCTURE — exactly 4 paragraphs:
+1. Attack the core premise and brand positioning — why the idea itself is flawed, delusional, or already dead
+2. Destroy the execution — copy, UX, design choices, onboarding, feature set, pricing, anything that is weak or lazy
+3. Escalate and connect — link the product's specific failures to founder mindset, broader startup culture delusions, or the state of the industry; make it systemic
+4. Begin this paragraph with the exact words "Final Verdict:" — close definitively, ruthlessly, and memorably
+
+Each paragraph: 3 to 4 sentences. Dense and punchy — no sentence should exceed 30 words. No padding, no repetition, no throat-clearing.`;
+
+/**
+ * Resolve which system prompt + user-prompt suffix to use for a given language.
+ * - "taglish" (default, PH audience) — Filipino/English mix
+ * - "english"  (non-PH or opted-in)  — pure American English
+ */
+export type RoastLanguage = "taglish" | "english";
+
+export function getRoastLanguage(language: string | null | undefined): RoastLanguage {
+  if (typeof language === "string" && language.toLowerCase() === "english") return "english";
+  return "taglish";
+}
+
+function selectSystemPrompt(language: RoastLanguage): string {
+  return language === "english" ? SYSTEM_PROMPT_ENGLISH : SYSTEM_PROMPT;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface RoastResult {
@@ -525,13 +573,19 @@ export function buildBrandBrief(metadata: FirecrawlMetadata, projectName: string
 
 // ─── Step 3: Call DeepSeek via OpenRouter ────────────────────────────────────
 
-async function callDeepSeek(scrapeResult: FirecrawlScrapeResult, projectName: string): Promise<string> {
+async function callDeepSeek(
+  scrapeResult: FirecrawlScrapeResult,
+  projectName: string,
+  language: RoastLanguage
+): Promise<string> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey || apiKey.startsWith("sk-or-your")) {
     throw new Error("OPENROUTER_API_KEY is not configured in backend/.env");
   }
 
   const brandBrief = buildBrandBrief(scrapeResult.metadata, projectName);
+  const systemPrompt = selectSystemPrompt(language);
+  const langLabel = language === "english" ? "pure English" : "Taglish";
 
   const userPrompt = `Roast this website/product.
 
@@ -541,28 +595,32 @@ ${brandBrief}
 === WHAT THEY ACTUALLY BUILT (scraped page content) ===
 ${scrapeResult.markdown || "No content could be extracted from the page."}
 
-Write exactly 4 paragraphs in Taglish. Follow the system prompt rules exactly. No labels. No markdown. The final paragraph must begin with "Final Verdict:" and must end with a complete sentence — never cut off.`;
+Write exactly 4 paragraphs in ${langLabel}. Follow the system prompt rules exactly. No labels. No markdown. The final paragraph must begin with "Final Verdict:" and must end with a complete sentence — never cut off.`;
+
+  const body = JSON.stringify({
+    model: "deepseek/deepseek-v4-pro:nitro",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    temperature: 0.88,
+    // Taglish is token-heavy — two languages per sentence.
+    // 4 paragraphs × 4 sentences × ~55 tokens = ~880 tokens minimum.
+    // 2000 gives safe headroom so Final Verdict never gets clipped mid-sentence.
+    max_tokens: 2000,
+  });
+
+  const headers = {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+    "HTTP-Referer": process.env.FRONTEND_URL ?? "https://lokalhost.club",
+    "X-Title": "Lokal Roast Engine",
+  } as const;
 
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": process.env.FRONTEND_URL ?? "https://lokalhost.club",
-      "X-Title": "Lokal Roast Engine",
-    },
-    body: JSON.stringify({
-      model: "deepseek/deepseek-v4-pro:nitro",
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.88,
-      // Taglish is token-heavy — two languages per sentence.
-      // 4 paragraphs × 4 sentences × ~55 tokens = ~880 tokens minimum.
-      // 2000 gives safe headroom so Final Verdict never gets clipped mid-sentence.
-      max_tokens: 2000,
-    }),
+    headers,
+    body,
     signal: AbortSignal.timeout(75_000),
   });
 
@@ -582,21 +640,8 @@ Write exactly 4 paragraphs in Taglish. Follow the system prompt rules exactly. N
 
     const retry = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": process.env.FRONTEND_URL ?? "https://lokalhost.club",
-        "X-Title": "Lokal Roast Engine",
-      },
-      body: JSON.stringify({
-        model: "deepseek/deepseek-v4-pro:nitro",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0.88,
-        max_tokens: 2000,
-      }),
+      headers,
+      body,
       signal: AbortSignal.timeout(75_000),
     });
 
@@ -646,15 +691,19 @@ function parseRoastOutput(
 
 export async function generateAiRoast(
   url: string,
-  projectName: string
-): Promise<RoastResult> {
+  projectName: string,
+  language: RoastLanguage = "taglish"
+): Promise<RoastResult & { language: RoastLanguage }> {
   const scraped = await scrapeWithFirecrawl(url);
-  const raw = await callDeepSeek(scraped, projectName);
-  return parseRoastOutput(
-    raw,
-    projectName,
-    scraped.screenshotUrl,
-    scraped.metadata.favicon ?? null,
-    scraped.metadata.ogImage ?? null,
-  );
+  const raw = await callDeepSeek(scraped, projectName, language);
+  return {
+    ...parseRoastOutput(
+      raw,
+      projectName,
+      scraped.screenshotUrl,
+      scraped.metadata.favicon ?? null,
+      scraped.metadata.ogImage ?? null,
+    ),
+    language,
+  };
 }

@@ -626,6 +626,10 @@ model RoastGeneration {
   screenshotUrl    String?  @db.Text
   faviconUrl       String?  @db.Text
   ogImageUrl       String?  @db.Text
+  /// Which language the roast was generated in. "taglish" (PH audience,
+  /// Filipino/English mix — the historic default) or "english" (pure
+  /// American English, for non-PH users or opted-in PH users).
+  language         String   @default("taglish") @db.VarChar(16)
   publishedRoastId String?
   publishedAt      DateTime?
   createdAt        DateTime @default(now())
@@ -635,6 +639,7 @@ model RoastGeneration {
   @@index([createdAt(sort: Desc)])
   @@index([profileId, createdAt(sort: Desc)])
   @@index([canonicalUrl])
+  @@index([language])
   @@map("roast_generations")
 }
 

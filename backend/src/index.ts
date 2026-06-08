@@ -722,10 +722,23 @@ async function startServer() {
           (req.headers["x-forwarded-for"] as string)?.split(",")[0].trim() ??
           req.socket?.remoteAddress ??
           "unknown";
+        // Resolve user country from CDN-set headers. Cloudflare and Vercel
+        // both inject a 2-letter ISO country code for free (no extra
+        // dependency). Falls back to "PH" so unidentified clients still
+        // get the Taglish roast engine (the existing default behaviour).
+        const cfCountry = req.headers["cf-ipcountry"];
+        const vercelCountry = req.headers["x-vercel-ip-country"];
+        const rawCountry =
+          (Array.isArray(cfCountry) ? cfCountry[0] : cfCountry) ??
+          (Array.isArray(vercelCountry) ? vercelCountry[0] : vercelCountry);
+        const userCountry = (typeof rawCountry === "string" && /^[A-Z]{2}$/.test(rawCountry))
+          ? rawCountry.toUpperCase()
+          : "PH";
         return {
           user: authReq.user ?? null,
           prisma,
           clientIp,
+          userCountry,
           loaders: {
             profileLoader: createProfileLoader(),
             postLoader: createPostLoader(),
