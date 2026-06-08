@@ -12,6 +12,7 @@ import { useQuery } from "@apollo/client/react";
 import { Link } from "react-router";
 import { useFollowToggle } from "../features/social/hooks/useFollowToggle";
 import { useAuth } from "../../contexts/AuthContext";
+import { avatarSrc } from "../../lib/defaults";
 
 const GET_SIDEBAR_DATA = gql`
   query GetSidebarData {
