@@ -92,11 +92,33 @@ export function CommentSection({
     if (!commentsQueryData) return;
     const fetched: any[] = (commentsQueryData as any)?.post?.comments ?? [];
     setLocalComments(fetched.map(adaptComment));
-    if (fetched.length > 0) setLocalCommentCount(fetched.length);
+    // Update the count to the denormalized total if the server returns it,
+    // otherwise fall back to the top-level count. We DO NOT naively use
+    // `fetched.length` because replies are loaded separately by the user
+    // (and repliesCount on each comment is what the server has already
+    // counted into Post.commentsCount).
+    const totalFromServer = (commentsQueryData as any)?.post?.commentsCount;
+    if (typeof totalFromServer === "number" && totalFromServer > 0) {
+      setLocalCommentCount(totalFromServer);
+    } else if (fetched.length > 0) {
+      setLocalCommentCount((prev) => Math.max(prev, fetched.length));
+    }
     commentsFetchedRef.current = true;
     setCommentsError(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commentsQueryData]);
+
+  // Auto-fetch when the section opens. Without this, the user clicks the
+  // "X comments" button on a post card, the section expands, and they only
+  // see the commentsPreview slice (3 items) — never the full thread — until
+  // they click "Reply" or another interactive element. This effect kicks
+  // off the full GET_POST_COMMENTS query as soon as the section is shown.
+  useEffect(() => {
+    if (open && !commentsFetchedRef.current && !commentsLoading) {
+      doFetchComments();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   useEffect(() => {
     if (!commentsQueryError) return;

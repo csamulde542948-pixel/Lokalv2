@@ -15,6 +15,7 @@ export const GET_POST_COMMENTS = gql`
   query GetPostComments($postId: ID!, $limit: Int, $offset: Int) {
     post(id: $postId) {
       id
+      commentsCount
       comments(limit: $limit, offset: $offset) {
         id content likesCount likedByMe myReaction parentId createdAt isEdited mentions repliesCount
         editHistory { id previousContent editedAt }
@@ -318,6 +319,6 @@ export const ALL_FRAGMENTS = gql`
     author { ...AuthorFields }
     tags { ...TagFields }
     originalPost { ...OriginalPostFields }
-    commentsPreview(limit: 2) { ...CommentPreviewFields }
+    commentsPreview(limit: 3) { ...CommentPreviewFields }
   }
 `;
