@@ -2,11 +2,14 @@ import { ApolloClient, InMemoryCache } from "@apollo/client/core";
 import { from } from "@apollo/client/link";
 import { createHttpLink } from "@apollo/client/link/http";
 import { setContext } from "@apollo/client/link/context";
+import { DocumentTransform } from "@apollo/client/utilities";
+import { separateOperations, OperationDefinitionNode, FragmentDefinitionNode, Kind, DocumentNode } from "graphql";
 import { supabase } from "./supabase";
 import { GRAPHQL_URL } from "./env";
 
 const httpLink = createHttpLink({
   uri: GRAPHQL_URL,
+  credentials: "include",
 });
 
 // ── S3 #9: Cache Supabase JWT in memory to avoid localStorage read per request ──
@@ -36,8 +39,31 @@ const authLink = setContext(async (_, { headers }) => {
   };
 });
 
+// ── Remove unused fragment definitions before sending the request ──────────
+// Apollo Client v4 does not strip unused fragments by default. Several
+// queries interpolate `POST_CARD_FRAGMENT` (which transitively references
+// the other 4 fragments), and a few queries interpolate just one fragment
+// (`AUTHOR_FRAGMENT`, `TAG_FRAGMENT`, `RANK_FRAGMENT`). Without this strip,
+// the server's `NoUnusedFragments` validator rejects requests that include
+// fragment definitions the operation never reaches.
+//
+// `separateOperations` from `graphql` does exactly this: for each operation
+// in the document, it produces a new document containing only the fragment
+// definitions that operation transitively uses. We pick the first operation
+// (queries and mutations in this codebase always have exactly one).
+const stripUnusedFragments = new DocumentTransform((document: DocumentNode): DocumentNode => {
+  const operation = document.definitions.find(
+    (d): d is OperationDefinitionNode => d.kind === Kind.OPERATION_DEFINITION
+  );
+  if (!operation) return document;
+  const operationName = operation.name?.value ?? "";
+  const separated = separateOperations(document);
+  return separated[operationName] ?? document;
+});
+
 export const apolloClient = new ApolloClient({
   link: from([authLink, httpLink]),
+  documentTransform: stripUnusedFragments,
   cache: new InMemoryCache({
     typePolicies: {
       Query: {

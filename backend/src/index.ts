@@ -17,6 +17,7 @@ import { prisma } from "./lib/prisma";
 import { supabase as supabaseAdmin } from "./lib/supabase";
 import { authMiddleware, AuthenticatedRequest } from "./middleware/auth";
 import { GraphQLContext } from "./graphql/context";
+import { startLeaderboardRefreshers } from "./services/leaderboardRefreshers";
 import {
   generalRateLimiter,
   authRateLimiter,
@@ -37,6 +38,8 @@ const IS_STAGING = NODE_ENV === "staging";
 // Staging behaves like production for security (helmet, CORS, error masking)
 // but allows introspection and verbose logging for debugging.
 const IS_DEPLOYED = IS_PRODUCTION || IS_STAGING;
+const AUTH_ACCESS_COOKIE = "lokal_access_token";
+const AUTH_REFRESH_COOKIE = "lokal_refresh_token";
 
 // ─── DataLoader factories ────────────────────────────────────────────────────
 
@@ -190,6 +193,53 @@ function createOriginalPostLoader() {
   });
 }
 
+/**
+ * Batch loader for `Post.commentsPreview(limit)` — fetches the top-N root
+ * comments for many posts in a single query. Without this, the field
+ * resolver was firing one `postComment.findMany` per post (N+1), which
+ * dominated the response time for a 20-post feed (~20 sequential queries,
+ * each with author + editHistory + replies count joins).
+ *
+ * Strategy: fetch all top-level comments for the requested posts in one
+ * query, sort by `postId ASC, likesCount DESC, createdAt DESC`, then group
+ * in JS and take the first N per post. Total rows scanned is O(comments)
+ * not O(posts × N), and the per-post slice is O(posts).
+ */
+function createCommentsPreviewLoader(defaultLimit: number) {
+  return new DataLoader<string, any[]>(async (postIds: readonly string[]) => {
+    const ids = [...postIds];
+    if (ids.length === 0) return [];
+    const all = await prisma.postComment.findMany({
+      where: { postId: { in: ids }, parentId: null },
+      orderBy: [
+        { postId: "asc" },
+        { likesCount: "desc" },
+        { createdAt: "desc" },
+      ],
+      include: {
+        author: { include: { rank: true } },
+        editHistory: { orderBy: { editedAt: "desc" } },
+        _count: { select: { replies: true } },
+      },
+    });
+    const map = new Map<string, any[]>();
+    let currentPostId: string | null = null;
+    let currentCount = 0;
+    for (const c of all as any[]) {
+      if (c.postId !== currentPostId) {
+        currentPostId = c.postId;
+        currentCount = 0;
+        if (!map.has(c.postId)) map.set(c.postId, []);
+      }
+      if (currentCount < defaultLimit) {
+        map.get(c.postId)!.push(c);
+        currentCount++;
+      }
+    }
+    return ids.map((id) => map.get(id) ?? []);
+  });
+}
+
 function createCommentLikedByMeLoader(userId: string | null) {
   return new DataLoader(async (commentIds: readonly string[]) => {
     if (!userId) return commentIds.map(() => false);
@@ -234,7 +284,7 @@ async function startServer() {
         const code = formattedError.extensions?.code ?? "";
 
         // Always pass through any error explicitly tagged as user-facing
-        if (code === "RATE_LIMITED") {
+        if (code === "RATE_LIMITED" || code === "INSUFFICIENT_CREDITS") {
           return { message: msg, locations: formattedError.locations, path: formattedError.path, extensions: { code } };
         }
 
@@ -252,6 +302,7 @@ async function startServer() {
         const safePrefixes = [
           "Rate limit exceeded",
           "Daily limit reached",
+          "Not enough credits",
           "Too many roasts",
           "Roast queue timed out",
           "Firecrawl is currently at capacity",
@@ -260,6 +311,7 @@ async function startServer() {
           "FIRECRAWL_API_KEY",
           "OPENROUTER_API_KEY",
           "DeepSeek returned empty content",
+          "Brand analysis timed out",
           // URL validation / reachability errors
           "That website appears to be down",
           "We can't scrape that website",
@@ -383,6 +435,103 @@ async function startServer() {
 
     next();
   }
+
+  function readCookie(req: any, name: string): string | null {
+    const cookieHeader = req.headers.cookie as string | undefined;
+    if (!cookieHeader) return null;
+
+    const cookie = cookieHeader
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(`${name}=`));
+
+    if (!cookie) return null;
+    return decodeURIComponent(cookie.slice(name.length + 1));
+  }
+
+  function sessionCookieOptions(maxAge?: number) {
+    return {
+      httpOnly: true,
+      secure: IS_DEPLOYED,
+      sameSite: IS_DEPLOYED ? "none" as const : "lax" as const,
+      path: "/",
+      ...(maxAge ? { maxAge } : {}),
+    };
+  }
+
+  function setSessionCookies(res: any, accessToken: string, refreshToken: string) {
+    res.cookie(AUTH_ACCESS_COOKIE, accessToken, sessionCookieOptions(60 * 60 * 1000));
+    res.cookie(AUTH_REFRESH_COOKIE, refreshToken, sessionCookieOptions(30 * 24 * 60 * 60 * 1000));
+  }
+
+  function clearSessionCookies(res: any) {
+    res.clearCookie(AUTH_ACCESS_COOKIE, sessionCookieOptions());
+    res.clearCookie(AUTH_REFRESH_COOKIE, sessionCookieOptions());
+  }
+
+  /**
+   * Stores a verified Supabase session in HttpOnly cookies.
+   *
+   * The browser still performs the PKCE exchange because it owns the verifier,
+   * then sends the resulting session here once so the backend can authenticate
+   * subsequent credentialed API requests without exposing cookies to JS.
+   */
+  app.post("/auth/session-cookie", authRateLimiter, requireSameOrigin, async (req: any, res: any) => {
+    try {
+      const { accessToken, refreshToken } = req.body ?? {};
+      if (!accessToken || !refreshToken) {
+        clearSessionCookies(res);
+        return res.status(400).json({ error: "Session tokens required" });
+      }
+
+      const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
+      if (error || !user) {
+        clearSessionCookies(res);
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      setSessionCookies(res, accessToken, refreshToken);
+      return res.json({ ok: true, user: { id: user.id, email: user.email } });
+    } catch (err) {
+      console.error("[session-cookie]", err);
+      clearSessionCookies(res);
+      return res.status(500).json({ error: "Internal error" });
+    }
+  });
+
+  app.delete("/auth/session-cookie", authRateLimiter, requireSameOrigin, (_req: any, res: any) => {
+    clearSessionCookies(res);
+    return res.json({ ok: true });
+  });
+
+  app.get("/auth/session-cookie", async (req: any, res: any) => {
+    try {
+      const accessToken = readCookie(req, AUTH_ACCESS_COOKIE);
+      const refreshToken = readCookie(req, AUTH_REFRESH_COOKIE);
+
+      if (accessToken) {
+        const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
+        if (!error && user) {
+          return res.json({ authenticated: true, user: { id: user.id, email: user.email } });
+        }
+      }
+
+      if (refreshToken) {
+        const { data, error } = await supabaseAdmin.auth.refreshSession({ refresh_token: refreshToken });
+        if (!error && data.session?.access_token && data.session.refresh_token && data.user) {
+          setSessionCookies(res, data.session.access_token, data.session.refresh_token);
+          return res.json({ authenticated: true, user: { id: data.user.id, email: data.user.email } });
+        }
+      }
+
+      clearSessionCookies(res);
+      return res.json({ authenticated: false, user: null });
+    } catch (err) {
+      console.error("[session-cookie:get]", err);
+      clearSessionCookies(res);
+      return res.status(500).json({ error: "Internal error" });
+    }
+  });
 
   /**
    * POST /auth/pre-login-check
@@ -592,6 +741,7 @@ async function startServer() {
             postLikedByMeLoader: createPostLikedByMeLoader(userId),
             postMyReactionLoader: createPostMyReactionLoader(userId),
             originalPostLoader: createOriginalPostLoader(),
+            commentsPreviewLoader: createCommentsPreviewLoader(2),
             // Comment field batch loaders
             commentLikedByMeLoader: createCommentLikedByMeLoader(userId),
             commentMyReactionLoader: createCommentMyReactionLoader(userId),
@@ -755,10 +905,15 @@ async function startServer() {
     httpServer.listen({ port: PORT }, resolve)
   );
 
-  // Keep connections alive long enough for AI roast (can take up to 90s)
-  httpServer.timeout = 125_000;
-  httpServer.keepAliveTimeout = 126_000;
-  httpServer.headersTimeout = 127_000;
+  // Keep connections alive long enough for long AI generations.
+  httpServer.timeout = 220_000;
+  httpServer.keepAliveTimeout = 221_000;
+  httpServer.headersTimeout = 222_000;
+
+  // Start leaderboard background refreshers. Populates the Laban Launcher
+  // (shipping_streaks) and Underdog (weekly_xp_snapshots) boards on
+  // boot, then refreshes every 6h / 1h respectively. Idempotent.
+  startLeaderboardRefreshers(prisma);
 
   console.log(`🚀 Lokal GraphQL API ready at http://localhost:${PORT}/graphql (${NODE_ENV})`);
   console.log(`📊 Apollo Studio: https://studio.apollographql.com/sandbox/explorer`);

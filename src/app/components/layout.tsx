@@ -510,8 +510,8 @@ export function Layout() {
         <Outlet />
       </main>
 
-      {/* ── Legal footer — fixed at bottom on desktop ── */}
-      <footer className="hidden lg:block fixed bottom-0 left-0 right-0 z-40 border-t bg-card py-3 px-4">
+      {/* ── Legal footer — fixed at bottom on desktop, opaque so fire doesn't bleed through ── */}
+      <footer className="hidden lg:block fixed bottom-0 left-0 right-0 z-40 border-t border-border/60 bg-card py-3 px-4">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row flex-wrap items-center justify-between gap-2">
           <p className="text-[11px] text-muted-foreground/60">
             © 2026 lokalhost.club &middot; Made with 🔥 by Filipino developers

@@ -6,6 +6,19 @@ export interface AuthenticatedRequest extends Request {
   user?: AuthUser | null;
 }
 
+function readCookie(req: Request, name: string): string | null {
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return null;
+
+  const cookie = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`));
+
+  if (!cookie) return null;
+  return decodeURIComponent(cookie.slice(name.length + 1));
+}
+
 /**
  * Express middleware that extracts and verifies the Supabase JWT
  * from the Authorization header. Attaches the user to req.user.
@@ -20,19 +33,13 @@ export async function authMiddleware(
     const authHeader = req.headers.authorization ?? "";
     const token = authHeader.startsWith("Bearer ")
       ? authHeader.slice(7)
-      : null;
+      : readCookie(req, "lokal_access_token");
 
     if (token) {
       const user = await verifySupabaseToken(token);
       req.user = user;
-      if (user) {
-        console.log('[AUTH] User authenticated:', { id: user.id, email: user.email });
-      } else {
-        console.log('[AUTH] Token verification failed');
-      }
     } else {
       req.user = null;
-      console.log('[AUTH] No token provided');
     }
   } catch {
     req.user = null;

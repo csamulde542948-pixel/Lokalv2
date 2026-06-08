@@ -351,6 +351,7 @@ export const typeDefs = gql`
 
   # AI-generated roast preview (before saving to DB)
   type GeneratedRoast {
+    generationId: String
     title: String!
     quickRoast: String!
     fullRoast: String!
@@ -361,6 +362,48 @@ export const typeDefs = gql`
     projectName: String!
   }
 
+  type GeneratedBrandAnalysis {
+    id: String
+    title: String!
+    designMd: String!
+    screenshotUrl: String
+    faviconUrl: String
+    ogImageUrl: String
+    projectUrl: String!
+    projectName: String!
+  }
+
+  type BrandAnalysis {
+    id: ID!
+    author: Profile!
+    projectUrl: String!
+    canonicalUrl: String!
+    projectName: String!
+    title: String!
+    designMd: String!
+    screenshotUrl: String
+    faviconUrl: String
+    ogImageUrl: String
+    createdAt: DateTime!
+  }
+
+  type RoastGeneration {
+    id: ID!
+    author: Profile!
+    projectUrl: String!
+    canonicalUrl: String!
+    projectName: String!
+    title: String
+    quickRoast: String
+    fullRoast: String
+    screenshotUrl: String
+    faviconUrl: String
+    ogImageUrl: String
+    publishedRoastId: String
+    publishedAt: DateTime
+    createdAt: DateTime!
+  }
+
   # Daily 🔥 Roast Token status for the current user
   type RoastTokenStatus {
     used:      Int!
@@ -369,15 +412,12 @@ export const typeDefs = gql`
     resetsAt:  DateTime!
   }
 
-  # Daily roast generation quota — works for both authed and anonymous callers.
-  # Anonymous callers are identified by their public network IP (NAT router),
-  # so all devices on the same network share one quota.
-  type RoastQuota {
-    used:      Int!   # roasts already generated today
-    remaining: Int!   # roasts still available today
-    limit:     Int!   # total daily allowance (1 for anon, 3 for authed)
-    resetsAt:  String! # ISO-8601 UTC timestamp of next midnight reset
-    isAnon:    Boolean! # true when the caller is not authenticated
+  # Durable credit balance shared by AI tools.
+  type CreditBalance {
+    balance: Int!
+    lifetimeCredits: Int!
+    lifetimeSpent: Int!
+    starterCredits: Int!
   }
 
   # Scraped project info from URL (Jina Reader + GitHub API + AI classification)
@@ -568,6 +608,7 @@ export const typeDefs = gql`
     xp: Int!
     projectsCount: Int!
     trend: Trend!
+    isFollowedByMe: Boolean!    # whether the current viewer follows this profile
   }
 
   type LeaderboardProject {
@@ -583,6 +624,7 @@ export const typeDefs = gql`
     projectsShipped: Int!
     postsCount: Int!
     trend: Trend!
+    isFollowedByMe: Boolean!
   }
 
   # Board: Roast Survivor — hall of fame, sorted by number of roasts absorbed
@@ -590,6 +632,7 @@ export const typeDefs = gql`
     rank: Int!
     profile: Profile!
     roastsReceived: Int!
+    isFollowedByMe: Boolean!
   }
 
   # Board: Laban Launcher — longest active shipping streak in days
@@ -598,6 +641,7 @@ export const typeDefs = gql`
     profile: Profile!
     currentStreak: Int!
     longestStreak: Int!
+    isFollowedByMe: Boolean!
   }
 
   # Board: Community Builder — monthly, rewards roasting + launchpad + feedback
@@ -607,6 +651,7 @@ export const typeDefs = gql`
     roastsGiven: Int!
     launchpadParticipation: Int!
     communityScore: Int!
+    isFollowedByMe: Boolean!
   }
 
   # Board: Underdog — biggest XP gain from outside top 20, weekly reset
@@ -616,6 +661,7 @@ export const typeDefs = gql`
     xpGain: Int!
     previousRank: Int!
     currentXp: Int!
+    isFollowedByMe: Boolean!
   }
 
   type Leaderboard {
@@ -749,11 +795,14 @@ export const typeDefs = gql`
 
     # Roasts
     roasts(limit: Int, offset: Int): [Roast!]!
+    roastGeneration(id: ID!): RoastGeneration
+    brandAnalysis(id: ID!): BrandAnalysis
+    recentRoastGenerations(limit: Int): [RoastGeneration!]!
     roast(id: ID!): Roast
     # Daily 🔥 Roast Token balance for the current user (requires auth)
     myRoastTokens: RoastTokenStatus!
-    # Daily roast generation quota (no auth required — anon uses network IP)
-    roastQuota: RoastQuota!
+    # Credit balance for the current user (requires auth)
+    myCredits: CreditBalance!
     # List of profiles who gave a 🔥 Roast React to a post (post author only)
     roastReactors(postId: ID!): [Profile!]!
 
@@ -897,6 +946,7 @@ export const typeDefs = gql`
 
     # Roast
     generateRoast(input: GenerateRoastInput!): GeneratedRoast!
+    generateBrandAnalysis(input: GenerateRoastInput!): GeneratedBrandAnalysis!
     submitRoast(input: SubmitRoastInput!): Roast!
     likeRoast(roastId: ID!): Roast!
     # Spend 1 daily 🔥 token to react on a roast post (one-way, no un-react)
@@ -935,6 +985,16 @@ export const typeDefs = gql`
 
     # Feed ranking signals
     recordPostView(postId: ID!, dwellMs: Int!, source: String, feedVariant: String, position: Int, sessionId: String): ID
+    # Phase 0: per-user, per-post impression tracker (modal opens, share, profile view, etc.)
+    # Idempotent on the server: re-opens within a 30-minute window are merged.
+    recordPostImpression(
+      postId: ID!
+      source: String,
+      dwellMs: Int,
+      engaged: Boolean,
+      position: Int,
+      sessionId: String
+    ): Boolean
     markNotInterestedInPost(postId: ID!): Boolean!
 
     # Admin: Feed config management (P2 #10)
@@ -1063,7 +1123,7 @@ export const typeDefs = gql`
     tags: [String!]
   }
 
-  # Generate a roast preview via AI (no auth required)
+  # Generate a roast preview via AI (auth and credits required)
   input GenerateRoastInput {
     projectUrl: String!
     projectName: String!
@@ -1071,6 +1131,7 @@ export const typeDefs = gql`
 
   # Save a roast to the DB (auth required)
   input SubmitRoastInput {
+    generationId: String
     projectUrl: String!
     projectName: String!
     projectId: String

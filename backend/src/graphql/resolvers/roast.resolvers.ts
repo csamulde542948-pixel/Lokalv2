@@ -1,6 +1,7 @@
 import { GraphQLContext } from "../context";
 import { awardXp, checkAndAwardRoles } from "../../services/xp";
 import { generateAiRoast } from "../../services/roast.service";
+import { generateBrandDesignAnalysis } from "../../services/brandAnalysis.service";
 import { createNotification } from "../../lib/notifications";
 import { assertSafeExternalUrl } from "../../lib/ssrf";
 import {
@@ -9,12 +10,11 @@ import {
   perUserUrlLimiter,
 } from "../../lib/rateLimit";
 import {
-  commitRoastGenerationQuota,
-  getRoastGenerationQuotaStatus,
-  refundRoastGenerationQuota,
-  reserveRoastGenerationQuota,
-  RoastGenerationQuotaRule,
-} from "../../lib/roastGenerationQuota";
+  assertHasCredits,
+  getCreditBalance,
+  spendCredits,
+  TOOL_CREDIT_COSTS,
+} from "../../lib/credits";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -27,22 +27,6 @@ const ROAST_INCLUDE = {
   reviewer: true,
   project: true,
 } as const;
-
-function buildRoastGenerationQuotaRules(
-  user: GraphQLContext["user"],
-  clientIp: string
-): RoastGenerationQuotaRule[] {
-  if (user) {
-    return [
-      { scope: "AUTH_USER", key: user.id, limit: 3, action: "AI roast generation" },
-      { scope: "AUTH_IP", key: clientIp, limit: 3, action: "AI roast generation (IP limit)" },
-    ];
-  }
-
-  return [
-    { scope: "ANON_IP", key: clientIp, limit: 1, action: "anonymous AI roast generation" },
-  ];
-}
 
 export const roastResolvers = {
   Query: {
@@ -66,23 +50,87 @@ export const roastResolvers = {
       return prisma.roast.findUnique({ where: { id }, include: ROAST_INCLUDE });
     },
 
+    roastGeneration: async (_: unknown, { id }: { id: string }, { prisma }: GraphQLContext) => {
+      const rows = await prisma.$queryRaw<any[]>`
+        SELECT
+          id,
+          "profileId",
+          "projectUrl",
+          "canonicalUrl",
+          "projectName",
+          title,
+          "quickRoast",
+          "fullRoast",
+          "screenshotUrl",
+          "faviconUrl",
+          "ogImageUrl",
+          "publishedRoastId",
+          "publishedAt",
+          "createdAt"
+        FROM public.roast_generations
+        WHERE id = ${id}
+        LIMIT 1
+      `;
+      return rows[0] ?? null;
+    },
+
+    brandAnalysis: async (_: unknown, { id }: { id: string }, { prisma }: GraphQLContext) => {
+      const rows = await prisma.$queryRaw<any[]>`
+        SELECT
+          id,
+          "profileId",
+          "projectUrl",
+          "canonicalUrl",
+          "projectName",
+          title,
+          "designMd",
+          "screenshotUrl",
+          "faviconUrl",
+          "ogImageUrl",
+          "createdAt"
+        FROM public.brand_analyses
+        WHERE id = ${id}
+        LIMIT 1
+      `;
+      return rows[0] ?? null;
+    },
+
+    recentRoastGenerations: async (
+      _: unknown,
+      { limit = 10 }: { limit?: number },
+      { prisma }: GraphQLContext
+    ) => {
+      const take = Math.min(Math.max(limit, 1), 10);
+      return prisma.$queryRaw`
+        SELECT
+          id,
+          "profileId",
+          "projectUrl",
+          "canonicalUrl",
+          "projectName",
+          title,
+          "quickRoast",
+          "fullRoast",
+          "screenshotUrl",
+          "faviconUrl",
+          "ogImageUrl",
+          "publishedRoastId",
+          "publishedAt",
+          "createdAt"
+        FROM public.roast_generations
+        ORDER BY "createdAt" DESC
+        LIMIT ${take}
+      `;
+    },
+
     myRoastTokens: async (_: unknown, __: unknown, { user, prisma }: GraphQLContext) => {
       if (!user) throw new Error("Unauthorized");
       return getRoastTokenStatus(user.id, prisma);
     },
 
-    /**
-     * roastQuota — returns today's remaining roast generation quota.
-     * Works for both authenticated and anonymous callers.
-     * - Authenticated: 3/day, keyed on user ID
-     * - Anonymous:     1/day, keyed on public network IP (NAT router IP)
-     */
-    roastQuota: async (_: unknown, __: unknown, { user, clientIp, prisma }: GraphQLContext) => {
-      const status = await getRoastGenerationQuotaStatus(
-        prisma,
-        buildRoastGenerationQuotaRules(user, clientIp)
-      );
-      return { ...status, isAnon: !user };
+    myCredits: async (_: unknown, __: unknown, { user, prisma }: GraphQLContext) => {
+      if (!user) throw new Error("Unauthorized");
+      return getCreditBalance(user.id, prisma);
     },
 
     roastReactors: async (_: unknown, { postId }: { postId: string }, { user, prisma }: GraphQLContext) => {
@@ -100,20 +148,16 @@ export const roastResolvers = {
     /**
      * generateRoast — scrape URL with Jina Reader, send to DeepSeek V4 Pro Nitro via
      * OpenRouter, return structured preview.
-     *
-     * Auth is NOT required to generate a roast — users can try the feature
-     * before signing up. Auth IS required to publish/share via submitRoast.
-     *
-     * Rate limits (calendar-day, resets at UTC midnight):
-     *   - Anonymous : 1 roast per public network IP per day.
-     *                 on the same WiFi/network shares a single daily quota.
-     *   - Authenticated: 3 roasts per user per day.
+     * Auth and credits are required. Credits are checked before Firecrawl/OpenRouter
+     * work starts, then deducted only after the AI roast is generated successfully.
+     * Cached URL hits do not spend credits.
      */
     generateRoast: async (
       _: unknown,
       { input }: { input: { projectUrl: string; projectName: string } },
-      { user, clientIp, prisma }: GraphQLContext
+      { user, prisma }: GraphQLContext
     ) => {
+      if (!user) throw new Error("Unauthorized");
 
       const { projectName } = input;
 
@@ -127,7 +171,7 @@ export const roastResolvers = {
 
       // 1) Per-user-per-URL: authenticated users can only re-generate a roast
       //    for the exact same URL once every 24 h. Return cached copy if seen.
-      if (user && perUserUrlLimiter.hasDuplicate(user.id, canonicalUrl)) {
+      if (perUserUrlLimiter.hasDuplicate(user.id, canonicalUrl)) {
         const cached = roastUrlCache.get(canonicalUrl);
         if (cached) {
           return { ...cached, projectUrl, projectName };
@@ -143,28 +187,59 @@ export const roastResolvers = {
       const urlCached = roastUrlCache.get(canonicalUrl);
       if (urlCached) {
         // Register the user's "seen" entry so they also get dedup protection
-        if (user) perUserUrlLimiter.record(user.id, canonicalUrl);
+        perUserUrlLimiter.record(user.id, canonicalUrl);
         return { ...urlCached, projectUrl, projectName };
       }
       // ────────────────────────────────────────────────────────────────────
 
-      const quotaRules = buildRoastGenerationQuotaRules(user, clientIp);
-      await reserveRoastGenerationQuota(prisma, quotaRules);
+      await assertHasCredits(user.id, TOOL_CREDIT_COSTS.AI_ROAST, prisma);
+      const result = await generateAiRoast(projectUrl, projectName);
+      await spendCredits({
+        profileId: user.id,
+        tool: "AI_ROAST",
+        action: "GENERATE",
+        amount: TOOL_CREDIT_COSTS.AI_ROAST,
+        metadata: { projectUrl: canonicalUrl, projectName },
+        prisma,
+      });
 
-      let result;
-      try {
-        result = await generateAiRoast(projectUrl, projectName);
-        await commitRoastGenerationQuota(prisma, quotaRules);
-      } catch (err) {
-        await refundRoastGenerationQuota(prisma, quotaRules).catch(console.error);
-        throw err;
-      }
+      const generations = await prisma.$queryRaw<{ id: string }[]>`
+        INSERT INTO public.roast_generations (
+          id,
+          "profileId",
+          "projectUrl",
+          "canonicalUrl",
+          "projectName",
+          title,
+          "quickRoast",
+          "fullRoast",
+          "screenshotUrl",
+          "faviconUrl",
+          "ogImageUrl"
+        )
+        VALUES (
+          gen_random_uuid()::text,
+          CAST(${user.id} AS uuid),
+          ${projectUrl},
+          ${canonicalUrl},
+          ${projectName},
+          ${result.title ?? null},
+          ${result.quickRoast ?? null},
+          ${result.fullRoast ?? null},
+          ${result.screenshotUrl ?? null},
+          ${result.faviconUrl ?? null},
+          ${result.ogImageUrl ?? null}
+        )
+        RETURNING id
+      `;
+      const generation = generations[0];
 
       // Cache the result for both dedup layers
       roastUrlCache.set(canonicalUrl, result as unknown as Record<string, unknown>);
-      if (user) perUserUrlLimiter.record(user.id, canonicalUrl);
+      perUserUrlLimiter.record(user.id, canonicalUrl);
 
       return {
+        generationId: generation.id,
         ...result,
         projectUrl,
         projectName,
@@ -289,7 +364,72 @@ export const roastResolvers = {
       }
 
       // Return the saved Roast record (always exists now)
+      if (input.generationId) {
+        await prisma.$executeRaw`
+          UPDATE public.roast_generations
+          SET "publishedRoastId" = ${roast.id},
+              "publishedAt" = NOW()
+          WHERE id = ${input.generationId}
+            AND "profileId" = CAST(${user.id} AS uuid)
+        `;
+      }
+
       return roast;
+    },
+
+    generateBrandAnalysis: async (
+      _: unknown,
+      { input }: { input: { projectUrl: string; projectName: string } },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+      const projectUrl = await assertSafeExternalUrl(input.projectUrl);
+      const canonicalUrl = normalizeRoastUrl(projectUrl);
+      const projectName = input.projectName;
+
+      await assertHasCredits(user.id, TOOL_CREDIT_COSTS.AI_BRAND_ANALYZER, prisma);
+      const result = await generateBrandDesignAnalysis(projectUrl, projectName);
+      await spendCredits({
+        profileId: user.id,
+        tool: "AI_BRAND_ANALYZER",
+        action: "GENERATE",
+        amount: TOOL_CREDIT_COSTS.AI_BRAND_ANALYZER,
+        metadata: { projectUrl: canonicalUrl, projectName },
+        prisma,
+      });
+
+      const analyses = await prisma.$queryRaw<{ id: string }[]>`
+        INSERT INTO public.brand_analyses (
+          id,
+          "profileId",
+          "projectUrl",
+          "canonicalUrl",
+          "projectName",
+          title,
+          "designMd",
+          "screenshotUrl",
+          "faviconUrl",
+          "ogImageUrl"
+        )
+        VALUES (
+          gen_random_uuid()::text,
+          CAST(${user.id} AS uuid),
+          ${projectUrl},
+          ${canonicalUrl},
+          ${projectName},
+          ${result.title},
+          ${result.designMd},
+          ${result.screenshotUrl ?? null},
+          ${result.faviconUrl ?? null},
+          ${result.ogImageUrl ?? null}
+        )
+        RETURNING id
+      `;
+
+      return {
+        id: analyses[0]?.id ?? null,
+        ...result,
+      };
     },
 
     likeRoast: async (
@@ -426,6 +566,18 @@ export const roastResolvers = {
         where: { roastId_profileId: { roastId: parent.id, profileId: user.id } },
       });
       return !!like;
+    },
+  },
+
+  RoastGeneration: {
+    author: (parent: any, _: unknown, { prisma }: GraphQLContext) => {
+      return prisma.profile.findUnique({ where: { id: parent.profileId } });
+    },
+  },
+
+  BrandAnalysis: {
+    author: (parent: any, _: unknown, { prisma }: GraphQLContext) => {
+      return prisma.profile.findUnique({ where: { id: parent.profileId } });
     },
   },
 };

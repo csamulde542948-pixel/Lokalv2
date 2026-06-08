@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { gql } from "@apollo/client/core";
-import { useQuery, useMutation } from "@apollo/client/react";
+import { useQuery } from "@apollo/client/react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useChat } from "../../contexts/ChatContext";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -22,6 +22,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { avatarSrc } from "../../lib/defaults";
+import { useFollowToggle } from "../features/social/hooks/useFollowToggle";
 
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
 
@@ -38,22 +39,6 @@ const GET_FOLLOWERS_DATA = gql`
     suggestedUsers(limit: 10) {
       id name username avatarUrl xp isFollowedByMe
       rank { name color }
-    }
-  }
-`;
-
-const FOLLOW_USER = gql`
-  mutation FollowUser($userId: ID!) {
-    followUser(userId: $userId) {
-      id isFollowedByMe followersCount
-    }
-  }
-`;
-
-const UNFOLLOW_USER = gql`
-  mutation UnfollowUser($userId: ID!) {
-    unfollowUser(userId: $userId) {
-      id isFollowedByMe followersCount
     }
   }
 `;
@@ -96,16 +81,16 @@ function EmptyState({ message }: { message: string }) {
 
 interface UserCardProps {
   profile: FollowProfile;
-  onFollow: (id: string) => void;
-  onUnfollow: (id: string) => void;
   onMessage: (id: string, name: string, avatar: string | null) => void;
-  loadingId: string | null;
   isMe: boolean;
 }
 
-function UserCard({ profile, onFollow, onUnfollow, onMessage, loadingId, isMe }: UserCardProps) {
+function UserCard({ profile, onMessage, isMe }: UserCardProps) {
   const navigate = useNavigate();
-  const loading = loadingId === profile.id;
+  const { localFollowing, toggleFollow } = useFollowToggle({
+    userId: profile.id,
+    isFollowing: profile.isFollowedByMe,
+  });
 
   return (
     <div className="p-4 hover:bg-muted/50 transition-colors">
@@ -161,13 +146,12 @@ function UserCard({ profile, onFollow, onUnfollow, onMessage, loadingId, isMe }:
             </Button>
 
             {/* Follow / Unfollow */}
-            {profile.isFollowedByMe ? (
+            {localFollowing ? (
               <Button
                 variant="outline"
                 size="sm"
                 className="h-8 gap-1.5 text-xs"
-                disabled={loading}
-                onClick={() => onUnfollow(profile.id)}
+                onClick={toggleFollow}
               >
                 <UserCheck className="w-3.5 h-3.5" strokeWidth={2} />
                 Following
@@ -176,8 +160,7 @@ function UserCard({ profile, onFollow, onUnfollow, onMessage, loadingId, isMe }:
               <Button
                 size="sm"
                 className="h-8 gap-1.5 text-xs"
-                disabled={loading}
-                onClick={() => onFollow(profile.id)}
+                onClick={toggleFollow}
               >
                 <UserPlus className="w-3.5 h-3.5" strokeWidth={2} />
                 Follow
@@ -197,10 +180,9 @@ export function Followers() {
   const { startDM } = useChat();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
-  const [loadingId, setLoadingId] = useState<string | null>(null);
   const [tab, setTab] = useState<"followers" | "following" | "suggested">("followers");
 
-  const { data, loading, refetch } = useQuery<{
+  const { data, loading } = useQuery<{
     myFollowers: FollowProfile[];
     myFollowing: FollowProfile[];
     suggestedUsers: FollowProfile[];
@@ -208,31 +190,6 @@ export function Followers() {
     skip: !user,
     fetchPolicy: "cache-and-network",
   });
-
-  const [followUser] = useMutation(FOLLOW_USER, {
-    onCompleted: () => refetch(),
-  });
-  const [unfollowUser] = useMutation(UNFOLLOW_USER, {
-    onCompleted: () => refetch(),
-  });
-
-  const handleFollow = async (userId: string) => {
-    setLoadingId(userId);
-    try {
-      await followUser({ variables: { userId } });
-    } finally {
-      setLoadingId(null);
-    }
-  };
-
-  const handleUnfollow = async (userId: string) => {
-    setLoadingId(userId);
-    try {
-      await unfollowUser({ variables: { userId } });
-    } finally {
-      setLoadingId(null);
-    }
-  };
 
   const handleMessage = async (userId: string, name: string, avatar: string | null) => {
     const channel = await startDM(userId, name, avatar ?? undefined);
@@ -279,10 +236,7 @@ export function Followers() {
       <div key={p.id}>
         <UserCard
           profile={p}
-          onFollow={handleFollow}
-          onUnfollow={handleUnfollow}
           onMessage={handleMessage}
-          loadingId={loadingId}
           isMe={p.id === user?.id}
         />
         {i < list.length - 1 && <Separator />}

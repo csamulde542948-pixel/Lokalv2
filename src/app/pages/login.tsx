@@ -10,6 +10,7 @@ import { Github, Wallet, ShieldAlert, AlertTriangle } from "lucide-react";
 import { BrandLogo } from "../components/brand-logo";
 import { useAuth } from "../../contexts/AuthContext";
 import { supabase } from "../../lib/supabase";
+import { syncSessionCookie } from "../../lib/auth-session-cookie";
 import {
   preLoginCheck,
   recordLoginAttempt,
@@ -21,7 +22,10 @@ export function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const location = useLocation();
-  const fromPath = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname || "/";
+  const fromLocation = (location.state as {
+    from?: { pathname?: string; search?: string; hash?: string };
+  } | null)?.from;
+  const fromPath = `${fromLocation?.pathname ?? "/"}${fromLocation?.search ?? ""}${fromLocation?.hash ?? ""}`;
 
   // Save redirect target for OAuth flows (they break the state chain via /auth/callback)
   const saveOAuthRedirect = () => {
@@ -108,6 +112,7 @@ export function Login() {
 
     // Record successful login — pass the session token so the backend can verify identity
     const accessToken = signInData?.session?.access_token;
+    await syncSessionCookie(signInData?.session ?? null).catch(() => {});
     if (accessToken) {
       recordLoginAttempt(email, true, "email", accessToken).catch(() => {});
     }

@@ -1,5 +1,8 @@
-import { Navigate, Outlet } from "react-router";
+import { Navigate, Outlet, useLocation } from "react-router";
+import { useEffect, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import { useAuth } from "../../contexts/AuthContext";
+import { supabase } from "../../lib/supabase";
 
 /**
  * Wraps routes that require authentication.
@@ -9,8 +12,36 @@ import { useAuth } from "../../contexts/AuthContext";
  */
 export function ProtectedRoute() {
   const { session, loading } = useAuth();
+  const location = useLocation();
+  const [storedSession, setStoredSession] = useState<Session | null>(null);
+  const [checkingStoredSession, setCheckingStoredSession] = useState(true);
 
-  if (loading) {
+  useEffect(() => {
+    let cancelled = false;
+
+    if (session) {
+      setStoredSession(session);
+      setCheckingStoredSession(false);
+      return;
+    }
+
+    if (loading) {
+      return;
+    }
+
+    setCheckingStoredSession(true);
+    supabase.auth.getSession().then(({ data }) => {
+      if (cancelled) return;
+      setStoredSession(data.session);
+      setCheckingStoredSession(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, session]);
+
+  if (loading || checkingStoredSession) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
@@ -18,8 +49,8 @@ export function ProtectedRoute() {
     );
   }
 
-  if (!session) {
-    return <Navigate to="/login" replace />;
+  if (!session && !storedSession) {
+    return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
   return <Outlet />;

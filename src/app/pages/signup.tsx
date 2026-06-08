@@ -21,7 +21,12 @@ export function Signup() {
   const { signUpWithEmail, signInWithGoogle, signInWithGithub, signInWithWeb3 } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const fromPath = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
+  const fromLocation = (location.state as {
+    from?: { pathname?: string; search?: string; hash?: string };
+  } | null)?.from;
+  const fromPath = fromLocation
+    ? `${fromLocation.pathname ?? "/"}${fromLocation.search ?? ""}${fromLocation.hash ?? ""}`
+    : undefined;
 
   // Save redirect target for OAuth flows (they break the state chain via /auth/callback)
   const saveOAuthRedirect = () => {
@@ -91,7 +96,7 @@ export function Signup() {
     toast.success(
       "Account created! Check your email to confirm your address before logging in."
     );
-    navigate("/login", { state: fromPath ? { from: { pathname: fromPath } } : undefined });
+    navigate("/login", { state: fromLocation ? { from: fromLocation } : undefined });
   };
 
   const handleGoogleSignup = async () => {

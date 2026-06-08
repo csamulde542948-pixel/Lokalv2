@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useQuery, useMutation } from "@apollo/client/react";
@@ -20,6 +20,11 @@ import { useAuth } from "../../contexts/AuthContext";
 import { avatarSrc, DEFAULT_COVER } from "../../lib/defaults";
 import { supabase } from "../../lib/supabase";
 import { toast } from "sonner";
+import { adaptPost } from "../features/social/adapters";
+import {
+  ALL_FRAGMENTS,
+  FOLLOW_USER, UNFOLLOW_USER,
+} from "../features/social/graphql";
 
 // ─── GraphQL ──────────────────────────────────────────────────────────────────
 
@@ -39,75 +44,49 @@ const GET_ME = gql`
       followingCount
       postsCount
       projectsCount
-      rank { name color iconName bgColor borderColor }
+      rank { ...RankFields }
       earnedRoles { id role { id name emoji description } earnedAt }
     }
   }
+  ${ALL_FRAGMENTS}
 `;
 
 const GET_USER_POSTS = gql`
   query GetUserPosts($userId: ID!, $limit: Int, $offset: Int) {
     userPosts(userId: $userId, limit: $limit, offset: $offset) {
-      posts {
-        id content imageUrl imageUrls projectName postType
-        likesCount commentsCount sharesCount likedByMe myReaction createdAt
-        author { id name displayName username avatarUrl }
-        tags { id name }
-        commentsPreview(limit: 3) {
-          id content likesCount likedByMe myReaction parentId createdAt isEdited mentions
-          author { id name displayName username avatarUrl }
-          replies {
-            id content likesCount likedByMe myReaction parentId createdAt isEdited mentions
-            author { id name displayName username avatarUrl }
-            replies {
-              id content likesCount likedByMe myReaction parentId createdAt isEdited mentions
-              author { id name displayName username avatarUrl }
-            }
-          }
-        }
-        originalPost {
-          id content imageUrl imageUrls projectName postType
-          tags { id name }
-          createdAt
-          author { id name displayName username avatarUrl }
-        }
-      }
+      posts { ...PostCardFields }
       hasMore
     }
   }
+  ${ALL_FRAGMENTS}
 `;
 
 const GET_USER_PROJECTS = gql`
   query GetUserProjectsProfile($userId: ID!) {
     userProjects(userId: $userId) {
       id name tagline starsCount
-      tags { name }
+      tags { ...TagFields }
     }
   }
+  ${ALL_FRAGMENTS}
 `;
 
 const GET_PROFILE_BY_USERNAME = gql`
   query GetProfileByUsername($username: String!) {
     profile(username: $username) {
-      id name username displayName avatarUrl bio location website xp
-      followersCount followingCount postsCount projectsCount
-      isFollowedByMe
-      rank { name color iconName bgColor borderColor }
+      ...AuthorFields
+      bio
+      location
+      website
+      xp
+      followersCount
+      followingCount
+      postsCount
+      projectsCount
       earnedRoles { id role { id name emoji description } earnedAt }
     }
   }
-`;
-
-const FOLLOW_USER = gql`
-  mutation ProfileFollowUser($userId: ID!) {
-    followUser(userId: $userId) { id isFollowedByMe followersCount }
-  }
-`;
-
-const UNFOLLOW_USER = gql`
-  mutation ProfileUnfollowUser($userId: ID!) {
-    unfollowUser(userId: $userId) { id isFollowedByMe followersCount }
-  }
+  ${ALL_FRAGMENTS}
 `;
 
 const UPDATE_PROFILE = gql`
@@ -116,96 +95,7 @@ const UPDATE_PROFILE = gql`
   }
 `;
 
-const LIKE_POST = gql`
-  mutation ProfileLikePost($postId: ID!, $reaction: String) {
-    likePost(postId: $postId, reaction: $reaction) { id likesCount likedByMe myReaction }
-  }
-`;
-
-const UNLIKE_POST = gql`
-  mutation ProfileUnlikePost($postId: ID!) {
-    unlikePost(postId: $postId) { id likesCount likedByMe myReaction }
-  }
-`;
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function timeAgo(dateString: string) {
-  const diff = Date.now() - new Date(dateString).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "Just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
-
-function adaptComment(c: any): any {
-  return {
-    id: c.id,
-    content: c.content,
-    likesCount: c.likesCount ?? 0,
-    likedByMe: c.likedByMe ?? false,
-    myReaction: c.myReaction ?? null,
-    parentId: c.parentId ?? null,
-    mentions: c.mentions ?? [],
-    isEdited: c.isEdited ?? false,
-    editHistory: (c.editHistory ?? []).map((e: any) => ({
-      id: e.id, previousContent: e.previousContent, editedAt: e.editedAt,
-    })),
-    createdAt: c.createdAt,
-    replies: (c.replies ?? []).map(adaptComment),
-    author: {
-      id: c.author?.id,
-      name: c.author?.displayName ?? c.author?.username ?? c.author?.name ?? "Unknown",
-      username: `@${c.author?.username ?? "?"}`,
-      avatarUrl: c.author?.avatarUrl,
-    },
-  };
-}
-
-function adaptPost(p: any) {
-  return {
-    id: p.id,
-    author: {
-      id: p.author?.id,
-      name: p.author?.displayName ?? p.author?.username ?? p.author?.name ?? "Unknown",
-      username: `@${p.author?.username ?? "?"}`,
-      avatar: avatarSrc(p.author?.avatarUrl),
-    },
-    content: p.content,
-    image: p.imageUrl ?? undefined,
-    images: p.imageUrls ?? (p.imageUrl ? [p.imageUrl] : []),
-    likes: p.likesCount ?? 0,
-    comments: p.commentsCount ?? 0,
-    shares: p.sharesCount ?? 0,
-    timestamp: timeAgo(p.createdAt),
-    projectName: p.projectName ?? undefined,
-    likedByMe: p.likedByMe ?? false,
-    myReaction: p.myReaction ?? null,
-    postType: (p.postType ?? "post") as "post" | "roast",
-    tags: p.tags ?? [],
-    initialComments: (p.commentsPreview ?? []).map(adaptComment),
-    originalPost: p.originalPost
-      ? {
-          id: p.originalPost.id,
-          content: p.originalPost.content,
-          imageUrl: p.originalPost.imageUrl,
-          imageUrls: p.originalPost.imageUrls ?? [],
-          projectName: p.originalPost.projectName ?? undefined,
-          postType: (p.originalPost.postType ?? "post") as "post" | "roast",
-          tags: p.originalPost.tags ?? [],
-          createdAt: p.originalPost.createdAt,
-          author: {
-            id: p.originalPost.author?.id,
-            name: p.originalPost.author?.displayName ?? p.originalPost.author?.username ?? p.originalPost.author?.name ?? "Unknown",
-            username: p.originalPost.author?.username ?? "",
-            avatarUrl: p.originalPost.author?.avatarUrl,
-          },
-        }
-      : null,
-  };
-}
 
 // ─── Skeletons ────────────────────────────────────────────────────────────────
 
@@ -369,25 +259,6 @@ export function Profile() {
 
   const posts = postsData?.userPosts?.posts ?? [];
   const projects = projectsData?.userProjects ?? [];
-
-  // Like handlers
-  const [likePost] = useMutation(LIKE_POST);
-  const [unlikePost] = useMutation(UNLIKE_POST);
-  const handleLike = useCallback(
-    async (postId: string, wantsLike: boolean, reaction?: string) => {
-      try {
-        if (wantsLike) {
-          await likePost({ variables: { postId, reaction: reaction ?? "like" } });
-        } else {
-          await unlikePost({ variables: { postId } });
-        }
-        refetchPosts();
-      } catch (e) {
-        console.error("Like error", e);
-      }
-    },
-    [likePost, unlikePost, refetchPosts]
-  );
 
   const displayName = profile?.displayName ?? profile?.name ?? user?.email ?? "";
 
@@ -955,7 +826,7 @@ export function Profile() {
                           <RoastedProjectCard
                             key={post.id}
                             post={adapted as FeedPost}
-                            onLike={handleLike}
+                            isFollowing={adapted.author?.isFollowedByMe ?? false}
                           />
                         );
                       }
@@ -963,7 +834,7 @@ export function Profile() {
                         <PostCard
                           key={post.id}
                           post={adapted}
-                          onLike={handleLike}
+                          isFollowing={adapted.author?.isFollowedByMe ?? false}
                           onDelete={() => refetchPosts()}
                         />
                       );

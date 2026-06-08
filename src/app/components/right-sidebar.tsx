@@ -10,6 +10,8 @@ import {
 import { gql } from "@apollo/client/core";
 import { useQuery } from "@apollo/client/react";
 import { Link } from "react-router";
+import { useFollowToggle } from "../features/social/hooks/useFollowToggle";
+import { useAuth } from "../../contexts/AuthContext";
 
 const GET_SIDEBAR_DATA = gql`
   query GetSidebarData {
@@ -119,7 +121,7 @@ function MiniRow({
         {rank <= 3 ? MEDALS[rank - 1] : rank}
       </span>
       <Avatar className="w-7 h-7 flex-shrink-0">
-        <AvatarImage src={profile.avatarUrl ?? undefined} />
+        <AvatarImage src={avatarSrc(profile.avatarUrl)} />
         <AvatarFallback className="text-[10px]">{profile.name?.[0] ?? "?"}</AvatarFallback>
       </Avatar>
       <div className="flex-1 min-w-0">
@@ -130,6 +132,86 @@ function MiniRow({
       <span className="text-[10px] text-muted-foreground font-medium flex-shrink-0 tabular-nums">
         {meta}
       </span>
+    </Link>
+  );
+}
+
+/**
+ * Top Developer row with a real Follow button. The whole row is a
+ * <Link> for navigation; the Follow button stops propagation so clicking
+ * it doesn't trigger a navigation.
+ */
+function DeveloperRow({
+  dev,
+  rank,
+  isSelf,
+}: {
+  dev: any;
+  rank: number;
+  isSelf: boolean;
+}) {
+  const { user: authUser } = useAuth();
+  const { localFollowing, toggleFollow } = useFollowToggle({
+    userId: dev.profile?.id,
+    isFollowing: !!dev.isFollowedByMe,
+  });
+
+  return (
+    <Link
+      to={`/profile/${dev.profile?.username}`}
+      className="flex items-center gap-2.5 py-1 rounded-lg hover:bg-muted/50 px-1 transition-colors group"
+    >
+      <span
+        className={`text-xs font-bold w-4 text-center flex-shrink-0 ${
+          rank === 1
+            ? "text-amber-400"
+            : rank === 2
+              ? "text-slate-400"
+              : rank === 3
+                ? "text-orange-400"
+                : "text-muted-foreground"
+        }`}
+      >
+        {rank <= 3 ? MEDALS[rank - 1] : rank}
+      </span>
+      <Avatar className="w-7 h-7 flex-shrink-0">
+        <AvatarImage src={dev.profile?.avatarUrl ?? undefined} />
+        <AvatarFallback className="text-[10px]">{dev.profile?.name?.[0] ?? "?"}</AvatarFallback>
+      </Avatar>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold truncate group-hover:text-primary transition-colors">
+          {dev.profile?.name}
+        </p>
+        <p className="text-[10px] text-muted-foreground tabular-nums">
+          {dev.xp?.toLocaleString() ?? 0} XP
+        </p>
+      </div>
+      {isSelf ? (
+        <span className="shrink-0 h-6 px-2 inline-flex items-center text-[10px] rounded text-muted-foreground font-medium">
+          You
+        </span>
+      ) : authUser ? (
+        <Button
+          size="sm"
+          variant={localFollowing ? "secondary" : "outline"}
+          className="shrink-0 h-6 text-[10px] rounded px-2"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleFollow();
+          }}
+        >
+          {localFollowing ? "Following" : "Follow"}
+        </Button>
+      ) : (
+        <Link
+          to="/login"
+          onClick={(e) => e.stopPropagation()}
+          className="shrink-0 h-6 px-2 inline-flex items-center text-[10px] rounded text-primary hover:underline"
+        >
+          Follow
+        </Link>
+      )}
     </Link>
   );
 }
@@ -159,9 +241,13 @@ function SectionHeader({
 }
 
 export function RightSidebar({ className = "", category = "home" }: RightSidebarProps) {
+  const { user: authUser } = useAuth();
   const { data, loading } = useQuery(GET_SIDEBAR_DATA, {
     fetchPolicy: "cache-first",
-    pollInterval: 300_000,
+    // 10 min — backend has a 90s cache for the leaderboard payload, so polling
+    // faster than 90s would just hit the same cache entry. 10 min keeps the UI
+    // feeling fresh without burning server cycles.
+    pollInterval: 600_000,
   });
 
   const lb               = (data as any)?.leaderboard;
@@ -254,25 +340,13 @@ export function RightSidebar({ className = "", category = "home" }: RightSidebar
                 : developers.length === 0
                 ? <p className="px-2 text-xs text-muted-foreground py-2">No data yet</p>
                 : developers.slice(0, 5).map((dev: any, i: number) => (
-                  <div key={dev.profile?.id ?? i} className="flex items-center gap-2.5 py-1 rounded-lg hover:bg-muted/50 px-1 transition-colors group">
-                    <span className={`text-xs font-bold w-4 text-center flex-shrink-0 ${i === 0 ? "text-amber-400" : i === 1 ? "text-slate-400" : i === 2 ? "text-orange-400" : "text-muted-foreground"}`}>
-                      {i < 3 ? MEDALS[i] : i + 1}
-                    </span>
-                    <Avatar className="w-7 h-7 flex-shrink-0">
-                      <AvatarImage src={dev.profile?.avatarUrl ?? undefined} />
-                      <AvatarFallback className="text-[10px]">{dev.profile?.name?.[0] ?? "?"}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <Link to={`/profile/${dev.profile?.username}`}>
-                        <p className="text-xs font-semibold truncate group-hover:text-primary transition-colors">{dev.profile?.name}</p>
-                        <p className="text-[10px] text-muted-foreground tabular-nums">{dev.xp?.toLocaleString()} XP</p>
-                      </Link>
-                    </div>
-                    <Button size="sm" variant="outline" className="shrink-0 h-6 text-[10px] rounded px-2">
-                      Follow
-                    </Button>
-                  </div>
-                ))
+                    <DeveloperRow
+                      key={dev.profile?.id ?? `dev-${i}`}
+                      dev={dev}
+                      rank={i + 1}
+                      isSelf={!!authUser && dev.profile?.id === authUser.id}
+                    />
+                  ))
               }
             </div>
           </div>

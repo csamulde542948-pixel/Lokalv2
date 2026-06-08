@@ -8,8 +8,9 @@ console.log('[SUPABASE CLIENT] Initializing with:', {
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
+    flowType: "pkce",
     autoRefreshToken: true,
     persistSession: true,
-    detectSessionInUrl: true,
+    detectSessionInUrl: false,
   },
 });

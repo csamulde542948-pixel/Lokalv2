@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { Session, User, AuthError } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
+import { clearSessionCookie, syncSessionCookie } from "../lib/auth-session-cookie";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -49,6 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: data.session?.user?.email,
         error 
       });
+      syncSessionCookie(data.session).catch(() => {});
       setSession(data.session);
       setUser(data.session?.user ?? null);
       setLoading(false);
@@ -67,6 +69,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(newSession?.user ?? null);
       setLoading(false);
 
+      if (newSession) {
+        syncSessionCookie(newSession).catch(() => {});
+      }
+
       // Security: Auto-sign out if token was revoked
       if (event === "TOKEN_REFRESHED" && !newSession) {
         console.log('[AUTH CONTEXT] Token refresh failed, signing out');
@@ -76,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Security: Clear state on sign-out
       if (event === "SIGNED_OUT") {
         console.log('[AUTH CONTEXT] User signed out');
+        clearSessionCookie().catch(() => {});
         setSession(null);
         setUser(null);
       }
@@ -186,6 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     const { error } = await supabase.auth.signOut();
+    await clearSessionCookie().catch(() => {});
     return { error };
   }, []);
 

@@ -8,3 +8,14 @@ export const DEFAULT_COVER  = "/defaults/default-cover.png";
 export function avatarSrc(url: string | null | undefined): string {
   return url || DEFAULT_AVATAR;
 }
+
+/**
+ * Project-specific avatar adapter. Some upstream resolvers return a raw
+ * Supabase storage path (no host) or a relative URL; this normalises to a
+ * fully-qualified URL the browser can load. Falls back to DEFAULT_AVATAR
+ * for nullish inputs. Kept as a separate name so callers can swap
+ * resolution strategies per entity without forking the helper.
+ */
+export function adaptProjectAvatar(url: string | null | undefined): string {
+  return avatarSrc(url);
+}

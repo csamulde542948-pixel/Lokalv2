@@ -34,6 +34,12 @@ export interface PostSignals {
   avgDwellMs?: number;          // average dwell time across all viewers (quality signal)
   feedVariant?: "ranked" | "chronological"; // A/B test variant
   reactionWeightedLikes?: number; // weighted likes score (Love/Fire=2.0, Haha=1.5, Like=1.0, etc.)
+  // ─── Phase 0: per-user signals (the user's OWN behavior on this post) ───
+  ownDwellMs?: number;          // user's own dwell on this post (0 if never seen)
+  ownDwellScore?: number;       // 0–1 normalised ownDwellMs (sigmoid 8s midpoint)
+  ownEngaged?: boolean;         // did THIS user engage with this post previously?
+  modalOpenScore?: number;      // 0–1 — recent MODAL_OPEN events for this post by this user
+  commentQualityScore?: number; // 0–1 — post's discussion quality (reply + reaction density)
 }
 
 /** Full score breakdown — logged to feed_score_logs for every ranked post */
@@ -52,6 +58,10 @@ export interface ScoreBreakdown {
   dwellBoost: number;
   freshnessBoost: number;
   notInterestedPenalty: number;
+  // ─── Phase 0: per-user signals ───
+  ownDwellBoost: number;        // 1.0–2.0 from the user's own dwell on this post
+  modalOpenBoost: number;       // 1.0–1.5 from recent modal opens on this post
+  commentQualityBoost: number;  // 1.0–1.4 from discussion quality
 }
 
 /** Externalized weight configuration — loaded from feed_config table, cached in memory */
@@ -77,6 +87,12 @@ export interface FeedWeightConfig {
   freshnessBoostUnderOneHour: number;    // default 4.0 — < 1h old
   freshnessBoostUnderThreeHours: number; // default 2.5 — 1–3h old
   freshnessBoostUnderSixHours: number;   // default 1.5 — 3–6h old
+  // Phase 0: per-user signal weights
+  ownDwellBoostMax: number;          // default 2.0 — max boost from user's own dwell
+  ownDwellMidpoint: number;          // default 8.0 — sigmoid midpoint (seconds) for own dwell
+  modalOpenBoostMax: number;         // default 1.5 — max boost from recent modal opens
+  modalOpenDecayHours: number;       // default 24.0 — modal-open signal half-life
+  commentQualityBoostMax: number;    // default 1.4 — max boost from discussion quality
 }
 
 export const DEFAULT_WEIGHTS: FeedWeightConfig = {
@@ -95,6 +111,11 @@ export const DEFAULT_WEIGHTS: FeedWeightConfig = {
   freshnessBoostUnderOneHour: 4.0,
   freshnessBoostUnderThreeHours: 2.5,
   freshnessBoostUnderSixHours: 1.5,
+  ownDwellBoostMax: 2.0,
+  ownDwellMidpoint: 8.0,
+  modalOpenBoostMax: 1.5,
+  modalOpenDecayHours: 24.0,
+  commentQualityBoostMax: 1.4,
 };
 
 // ─── In-memory config cache with TTL ────────────────────────
@@ -154,6 +175,12 @@ export async function loadWeightConfig(prisma: any): Promise<FeedWeightConfig> {
       freshnessBoostUnderOneHour:    safeWeight(configMap, "freshnessBoostUnderOneHour",    DEFAULT_WEIGHTS.freshnessBoostUnderOneHour,    1.0),
       freshnessBoostUnderThreeHours: safeWeight(configMap, "freshnessBoostUnderThreeHours", DEFAULT_WEIGHTS.freshnessBoostUnderThreeHours, 1.0),
       freshnessBoostUnderSixHours:   safeWeight(configMap, "freshnessBoostUnderSixHours",   DEFAULT_WEIGHTS.freshnessBoostUnderSixHours,   1.0),
+      // Phase 0: per-user signals
+      ownDwellBoostMax:          safeWeight(configMap, "ownDwellBoostMax",          DEFAULT_WEIGHTS.ownDwellBoostMax,          0.1),
+      ownDwellMidpoint:          safeWeight(configMap, "ownDwellMidpoint",          DEFAULT_WEIGHTS.ownDwellMidpoint,          0.1),
+      modalOpenBoostMax:         safeWeight(configMap, "modalOpenBoostMax",         DEFAULT_WEIGHTS.modalOpenBoostMax,         0.1),
+      modalOpenDecayHours:       safeWeight(configMap, "modalOpenDecayHours",       DEFAULT_WEIGHTS.modalOpenDecayHours,       0.1),
+      commentQualityBoostMax:    safeWeight(configMap, "commentQualityBoostMax",    DEFAULT_WEIGHTS.commentQualityBoostMax,    0.1),
     };
     cacheExpiry = Date.now() + CACHE_TTL_MS;
     return cachedWeights!;
@@ -321,6 +348,36 @@ export function scorePost(
   // Dwell-time quality multiplier (1.0–2.0x)
   const dwellBoost = clamp(dwellQualityMultiplier(signals.avgDwellMs));
 
+  // ─── Phase 0: per-user signal boosts ────────────────────────────────────
+
+  // ownDwellBoost: the user's OWN dwell on this post (0 if never seen).
+  //   Sigmoid around `ownDwellMidpoint` (default 8s), capped at `ownDwellBoostMax`.
+  //   This is the strongest intent signal we have — if the user spent 30s
+  //   on this post, it should rank higher than a post with 100 avg dwell
+  //   that this user glanced for 1s.
+  const ownDwellScore = clamp(
+    Math.min(1, Math.max(0,
+      (signals.ownDwellMs && signals.ownDwellMs > 0)
+        ? 1.0 / (1.0 + Math.exp(-0.3 * (signals.ownDwellMs / 1000 - weights.ownDwellMidpoint)))
+        : 0
+    ))
+  );
+  // ownDwellBoost range: 1.0 to ownDwellBoostMax
+  const ownDwellBoost = clamp(1.0 + ownDwellScore * (weights.ownDwellBoostMax - 1.0));
+
+  // modalOpenBoost: if the user recently opened this post's modal, that's
+  //   a strong positive signal (they wanted to see the full content).
+  //   Decays over `modalOpenDecayHours` (default 24h).
+  const modalOpenScore = signals.modalOpenScore ?? 0;
+  // range: 1.0 to modalOpenBoostMax
+  const modalOpenBoost = clamp(1.0 + modalOpenScore * (weights.modalOpenBoostMax - 1.0));
+
+  // commentQualityBoost: discussion quality on the post.
+  //   1.0 if no discussion, up to commentQualityBoostMax for threads.
+  const commentQualityScore = signals.commentQualityScore ?? 0;
+  // range: 1.0 to commentQualityBoostMax
+  const commentQualityBoost = clamp(1.0 + commentQualityScore * (weights.commentQualityBoostMax - 1.0));
+
   const finalScore =
     engagementScore
     * decayFactor
@@ -334,7 +391,10 @@ export function scorePost(
     * notInterestedPenalty
     * semanticBoost
     * dwellBoost
-    * freshnessBoost;
+    * freshnessBoost
+    * ownDwellBoost
+    * modalOpenBoost
+    * commentQualityBoost;
 
   return {
     finalScore,
@@ -351,6 +411,9 @@ export function scorePost(
     dwellBoost,
     freshnessBoost,
     notInterestedPenalty,
+    ownDwellBoost,
+    modalOpenBoost,
+    commentQualityBoost,
   };
 }
 

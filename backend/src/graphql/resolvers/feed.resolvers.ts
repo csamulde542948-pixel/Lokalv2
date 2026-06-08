@@ -149,11 +149,17 @@ export const feedResolvers = {
       }
 
       // 1. Get raw activities from GetStream
-      //    Wrapped in try/catch — if GetStream isn't fully configured (missing token,
-      //    client-side mode) we fall through gracefully to the explore feed.
+      //    Wrapped in try/catch + hard 1.5s timeout — if GetStream isn't fully configured
+      //    (missing token, client-side mode) or is slow, we fall through gracefully
+      //    to the explore feed instead of blocking the whole request.
       let rawActivities: any[] = [];
       try {
-        rawActivities = await getRawFeed(user.id, safeLimit + 10, offset);
+        rawActivities = await Promise.race([
+          getRawFeed(user.id, safeLimit + 10, offset),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("getstream-timeout")), 1500)
+          ),
+        ]);
       } catch (streamErr: any) {
         // Timeline feed group may not exist — silently fall back to explore feed
         if (!streamErr?.message?.includes("does not exist")) {
@@ -210,14 +216,18 @@ export const feedResolvers = {
         return exploreFeedAsConnection(safeLimit, offset, prisma);
       }
 
-      // 2. Fetch full post data + signals in parallel
-      const [posts, userTagAffinities, userFollows] = await Promise.all([
+      // 2. Fetch full post data + signals in parallel.
+      //    `likesCount` / `commentsCount` are denormalised counters on `Post` (kept in
+      //    sync by likePost / unlikePost / commentOnPost / deleteComment), so we can
+      //    skip Prisma's separate `COUNT(*) GROUP BY` _count query entirely.
+      //    The user's reaction rows are fetched here too so the likedByMe/myReaction
+      //    DataLoaders don't have to issue a follow-up round-trip after ranking.
+      const [posts, userTagAffinities, userFollows, myLikes] = await Promise.all([
         prisma.post.findMany({
           where: { id: { in: freshPostIds } },
           include: {
             author: { include: { rank: true } },
             tags: { include: { tag: true } },
-            _count: { select: { likes: true, comments: true } },
           },
         }),
         prisma.userTagAffinity.findMany({ where: { profileId: user.id } }),
@@ -225,15 +235,95 @@ export const feedResolvers = {
           where: { followerId: user.id },
           select: { followingId: true },
         }),
+        prisma.postLike.findMany({
+          where: { postId: { in: freshPostIds }, profileId: user.id },
+          select: { postId: true, reaction: true },
+        }).catch((err: any) => {
+          console.error("[feed] myLikes batch error (non-fatal):", err?.message ?? err);
+          return [] as { postId: string; reaction: string }[];
+        }),
       ]);
+
+      // Pre-populate _likedByMe / _myReaction on every candidate post so the
+      // Post.likedByMe / Post.myReaction field resolvers can short-circuit
+      // (avoiding N DataLoader round-trips for the response payload).
+      const likeMap = new Map(myLikes.map((l: any) => [l.postId, l.reaction]));
+      for (const p of posts) {
+        (p as any)._likedByMe = likeMap.has((p as any).id);
+        (p as any)._myReaction = likeMap.get((p as any).id) ?? null;
+      }
 
       const followingSet = new Set(userFollows.map((f: any) => f.followingId));
 
       // Collect unique author IDs from posts for affinity lookup
       const authorIds = [...new Set(posts.map((p: any) => p.authorId))];
 
-      // Social proof + author affinity + embeddings + dwell + notInterested + reactions queries (run in parallel)
-      const [mutualLikeResults, authorAffinities, semanticScores, avgDwellResults, notInterestedResults, reactionWeightResults] = await Promise.all([
+      // ─── Phase 0: per-user impressions for these posts (parallel with the
+      // other signal queries). This is the user's OWN dwell + modal-open
+      // history for the candidate posts — by far the strongest intent signal.
+      // Read from the last 7 days; older impressions are stale and irrelevant
+      // for the current feed request.
+      //
+      // Defensive: if migration 37 hasn't been applied yet (the
+      // `user_post_impressions` table doesn't exist), fall through with
+      // an empty array so the feed still works — the new boosts will
+      // simply be neutral. Errors other than "table doesn't exist" are
+      // logged but do not block the feed.
+      let ownImpressions: { postId: string; dwellMs: number; engaged: boolean; source: string; createdAt: Date }[] = [];
+      try {
+        ownImpressions = await prisma.userPostImpression.findMany({
+          where: {
+            userId: user.id,
+            postId: { in: freshPostIds },
+            createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+          },
+          select: { postId: true, dwellMs: true, engaged: true, source: true, createdAt: true },
+        });
+      } catch (err: any) {
+        // P2021 = table does not exist (Prisma's standard "relation not found" code)
+        const msg = String(err?.message ?? err);
+        if (err?.code === "P2021" || msg.includes("does not exist") || msg.includes("relation") || msg.includes("user_post_impressions")) {
+          console.warn("[feed] user_post_impressions not migrated yet — Phase 0 signals disabled");
+        } else {
+          console.error("[feed] ownImpressions query error (non-fatal):", msg);
+        }
+        ownImpressions = [];
+      }
+
+      // Build a per-post map of the user's own latest impression.
+      // If a user has multiple impressions for the same post (e.g. they
+      // scrolled past, then opened the modal, then scrolled back), keep
+      // the most recent (max createdAt) — that one is most representative
+      // of current intent.
+      const ownDwellMap = new Map<string, { dwellMs: number; engaged: boolean; source: string }>();
+      for (const imp of ownImpressions as any[]) {
+        const existing = ownDwellMap.get(imp.postId);
+        if (!existing) {
+          ownDwellMap.set(imp.postId, { dwellMs: imp.dwellMs, engaged: imp.engaged, source: imp.source });
+        }
+      }
+      // Build a separate map for modal-open counts (last 24h, 0..1 normalised)
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const modalOpenCountByPost = new Map<string, number>();
+      for (const imp of ownImpressions as any[]) {
+        if (imp.source === "MODAL_OPEN" && imp.createdAt >= oneDayAgo) {
+          modalOpenCountByPost.set(imp.postId, (modalOpenCountByPost.get(imp.postId) ?? 0) + 1);
+        }
+      }
+
+      // Social proof + author affinity + embeddings + dwell + notInterested + reactions +
+      // 2nd-degree candidate IDs + Phase-0 comment quality (parallel batch —
+      // `followingSet` was just computed above).
+      const [
+        mutualLikeResults,
+        authorAffinities,
+        semanticScores,
+        avgDwellResults,
+        notInterestedResults,
+        reactionWeightResults,
+        recentFollowLikes,
+        commentQualityResults,
+      ] = await Promise.all([
         followingSet.size > 0
           ? prisma.postLike.findMany({
               where: {
@@ -285,6 +375,29 @@ export const feedResolvers = {
             return [];
           }
         })(),
+        // Phase 0: per-post comment quality — sum of (comment.likesCount +
+        // replyCount) for the post's TOP-LEVEL comments, normalised 0..1
+        // by min(sqrt(quality), 1). Drives the commentQualityBoost in
+        // scorePost. Reply count is computed via a correlated subquery
+        // because `repliesCount` is not a stored column on post_comments.
+        (async () => {
+          try {
+            const result: { post_id: string; quality: number }[] = await prisma.$queryRawUnsafe(`
+              SELECT pc."postId" AS post_id,
+                     COALESCE(SUM(
+                       pc."likesCount"
+                       + (SELECT COUNT(*) FROM post_comments r WHERE r."parentId" = pc.id)
+                     ), 0)::float AS quality
+              FROM post_comments pc
+              WHERE pc."postId" = ANY($1::text[])
+                AND pc."parentId" IS NULL
+              GROUP BY pc."postId"
+            `, freshPostIds);
+            return result.map((r: any) => ({ postId: r.post_id, quality: r.quality }));
+          } catch {
+            return [];
+          }
+        })(),
         // P1 #2: Batch-fetch "not interested" flags for the current user
         prisma.userNotInterested.findMany({
           where: { userId: user.id, postId: { in: freshPostIds } },
@@ -311,6 +424,23 @@ export const feedResolvers = {
             return [];
           }
         })(),
+        // 2nd-degree candidates: posts liked by people the user follows (last 72h).
+        // Moved into this batch so it runs in parallel with the ranking signals
+        // instead of sequentially after the ranking.
+        followingSet.size > 0
+          ? prisma.postLike.findMany({
+              where: {
+                profileId: { in: Array.from(followingSet) },
+                post: {
+                  authorId: { notIn: [user.id, ...Array.from(followingSet)] },
+                  createdAt: { gte: new Date(Date.now() - 72 * 60 * 60 * 1000) },
+                },
+              },
+              select: { postId: true },
+              distinct: ["postId"],
+              take: 10,
+            })
+          : Promise.resolve([] as { postId: string }[]),
       ]);
 
       const socialProofMap = new Map<string, number>();
@@ -348,6 +478,22 @@ export const feedResolvers = {
         dwellMap.set((row as any).postId, (row as any).avgDwell ?? 0);
       }
 
+      // Phase 0: comment-quality map (postId → 0..1 score, sqrt-compressed).
+      //   rawQuality = sum of (comment.likesCount + comment.repliesCount)
+      //   score      = min(sqrt(rawQuality) / 5, 1)  — 25 reactions = full score
+      const commentQualityMap = new Map<string, number>();
+      for (const row of commentQualityResults as { postId: string; quality: number }[]) {
+        const score = Math.min(Math.sqrt(row.quality) / 5, 1);
+        commentQualityMap.set(row.postId, score);
+      }
+
+      // Phase 0: per-user modal-open count → 0..1 score (1 open = full score,
+      // capped at 3 to avoid overflow).
+      const modalOpenScoreMap = new Map<string, number>();
+      for (const [postId, count] of modalOpenCountByPost) {
+        modalOpenScoreMap.set(postId, Math.min(count / 1, 1));
+      }
+
       // Tag affinity decay: apply 0.95^daysSinceLastEngagement to raw affinity scores
       const now = Date.now();
       const decayedAffinityMap = new Map<string, number>();
@@ -380,8 +526,8 @@ export const feedResolvers = {
           post,
           postId: post.id,
           authorId: post.authorId,
-          likesCount: post._count.likes,
-          commentsCount: post._count.comments,
+          likesCount: post.likesCount,
+          commentsCount: post.commentsCount,
           sharesCount: post.sharesCount,
           createdAt: post.createdAt,
           authorXp: (post.author as any).xp,
@@ -395,6 +541,12 @@ export const feedResolvers = {
           feedVariant: resolvedVariant,
           notInterested: notInterestedSet.has(post.id), // P1 #2: populated from UserNotInterested
           reactionWeightedLikes: reactionWeightMap.get(post.id), // P2 #8: weighted by reaction type
+          // Phase 0: per-user signals
+          ownDwellMs: ownDwellMap.get(post.id)?.dwellMs ?? 0,
+          ownDwellScore: 0, // computed inside scorePost from ownDwellMs
+          ownEngaged: ownDwellMap.get(post.id)?.engaged ?? false,
+          modalOpenScore: modalOpenScoreMap.get(post.id) ?? 0,
+          commentQualityScore: commentQualityMap.get(post.id) ?? 0,
         };
       });
 
@@ -403,24 +555,14 @@ export const feedResolvers = {
 
       // 5. 2nd-degree candidates: posts liked by people the user follows
       //    (friends-of-friends discovery — Facebook's key growth loop)
+      //    The `recentFollowLikes` query now runs in parallel with the ranking
+      //    signals above (instead of sequentially before this block).
       let secondDegreeSignals: ScoredPost[] = [];
       try {
-        if (followingSet.size > 0) {
-          const recentFollowLikes = await prisma.postLike.findMany({
-            where: {
-              profileId: { in: Array.from(followingSet) },
-              post: {
-                authorId: { notIn: [user.id, ...Array.from(followingSet)] }, // outside follow graph
-                createdAt: { gte: new Date(Date.now() - 72 * 60 * 60 * 1000) }, // last 72h
-              },
-            },
-            select: { postId: true },
-            distinct: ["postId"],
-            take: 10,
-          });
+        if (recentFollowLikes.length > 0) {
           const secondDegreeIds = recentFollowLikes
-            .map((l) => l.postId)
-            .filter((id) => !seenSet.has(id) && !freshPostIds.includes(id));
+            .map((l: any) => l.postId)
+            .filter((id: string) => !seenSet.has(id) && !freshPostIds.includes(id));
 
           if (secondDegreeIds.length > 0) {
             const sdPosts = await prisma.post.findMany({
@@ -428,9 +570,16 @@ export const feedResolvers = {
               include: {
                 author: { include: { rank: true } },
                 tags: { include: { tag: true } },
-                _count: { select: { likes: true, comments: true } },
               },
             });
+
+            // Inherit the user's like state for 2nd-degree posts from the
+            // pre-loaded likeMap (they were excluded from `freshPostIds` so
+            // we have to check the map, not assume `false`).
+            for (const p of sdPosts) {
+              (p as any)._likedByMe = likeMap.has((p as any).id);
+              (p as any)._myReaction = likeMap.get((p as any).id) ?? null;
+            }
 
             const sdSignals: PostSignals[] = sdPosts.map((post: any) => {
               const postTagNames = post.tags.map((pt: any) => pt.tag.name);
@@ -452,8 +601,8 @@ export const feedResolvers = {
                 post,
                 postId: post.id,
                 authorId: post.authorId,
-                likesCount: post._count.likes,
-                commentsCount: post._count.comments,
+                likesCount: post.likesCount,
+                commentsCount: post.commentsCount,
                 sharesCount: post.sharesCount,
                 createdAt: post.createdAt,
                 authorXp: (post.author as any).xp ?? 0,
@@ -465,6 +614,12 @@ export const feedResolvers = {
                 semanticRelevance: semanticMap.get(post.id) ?? 0,
                 avgDwellMs: dwellMap.get(post.id) ?? 0,
                 feedVariant: resolvedVariant,
+                // Phase 0: per-user signals (same maps as the 1st-degree loop)
+                ownDwellMs: ownDwellMap.get(post.id)?.dwellMs ?? 0,
+                ownDwellScore: 0,
+                ownEngaged: ownDwellMap.get(post.id)?.engaged ?? false,
+                modalOpenScore: modalOpenScoreMap.get(post.id) ?? 0,
+                commentQualityScore: commentQualityMap.get(post.id) ?? 0,
               };
             });
 
@@ -533,21 +688,9 @@ export const feedResolvers = {
         .map((s) => allPostsMap.get(s.postId))
         .filter(Boolean);
 
-      // ── Batch-populate likedByMe + myReaction to avoid N+1 field resolvers ──
-      const rankedPostIds = rankedPosts.map((p: any) => p.id);
-      try {
-        const myLikes = await prisma.postLike.findMany({
-          where: { postId: { in: rankedPostIds }, profileId: user.id },
-          select: { postId: true, reaction: true },
-        });
-        const likeMap = new Map(myLikes.map((l: any) => [l.postId, l.reaction]));
-        for (const p of rankedPosts) {
-          (p as any)._likedByMe = likeMap.has((p as any).id);
-          (p as any)._myReaction = likeMap.get((p as any).id) ?? null;
-        }
-      } catch (err) {
-        console.error("[feed] batch likedByMe error:", err);
-      }
+      // ── likedByMe / myReaction are pre-populated above (in the main Promise.all)
+      //    so the Post.likedByMe / Post.myReaction field resolvers short-circuit
+      //    and no extra DataLoader round-trip is needed here. ──
 
       return {
         posts: rankedPosts,
@@ -1189,7 +1332,7 @@ export const feedResolvers = {
     ) => {
       if (!user) throw new Error("Unauthorized");
 
-      const validReactions = ["Like", "Love", "Fire", "Haha", "Wow", "Sad"];
+      const validReactions = ["Like", "Love", "Fire", "Haha", "Wow", "Sad", "Angry"];
       const safeReaction = validReactions.includes(reaction) ? reaction : "Like";
 
       const existing = await prisma.commentLike.findUnique({
@@ -1354,6 +1497,40 @@ export const feedResolvers = {
           },
         });
 
+        // 1b. Phase 0: also upsert into user_post_impressions so the feed
+        //     resolver can read the user's own dwell on this post on the
+        //     next request. Max-dwell merge with the existing row.
+        const safeDwell = Math.min(Math.max(dwellMs, 0), 300_000);
+        const now = new Date();
+        const cutoff = new Date(now.getTime() - 30 * 60 * 1000);
+        const existingImpression = await prisma.userPostImpression.findFirst({
+          where: { userId: user.id, postId, createdAt: { gte: cutoff } },
+          orderBy: { createdAt: "desc" },
+        });
+        if (existingImpression) {
+          await prisma.userPostImpression.update({
+            where: { id: existingImpression.id },
+            data: {
+              dwellMs: Math.max(existingImpression.dwellMs, safeDwell),
+              position: position ?? existingImpression.position,
+              sessionId: sessionId ?? existingImpression.sessionId,
+              updatedAt: now,
+            },
+          });
+        } else {
+          await prisma.userPostImpression.create({
+            data: {
+              userId: user.id,
+              postId,
+              source: "FEED_CARD",
+              dwellMs: safeDwell,
+              engaged: false,
+              position: position ?? null,
+              sessionId: sessionId ?? null,
+            },
+          });
+        }
+
         // 2. Update session metrics (postsShown, totalDwellMs)
         if (sessionId) {
           prisma.feedSession.update({
@@ -1386,6 +1563,109 @@ export const feedResolvers = {
         return view.id;
       } catch (err) {
         console.error("[recordPostView] error:", err);
+        return null;
+      }
+    },
+
+    /**
+     * recordPostImpression — Phase 0.
+     *
+     * Records a per-user, per-post "impression": how the user encountered a
+     * post (FEED_CARD, MODAL_OPEN, etc.), how long they dwelled on it
+     * (their OWN dwell — the strongest intent signal we have), and
+     * whether they engaged.
+     *
+     * Two callers fire this:
+     *   1. The frontend PostViewTracker (low dwell threshold) — keeps the
+     *      user's per-post view history fresh so the feed resolver can
+     *      read it on the next request.
+     *   2. The PostModal (source="MODAL_OPEN") — fires on every modal
+     *      open so we can score the post higher for the user next time.
+     *
+     * The function is idempotent: it upserts the latest impression for
+     * (userId, postId) within a configurable window so a flurry of
+     * modal-open/modal-close events doesn't fill the table.
+     */
+    recordPostImpression: async (
+      _: unknown,
+      {
+        postId,
+        source = "FEED_CARD",
+        dwellMs = 0,
+        engaged = false,
+        position,
+        sessionId,
+      }: {
+        postId: string;
+        source?: "FEED_CARD" | "MODAL_OPEN" | "PROFILE_VIEW" | "SEARCH" | "SHARE";
+        dwellMs?: number;
+        engaged?: boolean;
+        position?: number;
+        sessionId?: string;
+      },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) return null;
+
+      try {
+        const safeDwell = Math.min(Math.max(dwellMs, 0), 300_000);
+        const now = new Date();
+
+        // Look up the existing impression for this (user, post) within
+        // the last 30 minutes. If present, update it (max-dwell merge).
+        // Otherwise insert a new row.
+        const cutoff = new Date(now.getTime() - 30 * 60 * 1000);
+        const existing = await prisma.userPostImpression.findFirst({
+          where: { userId: user.id, postId, createdAt: { gte: cutoff } },
+          orderBy: { createdAt: "desc" },
+        });
+
+        if (existing) {
+          await prisma.userPostImpression.update({
+            where: { id: existing.id },
+            data: {
+              dwellMs: Math.max(existing.dwellMs, safeDwell),
+              engaged: existing.engaged || engaged,
+              // Take the earlier (more recent in time) position
+              position: position ?? existing.position,
+              source: existing.source === "MODAL_OPEN" ? "MODAL_OPEN" : source,
+              sessionId: sessionId ?? existing.sessionId,
+              updatedAt: now,
+            },
+          });
+        } else {
+          await prisma.userPostImpression.create({
+            data: {
+              userId: user.id,
+              postId,
+              source,
+              dwellMs: safeDwell,
+              engaged,
+              position: position ?? null,
+              sessionId: sessionId ?? null,
+            },
+          });
+        }
+
+        // MODAL_OPEN is a high-intent engagement — log it to UserInteraction
+        // with a heavy weight so the author affinity / interest embedding
+        // recompute picks it up next cycle.
+        if (source === "MODAL_OPEN") {
+          const post = await prisma.post.findUnique({
+            where: { id: postId },
+            select: { authorId: true },
+          });
+          if (post) {
+            logInteraction(prisma, user.id, post.authorId, postId, "POST_MODAL_OPEN", 5.0);
+            // Boost author affinity the same way a like does — modal opens
+            // are stronger than a passive like because they cost attention.
+            updateAuthorAffinity(user.id, post.authorId, "viewCount", prisma).catch(console.error);
+          }
+        }
+
+        return true;
+      } catch (err) {
+        console.error("[recordPostImpression] error:", err);
         return null;
       }
     },
@@ -1634,26 +1914,17 @@ export const feedResolvers = {
     /**
      * Lightweight comment preview for feed cards.
      * Returns top N root comments sorted by likes (descending), with NO nested replies.
-     * Full comment trees are loaded on-demand when the user expands comments.
+     * Batched via DataLoader — for 10-20 posts, this is ONE query instead of N.
      */
     commentsPreview: async (
       parent: { id: string },
       { limit = 3 }: { limit?: number },
-      { prisma }: GraphQLContext
+      { loaders }: GraphQLContext
     ) => {
       const safeLim = Math.min(limit, 10); // hard cap at 10 for previews
-      return prisma.postComment.findMany({
-        where: { postId: parent.id, parentId: null },
-        orderBy: { likesCount: "desc" },
-        take: safeLim,
-        include: {
-          author: { include: { rank: true } },
-          editHistory: { orderBy: { editedAt: "desc" } },
-          _count: { select: { replies: true } },
-          // NO nested replies — feed card only needs top-level comments
-          // Full thread is loaded on-demand when user clicks "View all comments"
-        },
-      });
+      return loaders.commentsPreviewLoader.load(parent.id) as Promise<any[]>;
+      // Note: the loader uses the default limit (3) to keep payload small;
+      // future enhancement could key the cache by (postId, limit).
     },
 
     comments: async (
@@ -2116,6 +2387,12 @@ async function logFeedScoreLogs(
     likesCount: post.likesCount,
     commentsCount: post.commentsCount,
     sharesCount: post.sharesCount,
+    // Phase 0: per-user signals (raw + derived scores). Logged so we can
+    // build offline training data for the two-tower / reranker (Phase 1+).
+    ownDwellMs: post.ownDwellMs ?? 0,
+    ownDwellScore: post.ownDwellScore ?? 0,
+    modalOpenScore: post.modalOpenScore ?? 0,
+    commentQualityScore: post.commentQualityScore ?? 0,
   }));
 
   await prisma.feedScoreLog.createMany({ data });

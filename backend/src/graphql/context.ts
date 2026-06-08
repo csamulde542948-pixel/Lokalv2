@@ -29,6 +29,7 @@ export interface GraphQLContext {
     postLikedByMeLoader: DataLoader<string, boolean>;
     postMyReactionLoader: DataLoader<string, string | null>;
     originalPostLoader: DataLoader<string, any | null>;
+    commentsPreviewLoader: DataLoader<string, any[]>;
     // Batch loaders for PostComment field resolvers
     commentLikedByMeLoader: DataLoader<string, boolean>;
     commentMyReactionLoader: DataLoader<string, string | null>;

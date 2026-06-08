@@ -344,4 +344,54 @@
   .icon-pulse-bg {
     animation: icon-pulse 2s ease-in-out infinite;
   }
+
+  /* ── Loading scanner animations ───────────────────────────────────────── */
+  @keyframes scan-ring {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+  @keyframes scan-ring-reverse {
+    from { transform: rotate(360deg); }
+    to   { transform: rotate(0deg); }
+  }
+  @keyframes scan-pulse {
+    0%, 100% { transform: scale(1);   opacity: 0.85; }
+    50%      { transform: scale(1.4); opacity: 0.35; }
+  }
+  @keyframes scan-pulse-core {
+    0%, 100% { transform: scale(1);    opacity: 1;    }
+    50%      { transform: scale(0.75); opacity: 0.55; }
+  }
+  @keyframes scan-sweep {
+    0%   { transform: translateY(-50%); }
+    100% { transform: translateY(50%);  }
+  }
+  @keyframes scan-flicker {
+    0%, 100% { opacity: 1;    }
+    50%      { opacity: 0.55; }
+  }
+  @keyframes scan-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  .anim-spin        { animation: scan-ring 4s linear infinite; }
+  .anim-spin-slow   { animation: scan-ring 8s linear infinite; }
+  .anim-spin-rev    { animation: scan-ring-reverse 6s linear infinite; }
+  .anim-pulse       { animation: scan-pulse 2.2s ease-in-out infinite; }
+  .anim-pulse-core  { animation: scan-pulse-core 1.4s ease-in-out infinite; }
+  .anim-sweep       { animation: scan-sweep 1.8s ease-in-out infinite alternate; }
+  .anim-flicker     { animation: scan-flicker 1.6s ease-in-out infinite; }
+  .anim-shimmer     {
+    background-size: 200% 100%;
+    animation: scan-shimmer 2.4s linear infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .anim-spin, .anim-spin-slow, .anim-spin-rev,
+    .anim-pulse, .anim-pulse-core, .anim-sweep,
+    .anim-flicker, .anim-shimmer {
+      animation: none !important;
+    }
+  }
 }

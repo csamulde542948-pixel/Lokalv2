@@ -1,147 +1,20 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { gql } from "@apollo/client/core";
 import { useQuery } from "@apollo/client/react";
 import { useNavigate, useSearchParams, Link } from "react-router";
-import { Flame } from "lucide-react";
+import { Flame, Palette } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Checkbox } from "../components/ui/checkbox";
 import { useAuth } from "../../contexts/AuthContext";
+import { AsciiFireAnimation, ScrambleLine } from "../components/ascii-fire";
 
-const ROAST_MAINTENANCE = true;
-
-// ─── ASCII Fire Animation ─────────────────────────────────────────────────────
-// Renders directly onto a <canvas> — no React state, no flicker.
-
-const FIRE_CHARS = [" ", ".", ":", "^", "*", "x", "X", "$", "#", "M"];
-const FIRE_COLORS = [
-  "transparent",
-  "#1a0000",
-  "#3d0000",
-  "#7a1000",
-  "#b02000",
-  "#d44000",
-  "#e86010",
-  "#f09030",
-  "#f8c050",
-  "#fff8a0",
-];
-
-const CELL_PX = 7;   // pixel size of each character cell — smaller = denser / HD feel
-
-function AsciiFireAnimation() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    let animId: number;
-
-    const resize = () => {
-      canvas.width  = canvas.offsetWidth;
-      canvas.height = canvas.offsetHeight;
-    };
-    resize();
-    const ro = new ResizeObserver(resize);
-    ro.observe(canvas);
-
-    const tick = () => {
-      const W = canvas.width;
-      const H = canvas.height;
-      const COLS = Math.ceil(W / CELL_PX);
-      const ROWS = Math.ceil(H / CELL_PX);
-
-      // Lazy-init or resize the grid
-      if (
-        !(tick as any).grid ||
-        (tick as any).cols !== COLS ||
-        (tick as any).rows !== ROWS
-      ) {
-        (tick as any).grid = Array.from({ length: ROWS }, () => new Uint8Array(COLS));
-        (tick as any).cols = COLS;
-        (tick as any).rows = ROWS;
-      }
-
-      const grid: Uint8Array[] = (tick as any).grid;
-
-      // Seed bottom four rows with heat — more rows = taller flames
-      for (let x = 0; x < COLS; x++) {
-        grid[ROWS - 1][x] = Math.random() < 0.92
-          ? Math.floor(Math.random() * 2) + 8   // 8–9 (hottest)
-          : Math.floor(Math.random() * 2);
-        if (ROWS > 1)
-          grid[ROWS - 2][x] = Math.random() < 0.85
-            ? Math.floor(Math.random() * 2) + 7
-            : 0;
-        if (ROWS > 2)
-          grid[ROWS - 3][x] = Math.random() < 0.70
-            ? Math.floor(Math.random() * 2) + 6
-            : 0;
-        if (ROWS > 3)
-          grid[ROWS - 4][x] = Math.random() < 0.55
-            ? Math.floor(Math.random() * 2) + 5
-            : 0;
-      }
-
-      // Propagate upward — lower decay lets heat climb higher
-      for (let y = 0; y < ROWS - 4; y++) {
-        for (let x = 0; x < COLS; x++) {
-          const below = grid[y + 1][x];
-          const left  = grid[y + 1][(x - 1 + COLS) % COLS];
-          const right = grid[y + 1][(x + 1) % COLS];
-          const avg   = (below + left + right) / 3;
-          const decay = Math.random() * 0.45;
-          grid[y][x] = Math.max(0, Math.round(avg - decay));
-        }
-      }
-
-      // Draw
-      ctx.clearRect(0, 0, W, H);
-      ctx.font = `bold ${CELL_PX}px monospace`;
-      ctx.textBaseline = "top";
-
-      for (let y = 0; y < ROWS; y++) {
-        for (let x = 0; x < COLS; x++) {
-          const val = grid[y][x];
-          if (val === 0) continue;
-          ctx.fillStyle = FIRE_COLORS[Math.min(val, FIRE_COLORS.length - 1)];
-          ctx.fillText(
-            FIRE_CHARS[Math.min(val, FIRE_CHARS.length - 1)],
-            x * CELL_PX,
-            y * CELL_PX,
-          );
-        }
-      }
-
-      animId = requestAnimationFrame(tick);
-    };
-
-    animId = requestAnimationFrame(tick);
-
-    return () => {
-      cancelAnimationFrame(animId);
-      ro.disconnect();
-    };
-  }, []);
-
-  return (
-    <canvas
-      ref={canvasRef}
-      className="absolute inset-0 pointer-events-none z-[1]"
-      style={{ width: "100%", height: "100%" }}
-      aria-hidden
-    />
-  );
-}
+const ROAST_MAINTENANCE = import.meta.env.PROD;
 
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
 
 const GET_RECENT_ROASTS = gql`
   query GetRecentRoasts {
-    roasts(limit: 20) {
+    recentRoastGenerations(limit: 10) {
       id
       quickRoast
       projectName
@@ -156,14 +29,13 @@ const GET_RECENT_ROASTS = gql`
   }
 `;
 
-const GET_ROAST_QUOTA = gql`
-  query GetRoastQuota {
-    roastQuota {
-      used
-      remaining
-      limit
-      resetsAt
-      isAnon
+const GET_MY_CREDITS = gql`
+  query GetMyCredits {
+    myCredits {
+      balance
+      lifetimeCredits
+      lifetimeSpent
+      starterCredits
     }
   }
 `;
@@ -179,40 +51,28 @@ interface RecentRoast {
   author: { id: string; name: string; avatarUrl: string | null };
 }
 
-interface RoastQuota {
-  used: number;
-  remaining: number;
-  limit: number;
-  resetsAt: string;
-  isAnon: boolean;
+interface CreditBalance {
+  balance: number;
+  lifetimeCredits: number;
+  lifetimeSpent: number;
+  starterCredits: number;
 }
 
-// ─── Quota Badge ──────────────────────────────────────────────────────────────
-
-function RoastQuotaBadge({ quota }: { quota: RoastQuota }) {
-  // Compute hours until reset
-  const secsLeft = Math.max(0, Math.ceil((new Date(quota.resetsAt).getTime() - Date.now()) / 1000));
-  const h = Math.floor(secsLeft / 3600);
-  const m = Math.floor((secsLeft % 3600) / 60);
-  const resetLabel = h > 0 ? `${h}h ${m}m` : `${m}m`;
-
-  const flames = Array.from({ length: quota.limit }, (_, i) => i < quota.remaining);
-
-  if (quota.remaining === 0) {
+function CreditBalanceBadge({ credits }: { credits: CreditBalance }) {
+  if (credits.balance === 0) {
     return (
       <div className="flex items-center gap-2 font-mono text-[11px] text-orange-500/70 bg-orange-500/8 border border-orange-500/20 px-3 py-1.5 rounded-sm w-fit mx-auto">
-        <span className="text-orange-400">⚠</span>
-        <span>
-          Daily limit reached · resets in{" "}
-          <span className="text-orange-400 font-bold">{resetLabel}</span>
-        </span>
+        <span className="text-orange-400">!</span>
+        <span>No roast credits available</span>
       </div>
     );
   }
 
+  const visiblePips = Math.min(Math.max(credits.lifetimeCredits, credits.balance), 8);
+  const flames = Array.from({ length: visiblePips }, (_, i) => i < credits.balance);
+
   return (
     <div className="flex items-center gap-2.5 font-mono text-[11px] text-muted-foreground/60 w-fit mx-auto">
-      {/* Flame pip icons */}
       <span className="flex items-center gap-0.5">
         {flames.map((filled, i) => (
           <Flame
@@ -223,42 +83,38 @@ function RoastQuotaBadge({ quota }: { quota: RoastQuota }) {
         ))}
       </span>
       <span>
-        <span className="text-orange-400 font-bold">{quota.remaining}</span>
-        {" / "}{quota.limit} roast{quota.limit !== 1 ? "s" : ""} left today
-        {quota.isAnon && (
-          <span className="text-muted-foreground/40"> · <Link to="/login" className="text-orange-400/80 hover:text-orange-400 hover:underline transition-colors">sign in</Link> for {3} per day</span>
-        )}
+        <span className="text-orange-400 font-bold">{credits.balance}</span>
+        {" "}credit{credits.balance !== 1 ? "s" : ""} available
       </span>
     </div>
   );
 }
+
 
 // ─── Marquee Card ─────────────────────────────────────────────────────────────────────────────
 
 function RoastMarqueeCard({ roast }: { roast: RecentRoast }) {
   const displayUrl = roast.projectUrl.replace(/^https?:\/\//, '');
   return (
-    <div className="flex-shrink-0 w-[260px] rounded-none border border-border/50 overflow-hidden bg-card/80 hover:border-orange-500/30 transition-colors">
+    <Link
+      to={`/roast/result/${roast.id}`}
+      className="flex-shrink-0 w-[260px] rounded-none border border-border/50 overflow-hidden bg-card/80 hover:border-orange-500/30 transition-colors block"
+    >
       <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/40 bg-muted/20">
         <span className="text-orange-500 font-mono font-bold text-[10px]">&gt;_</span>
         <span className="text-[9px] font-mono text-muted-foreground truncate">{displayUrl} roasted</span>
       </div>
       <div className="p-3 font-mono">
-        <a
-          href={roast.projectUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-semibold text-xs text-orange-400 hover:text-orange-300 truncate block mb-1.5"
-        >
+        <span className="font-semibold text-xs text-orange-400 truncate block mb-1.5">
           {roast.projectName}
-        </a>
+        </span>
         {roast.quickRoast && (
           <p className="text-xs text-muted-foreground leading-snug line-clamp-2">
             <span className="text-orange-500/50">$ </span>{roast.quickRoast}
           </p>
         )}
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -271,70 +127,6 @@ const HEADLINE_SETS: [string, string, string?][] = [
   ["MAS MALINIS PA YUNG UI", "KESA SA BUSINESS MODEL MO."],
   ["MUKHANG PINAGISIPAN.", "PERO HINDI SOBRA."],
 ];
-
-const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ@#$%&*!?";
-
-function useScramble(target: string, trigger: number) {
-  const [display, setDisplay] = useState(target);
-  const rafRef = useRef<number>(0);
-  const frameCountRef = useRef(0);
-
-  useEffect(() => {
-    let iter = 0;
-    frameCountRef.current = 0;
-    // More iters = slower reveal; throttle = frames to skip between updates
-    const totalIters = Math.max(target.replace(/ /g, "").length * 2, 24);
-    const throttle = 2; // only update every N animation frames
-
-    const animate = () => {
-      frameCountRef.current++;
-      if (frameCountRef.current % throttle === 0) {
-        iter++;
-        const progress = iter / totalIters;
-        setDisplay(
-          target
-            .split("")
-            .map((char, i) => {
-              if (char === " " || char === ".") return char;
-              if (i / target.length < progress) return char;
-              return SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
-            })
-            .join("")
-        );
-        if (iter >= totalIters) {
-          setDisplay(target);
-          return;
-        }
-      }
-      rafRef.current = requestAnimationFrame(animate);
-    };
-
-    cancelAnimationFrame(rafRef.current);
-    rafRef.current = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [target, trigger]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return display;
-}
-
-function ScrambleLine({
-  text,
-  trigger,
-  className,
-  style,
-}: {
-  text: string;
-  trigger: number;
-  className?: string;
-  style?: React.CSSProperties;
-}) {
-  const display = useScramble(text, trigger);
-  return (
-    <span className={`flex justify-center ${className ?? ""}`} style={style}>
-      <span className="break-words text-center">{display}</span>
-    </span>
-  );
-}
 
 function AnimatedHeadline() {
   const [setIdx, setSetIdx] = useState(0);
@@ -379,10 +171,11 @@ function AnimatedHeadline() {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function Roast() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [projectUrl, setProjectUrl] = useState(() => searchParams.get("url") ?? "");
+  const [toolMode, setToolMode] = useState<"roast" | "brand">("roast");
   const [roastConsent, setRoastConsent] = useState(false);
   const [consentShake, setConsentShake] = useState(false);
 
@@ -394,22 +187,26 @@ export function Roast() {
   // If url came in via query param, trigger immediately
   useEffect(() => {
     if (ROAST_MAINTENANCE) return;
+    if (authLoading) return;
     let url = searchParams.get("url");
     if (url) {
       if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
-      navigate("/roast/result", { state: { projectUrl: url }, replace: true });
+      if (user) {
+        navigate("/roast/result", { state: { projectUrl: url, tool: toolMode }, replace: true });
+      }
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authLoading, navigate, searchParams, toolMode, user]);
 
-  const { data: recentData } = useQuery<{ roasts: RecentRoast[] }>(GET_RECENT_ROASTS, {
+  const { data: recentData } = useQuery<{ recentRoastGenerations: RecentRoast[] }>(GET_RECENT_ROASTS, {
     fetchPolicy: "cache-and-network",
   });
 
-  const { data: quotaData, refetch: refetchQuota } = useQuery<{ roastQuota: RoastQuota }>(GET_ROAST_QUOTA, {
-    fetchPolicy: "network-only", // always fresh — counts change after each roast
+  const { data: creditData } = useQuery<{ myCredits: CreditBalance }>(GET_MY_CREDITS, {
+    skip: !user,
+    fetchPolicy: "cache-and-network",
   });
 
-  const recentRoasts = recentData?.roasts ?? [];
+  const recentRoasts = recentData?.recentRoastGenerations ?? [];
   const loading = !recentData;
 
   // Duplicate for smooth infinite marquee (need enough items to fill viewport)
@@ -426,8 +223,11 @@ export function Roast() {
       triggerConsentShake();
       return;
     }
-    refetchQuota(); // refresh quota count right before navigating
-    navigate("/roast/result", { state: { projectUrl: url } });
+    if (!user) {
+      navigate("/login", { state: { from: { pathname: "/roast", search: `?url=${encodeURIComponent(url)}` } } });
+      return;
+    }
+    navigate("/roast/result", { state: { projectUrl: url, tool: toolMode } });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -477,6 +277,30 @@ export function Roast() {
 
           {/* ── URL Input row ── */}
           <div className="w-full max-w-xl">
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => setToolMode("roast")}
+                className={`h-10 border font-mono text-[11px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-colors ${
+                  toolMode === "roast"
+                    ? "border-orange-500/50 bg-orange-500/15 text-orange-300"
+                    : "border-border/50 bg-background/30 text-muted-foreground/50 hover:text-foreground"
+                }`}
+              >
+                <Flame className="w-3.5 h-3.5" /> Roast
+              </button>
+              <button
+                type="button"
+                onClick={() => setToolMode("brand")}
+                className={`h-10 border font-mono text-[11px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-colors ${
+                  toolMode === "brand"
+                    ? "border-cyan-500/50 bg-cyan-500/15 text-cyan-300"
+                    : "border-border/50 bg-background/30 text-muted-foreground/50 hover:text-foreground"
+                }`}
+              >
+                <Palette className="w-3.5 h-3.5" /> Brand Analyzer
+              </button>
+            </div>
             {ROAST_MAINTENANCE && (
               <div className="mb-4 border border-orange-500/30 bg-orange-500/[0.08] px-4 py-3 text-left">
                 <div className="flex items-start gap-3">
@@ -510,18 +334,20 @@ export function Roast() {
               >
                 <Flame className="w-4 h-4" strokeWidth={2} />
                 <span className="hidden sm:inline">
-                  {ROAST_MAINTENANCE ? "MAINTENANCE" : "GET ROASTED"}
+                  {ROAST_MAINTENANCE ? "MAINTENANCE" : toolMode === "brand" ? "ANALYZE BRAND" : "GET ROASTED"}
                 </span>
               </button>
             </div>
             <p className="text-[10px] font-mono text-muted-foreground/40 mt-2 text-left pl-1">
-              Enter your landing page URL (e.g., your-sh*t.com)
+              {toolMode === "brand"
+                ? "Generate a formal design.md brand analysis from the landing page."
+                : "Enter your landing page URL (e.g., your-sh*t.com)"}
             </p>
 
-            {/* Daily quota indicator */}
-            {quotaData?.roastQuota && (
+            {/* Credit balance indicator */}
+            {creditData?.myCredits && (
               <div className="mt-3">
-                <RoastQuotaBadge quota={quotaData.roastQuota} />
+                <CreditBalanceBadge credits={creditData.myCredits} />
               </div>
             )}
 
@@ -549,7 +375,7 @@ export function Roast() {
                   {!user && (
                     <>
                       <Link to="/login" className="text-orange-400 hover:underline">Sign in</Link>
-                      {" "}to save your roast.{" "}
+                      {" "}to generate and save your roast.{" "}
                     </>
                   )}
                   <Link to="/terms#ai-roast" className="text-orange-400/80 hover:underline">Learn more</Link>.
@@ -590,7 +416,7 @@ export function Roast() {
             </div>
             {recentRoasts.length > 0 && (
               <span className="text-[10px] font-mono text-muted-foreground/50 border border-border/40 px-2 py-0.5">
-                {recentRoasts.length} projects roasted
+                latest {recentRoasts.length} roasted sites
               </span>
             )}
           </div>

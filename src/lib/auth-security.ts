@@ -40,6 +40,7 @@ export async function preLoginCheck(email: string): Promise<PreLoginCheckResult>
   try {
     const res = await fetch(`${BACKEND_URL}/auth/pre-login-check`, {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email }),
     });
@@ -73,6 +74,7 @@ export async function recordLoginAttempt(
   try {
     const res = await fetch(`${BACKEND_URL}/auth/record-login`, {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,

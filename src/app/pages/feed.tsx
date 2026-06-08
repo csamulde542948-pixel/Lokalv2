@@ -4,7 +4,8 @@ import { gql } from "@apollo/client/core";
 import { useQuery, useMutation } from "@apollo/client/react";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { CreatePost } from "../components/create-post";
-import { PostCard, VerifiedBadge } from "../components/post-card";
+import { PostCard } from "../components/post-card";
+import { VerifiedBadge } from "../features/social/components/VerifiedBadge";
 // import { RoastedPostCard } from "../components/roasted-post-card";
 import { RoastedProjectCard, FeedPost } from "../components/roasted-project-card";
 import { LeftSidebar } from "../components/left-sidebar";
@@ -15,94 +16,25 @@ import { Separator } from "../components/ui/separator";
 import { Skeleton } from "../components/ui/skeleton";
 import { avatarSrc } from "../../lib/defaults";
 import { PostModal } from "../components/post-modal";
-import { Pin, PinOff } from "lucide-react";
+import { Pin } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
+import { adaptPost } from "../features/social/adapters";
+import { useMeProfile } from "../features/social/hooks/useMeProfile";
+import { ALL_FRAGMENTS } from "../features/social/graphql";
 
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
 
 const GET_FEED = gql`
   query GetFeed($first: Int, $after: String, $seenIds: [ID!], $feedVariant: String, $sessionId: String) {
     feed(first: $first, after: $after, seenIds: $seenIds, feedVariant: $feedVariant, sessionId: $sessionId) {
-      posts {
-        id
-        content
-        imageUrl
-        imageUrls
-        projectName
-        likesCount
-        commentsCount
-        sharesCount
-        likedByMe
-        myReaction
-        postType
-        createdAt
-        roastReactionCount
-        roastReactedByMe
-        author {
-          id
-          name
-          displayName
-          username
-          avatarUrl
-          isVerified
-          isFollowedByMe
-          rank { name }
-        }
-        tags {
-          id
-          name
-        }
-        originalPost {
-          id
-          content
-          imageUrl
-          imageUrls
-          projectName
-          postType
-          roastReactedByMe
-          roastReactionCount
-          tags { id name }
-          createdAt
-          author {
-            id
-            name
-            displayName
-            username
-            avatarUrl
-            isVerified
-            rank { name }
-          }
-        }
-        isPinnedToFeed
-        commentsPreview(limit: 3) {
-          id
-          content
-          likesCount
-          likedByMe
-          myReaction
-          parentId
-          mentions
-          isEdited
-          repliesCount
-          createdAt
-          author {
-            id
-            name
-            displayName
-            username
-            avatarUrl
-          }
-        }
-      }
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
+      posts { ...PostCardFields }
+      pageInfo { hasNextPage endCursor }
       hasMore
       feedVariant
       sessionId
     }
   }
+  ${ALL_FRAGMENTS}
 `;
 
 const CREATE_POST_MUTATION = gql`
@@ -119,56 +51,14 @@ const CREATE_POST_MUTATION = gql`
       likedByMe
       postType
       createdAt
-      author {
-        id
-        name
-        displayName
-        username
-        avatarUrl
-      }
-      tags {
-        id
-        name
-      }
+      author { id name displayName username avatarUrl }
+      tags { id name }
       originalPost {
-        id
-        content
-        imageUrl
-        imageUrls
-        projectName
-        postType
-        tags { id name }
-        createdAt
-        author {
-          id
-          name
-          displayName
-          username
-          avatarUrl
-        }
+        id content imageUrl imageUrls projectName postType
+        tags { id name } createdAt
+        author { id name displayName username avatarUrl }
+        roastReactedByMe roastReactionCount
       }
-
-    }
-  }
-`;
-
-const LIKE_POST_MUTATION = gql`
-  mutation LikeFeedPost($postId: ID!, $reaction: String) {
-    likePost(postId: $postId, reaction: $reaction) {
-      id
-      likesCount
-      likedByMe
-      myReaction
-    }
-  }
-`;
-
-const UNLIKE_POST_MUTATION = gql`
-  mutation UnlikeFeedPost($postId: ID!) {
-    unlikePost(postId: $postId) {
-      id
-      likesCount
-      likedByMe
     }
   }
 `;
@@ -179,51 +69,11 @@ const RECORD_POST_VIEW = gql`
   }
 `;
 
-const FOLLOW_USER_MUTATION = gql`
-  mutation FeedFollowUser($userId: ID!) {
-    followUser(userId: $userId) { id isFollowedByMe followersCount }
-  }
-`;
-
-const UNFOLLOW_USER_MUTATION = gql`
-  mutation FeedUnfollowUser($userId: ID!) {
-    unfollowUser(userId: $userId) { id isFollowedByMe followersCount }
-  }
-`;
-
-const MARK_NOT_INTERESTED = gql`
-  mutation MarkNotInterested($postId: ID!) {
-    markNotInterestedInPost(postId: $postId)
-  }
-`;
-
 const GET_PINNED_POST = gql`
   query GetPinnedPost {
-    pinnedPost {
-      id content imageUrl imageUrls projectName postType
-      likesCount commentsCount sharesCount likedByMe myReaction
-      roastReactionCount roastReactedByMe isPinnedToFeed createdAt
-      author { id name displayName username avatarUrl isVerified rank { name } }
-      tags { id name }
-      commentsPreview(limit: 3) {
-        id content likesCount likedByMe myReaction parentId mentions isEdited repliesCount createdAt
-        editHistory { id previousContent editedAt }
-        author { id name displayName username avatarUrl }
-      }
-    }
+    pinnedPost { ...PostCardFields }
   }
-`;
-
-const PIN_POST = gql`
-  mutation PinPost($postId: ID!) {
-    pinPost(postId: $postId) { id isPinnedToFeed }
-  }
-`;
-
-const UNPIN_POST = gql`
-  mutation UnpinPost($postId: ID!) {
-    unpinPost(postId: $postId) { id isPinnedToFeed }
-  }
+  ${ALL_FRAGMENTS}
 `;
 
 // ─── Post view tracking ──────────────────────────────────────────────────────
@@ -463,16 +313,6 @@ function PostSkeleton({ index = 0 }: { index?: number }) {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function timeAgo(date: string) {
-  const diff = Date.now() - new Date(date).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "Just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
-
 // ─── Static placeholders (shown when feed is empty / for featured cards) ───────
 // Note: roast posts from the real feed are detected via postType === "roast" and
 // rendered with RoastedProjectCard automatically — no static placeholders needed.
@@ -533,91 +373,11 @@ const featuredProjects: FeaturedProject[] = [
 // ─── Feed Component ───────────────────────────────────────────────────────────
 
 // Adapter: map GraphQL post shape → PostCard shape
-function adaptComment(c: any): any {
-  return {
-    id: c.id,
-    content: c.content,
-    likesCount: c.likesCount ?? 0,
-    likedByMe: c.likedByMe ?? false,
-    myReaction: c.myReaction ?? null,
-    parentId: c.parentId ?? null,
-    mentions: c.mentions ?? [],
-    isEdited: c.isEdited ?? false,
-    editHistory: (c.editHistory ?? []).map((e: any) => ({
-      id: e.id,
-      previousContent: e.previousContent,
-      editedAt: e.editedAt,
-    })),
-    createdAt: c.createdAt,
-    author: {
-      id: c.author?.id,
-      name: c.author?.displayName ?? c.author?.username ?? c.author?.name ?? "Unknown",
-      username: c.author?.username ?? "",
-      avatarUrl: c.author?.avatarUrl,
-    },
-    replies: (c.replies ?? []).map(adaptComment),
-    repliesCount: c.repliesCount ?? (c.replies?.length ?? 0),
-  };
-}
-
-function adaptPost(p: any) {
-  return {
-    id: p.id,
-    author: {
-      id: p.author.id,
-      // Prefer displayName (human readable), fall back to username, never raw `name` which
-      // Supabase OAuth sometimes populates with the user's email address.
-      name: p.author.displayName ?? p.author.username ?? p.author.name,
-      avatar: avatarSrc(p.author.avatarUrl),
-      username: `@${p.author.username}`,
-      rank: p.author.rank ?? null,
-      isVerified: p.author.isVerified ?? false,
-    },
-    content: p.content,
-    image: p.imageUrl,
-    images: p.imageUrls ?? (p.imageUrl ? [p.imageUrl] : []),
-    likes: p.likesCount,
-    comments: p.commentsCount,
-    shares: p.sharesCount,
-    timestamp: timeAgo(p.createdAt),
-    projectName: p.projectName ?? undefined,
-    likedByMe: p.likedByMe,
-    myReaction: p.myReaction ?? null,
-    postType: (p.postType ?? "post") as "post" | "roast",
-    tags: p.tags ?? [],
-    initialComments: (p.commentsPreview ?? p.comments ?? []).map(adaptComment),
-    roastReactedByMe:    p.roastReactedByMe    ?? false,
-    roastReactionCount:  p.roastReactionCount  ?? 0,
-    isPinnedToFeed: p.isPinnedToFeed ?? false,
-    originalPost: p.originalPost
-      ? {
-          id: p.originalPost.id,
-          content: p.originalPost.content,
-          imageUrl: p.originalPost.imageUrl,
-          imageUrls: p.originalPost.imageUrls ?? [],
-          projectName: p.originalPost.projectName ?? undefined,
-          postType: (p.originalPost.postType ?? "post") as "post" | "roast",
-          tags: p.originalPost.tags ?? [],
-          createdAt: p.originalPost.createdAt,
-          roastReactedByMe: p.originalPost.roastReactedByMe ?? false,
-          roastReactionCount: p.originalPost.roastReactionCount ?? 0,
-          author: {
-            id: p.originalPost.author?.id,
-            name: p.originalPost.author?.displayName ?? p.originalPost.author?.username ?? p.originalPost.author?.name ?? "Unknown",
-            username: p.originalPost.author?.username ?? "",
-            avatarUrl: p.originalPost.author?.avatarUrl,
-          },
-        }
-      : null,
-  };
-}
-
 const DUMMY: never[] = []; // empty fallback so TS stays happy
 
 export function Feed() {
   const [searchParams, setSearchParams] = useSearchParams();
   const highlightPostId = searchParams.get("post");
-  const [followedUsers, setFollowedUsers] = useState<Set<string>>(new Set());
   // Optimistic local posts prepended before the server list
   const [localPosts, setLocalPosts] = useState<ReturnType<typeof adaptPost>[]>([]);
   // Modal for clicking original post inside shared post card
@@ -629,23 +389,16 @@ export function Feed() {
   const postElRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const { data, loading: feedLoading, error: feedError, refetch, fetchMore } = useQuery(GET_FEED, {
-    variables: { first: 20 },
+    variables: { first: 10 },
     fetchPolicy: "cache-and-network",
     notifyOnNetworkStatusChange: true,
   });
 
   const [createPostMutation] = useMutation(CREATE_POST_MUTATION);
-  const [likePost] = useMutation(LIKE_POST_MUTATION);
-  const [unlikePost] = useMutation(UNLIKE_POST_MUTATION);
   const [recordPostViewMutation] = useMutation(RECORD_POST_VIEW);
-  const [notInterestedMutation] = useMutation(MARK_NOT_INTERESTED);
-  const [followUserMutation] = useMutation(FOLLOW_USER_MUTATION);
-  const [unfollowUserMutation] = useMutation(UNFOLLOW_USER_MUTATION);
 
   const { user: authUser } = useAuth();
-  const { data: pinnedPostData, refetch: refetchPinned } = useQuery(GET_PINNED_POST, { fetchPolicy: "cache-and-network" });
-  const [pinPostMutation] = useMutation(PIN_POST, { onCompleted: () => refetchPinned() });
-  const [unpinPostMutation] = useMutation(UNPIN_POST, { onCompleted: () => refetchPinned() });
+  const { data: pinnedPostData } = useQuery(GET_PINNED_POST, { fetchPolicy: "cache-first" });
 
   const pinnedPost = pinnedPostData?.pinnedPost ? adaptPost(pinnedPostData.pinnedPost) : null;
 
@@ -664,11 +417,10 @@ export function Feed() {
     ...serverPosts,
   ];
 
-  // Read current user from Apollo cache (GET_ME_AVATAR is fetched by CreatePost on mount)
-  const { data: meData } = useQuery(gql`query FeedGetMe { me { id name username displayName avatarUrl } }`, {
-    fetchPolicy: "cache-only",
-  });
-  const meUser = meData?.me;
+  // Read current user from Apollo cache (primed by useMeProfile, which
+  // fires a single `me` query that includes every field the optimistic
+  // new-post needs — name, username, displayName, avatarUrl, id).
+  const { me: meUser } = useMeProfile();
 
   const handleNewPost = useCallback(async (content: string, images?: string[], videoUrl?: string) => {
     // Optimistic: add to local list immediately with real user data
@@ -707,19 +459,7 @@ export function Feed() {
       console.error("createPost failed:", err);
       // Keep optimistic post but mark it somehow (for now just leave it)
     }
-  }, [createPostMutation, refetch]);
-
-  const handleLike = useCallback(async (postId: string, wantsLike: boolean, reaction?: string) => {
-    try {
-      if (wantsLike) {
-        await likePost({ variables: { postId, reaction: reaction ?? "Like" } });
-      } else {
-        await unlikePost({ variables: { postId } });
-      }
-    } catch (err) {
-      console.error("like/unlike failed:", err);
-    }
-  }, [likePost, unlikePost]);
+  }, [createPostMutation, refetch, meUser?.id, meUser?.displayName, meUser?.username, meUser?.name, meUser?.avatarUrl]);
 
   const handleLoadMore = useCallback(async () => {
     const endCursor = data?.feed?.pageInfo?.endCursor;
@@ -729,16 +469,13 @@ export function Feed() {
     const currentSessionId = data?.feed?.sessionId ?? undefined;
     try {
       await fetchMore({
-        variables: { first: 20, after: endCursor, seenIds: seen, sessionId: currentSessionId },
+        variables: { first: 10, after: endCursor, seenIds: seen, sessionId: currentSessionId },
         // Apollo merge function in apollo.ts handles concatenation
       });
     } catch (err) {
       console.error("[feed] fetchMore failed:", err);
     }
   }, [fetchMore, data]);
-
-  // Seed followedUsers from server data on first load
-  const serverPostsForSeed = data?.feed?.posts ?? DUMMY;
 
   // Scroll to + briefly highlight the post linked from a notification
   useEffect(() => {
@@ -753,53 +490,6 @@ export function Feed() {
       return () => clearTimeout(timer);
     }
   }, [highlightPostId, allPosts.length, setSearchParams]);
-
-  useEffect(() => {
-    if (!serverPostsForSeed.length) return;
-    setFollowedUsers(prev => {
-      const next = new Set(prev);
-      (serverPostsForSeed as any[]).forEach((p: any) => {
-        if (p.author?.isFollowedByMe && p.author?.username) {
-          next.add(`@${p.author.username}`);
-        }
-      });
-      return next;
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverPostsForSeed]);
-
-  const handleFollowToggle = useCallback(async (username: string, authorId: string) => {
-    const isCurrentlyFollowing = followedUsers.has(username);
-    // Optimistic update
-    setFollowedUsers(prev => {
-      const newSet = new Set(prev);
-      if (isCurrentlyFollowing) {
-        newSet.delete(username);
-      } else {
-        newSet.add(username);
-      }
-      return newSet;
-    });
-    try {
-      if (isCurrentlyFollowing) {
-        await unfollowUserMutation({ variables: { userId: authorId } });
-      } else {
-        await followUserMutation({ variables: { userId: authorId } });
-      }
-    } catch (err) {
-      console.error("follow/unfollow failed:", err);
-      // Revert on error
-      setFollowedUsers(prev => {
-        const newSet = new Set(prev);
-        if (isCurrentlyFollowing) {
-          newSet.add(username);
-        } else {
-          newSet.delete(username);
-        }
-        return newSet;
-      });
-    }
-  }, [followedUsers, followUserMutation, unfollowUserMutation]);
 
   const showSkeletons = feedLoading && allPosts.length === 0;
 
@@ -845,6 +535,9 @@ export function Feed() {
     return () => observer.disconnect();
   }, [hasNextPage, feedLoading, handleLoadMore]);
 
+  // Only the admin email can pin/unpin; everyone else's pin toggle is hidden.
+  const canPin = authUser?.email === "hello@lokalhost.club";
+
   return (
     <div className="flex min-h-screen">
       {/* Left Sidebar — fixed, non-scrollable */}
@@ -870,17 +563,9 @@ export function Feed() {
               </div>
               <PostCard
                 post={pinnedPost}
-                onLike={(wantsLike, reaction) => handleLike(pinnedPost.id, wantsLike, reaction)}
-                onDelete={() => refetchPinned()}
                 isFollowing={false}
-                onFollowToggle={() => {}}
-                onNotInterested={() => {}}
                 onOpenPostModal={setOpenModalPostId}
-                onPinToggle={
-                  authUser?.email === "hello@lokalhost.club"
-                    ? () => unpinPostMutation({ variables: { postId: pinnedPost.id } })
-                    : undefined
-                }
+                onPinToggle={canPin ? () => {} : undefined}
               />
             </div>
           )}
@@ -901,7 +586,7 @@ export function Feed() {
           {/* Skeletons while loading */}
           {showSkeletons && (
             <div className="space-y-4">
-              {[...Array(4)].map((_, i) => <PostSkeleton key={i} index={i} />)}
+              {[...Array(3)].map((_, i) => <PostSkeleton key={i} index={i} />)}
             </div>
           )}
 
@@ -948,29 +633,15 @@ export function Feed() {
                           {item.post.postType === "roast" ? (
                             <RoastedProjectCard
                               post={item.post as unknown as FeedPost}
-                              onLike={(wantsLike, reaction) => handleLike(item.post.id, wantsLike, reaction)}
-                              isFollowing={followedUsers.has(item.post.author.username)}
-                              onFollowToggle={() => handleFollowToggle(item.post.author.username, item.post.author.id)}
+                              isFollowing={item.post.author?.isFollowedByMe ?? false}
                             />
                           ) : (
                             <PostCard
                               post={item.post}
-                              onLike={(wantsLike, reaction) => handleLike(item.post.id, wantsLike, reaction)}
-                              onDelete={() => {
-                                setLocalPosts((prev) => prev.filter((p) => p.id !== item.post.id));
-                                refetch();
-                              }}
-                              isFollowing={followedUsers.has(item.post.author.username)}
-                              onFollowToggle={() => handleFollowToggle(item.post.author.username, item.post.author.id)}
-                              onNotInterested={() => {
-                                notInterestedMutation({ variables: { postId: item.post.id } }).catch(console.error);
-                              }}
+                              onDelete={() => setLocalPosts((prev) => prev.filter((p) => p.id !== item.post.id))}
+                              isFollowing={item.post.author?.isFollowedByMe ?? false}
                               onOpenPostModal={setOpenModalPostId}
-                              onPinToggle={
-                                authUser?.email === "hello@lokalhost.club"
-                                  ? () => pinPostMutation({ variables: { postId: item.post.id } })
-                                  : undefined
-                              }
+                              onPinToggle={canPin ? () => {} : undefined}
                             />
                           )}
                         </PostViewTracker>
@@ -997,7 +668,7 @@ export function Feed() {
           {/* Loading indicator for next page */}
           {loadingMore && (
             <div className="space-y-4 pb-4">
-              {[...Array(2)].map((_, i) => <PostSkeleton key={`more-${i}`} index={i} />)}
+              {[...Array(1)].map((_, i) => <PostSkeleton key={`more-${i}`} index={i} />)}
             </div>
           )}
 

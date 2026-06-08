@@ -116,6 +116,14 @@ export const router = createBrowserRouter([
     path: "/roast/result",
     Component: withSuspense(RoastResult),
   },
+  {
+    path: "/roast/result/:generationId",
+    Component: withSuspense(RoastResult),
+  },
+  {
+    path: "/roast/brand/:analysisId",
+    Component: withSuspense(RoastResult),
+  },
   // All app routes require authentication
   {
     Component: ProtectedRoute,

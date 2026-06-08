@@ -56,7 +56,7 @@ export interface RoastResult {
   improvements: string[];
 }
 
-interface FirecrawlMetadata {
+export interface FirecrawlMetadata {
   title?: string;
   description?: string;
   ogTitle?: string;
@@ -69,10 +69,37 @@ interface FirecrawlMetadata {
   [k: string]: unknown;
 }
 
-interface FirecrawlScrapeResult {
+export interface FirecrawlScrapeResult {
   markdown: string;
   screenshotUrl: string | null;
   metadata: FirecrawlMetadata;
+  branding: FirecrawlBrandingProfile | null;
+}
+
+export interface FirecrawlBrandingProfile {
+  colorScheme?: string;
+  logo?: string;
+  colors?: Record<string, string | null | undefined>;
+  fonts?: Array<{ family?: string; role?: string; weight?: string | number }>;
+  typography?: {
+    fontFamilies?: Record<string, string | null | undefined>;
+    fontSizes?: Record<string, string | null | undefined>;
+    fontWeights?: Record<string, string | number | null | undefined>;
+    lineHeights?: Record<string, string | number | null | undefined>;
+  };
+  spacing?: Record<string, string | number | null | undefined>;
+  components?: Record<string, unknown>;
+  images?: {
+    logo?: string;
+    favicon?: string;
+    ogImage?: string;
+    [key: string]: unknown;
+  };
+  icons?: Record<string, unknown>;
+  animations?: Record<string, unknown>;
+  layout?: Record<string, unknown>;
+  personality?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 // ─── Firecrawl key pool + concurrency limiter ────────────────────────────────
@@ -174,7 +201,10 @@ function pickSlot(): FirecrawlKeySlot | null {
 
 // ─── Step 1: Scrape with Firecrawl ───────────────────────────────────────────
 
-async function scrapeWithFirecrawl(url: string): Promise<FirecrawlScrapeResult> {
+export async function scrapeWithFirecrawl(
+  url: string,
+  options: { includeBranding?: boolean } = {}
+): Promise<FirecrawlScrapeResult> {
   await assertSafeExternalUrl(url);
 
   if (firecrawlPool.length === 0) {
@@ -226,7 +256,7 @@ async function scrapeWithFirecrawl(url: string): Promise<FirecrawlScrapeResult> 
   }
 
   try {
-    return await scrapeWithFirecrawlInner(url, slot.key);
+    return await scrapeWithFirecrawlInner(url, slot.key, options);
   } finally {
     slot.semaphore.release();
   }
@@ -264,14 +294,29 @@ async function isUrlReachable(url: string): Promise<boolean> {
 
 async function scrapeWithFirecrawlInner(
   url: string,
-  apiKey: string
+  apiKey: string,
+  options: { includeBranding?: boolean } = {}
 ): Promise<FirecrawlScrapeResult> {
+  const formats = options.includeBranding
+    ? ["markdown", "branding", "screenshot"]
+    : ["markdown", "screenshot"];
+  const fallbackFormats = options.includeBranding
+    ? ["markdown", "branding"]
+    : ["markdown"];
+  const scrapeEndpoint = options.includeBranding
+    ? "https://api.firecrawl.dev/v2/scrape"
+    : "https://api.firecrawl.dev/v1/scrape";
+  const requestTimeoutMs = options.includeBranding ? 26_000 : 30_000;
+  const fallbackTimeoutMs = options.includeBranding ? 16_000 : 25_000;
+  const firecrawlTimeoutMs = options.includeBranding ? 24_000 : 25_000;
+  const firecrawlFallbackTimeoutMs = options.includeBranding ? 14_000 : 20_000;
+
   // ── Attempt 1: markdown + screenshot (25s server-side cap) ──────────────
   // NOTE: AbortSignal.timeout() causes fetch() to THROW a TimeoutError (not
   // return a 408 response) when the deadline fires. Must be wrapped in try-catch.
   let attempt1: Response;
   try {
-    attempt1 = await fetch("https://api.firecrawl.dev/v1/scrape", {
+    attempt1 = await fetch(scrapeEndpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -279,38 +324,47 @@ async function scrapeWithFirecrawlInner(
       },
       body: JSON.stringify({
         url,
-        formats: ["markdown", "screenshot"],
-        timeout: 25000,
+        formats,
+        onlyMainContent: !options.includeBranding,
+        maxAge: options.includeBranding ? 0 : undefined,
+        timeout: firecrawlTimeoutMs,
       }),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(requestTimeoutMs),
     });
   } catch (err: any) {
     // AbortSignal.timeout fired (TimeoutError / DOMException) or network failure
     const isTimeout = err?.name === "TimeoutError" || err?.name === "AbortError";
     if (isTimeout) {
       console.warn(`[roast] Firecrawl attempt 1 network timeout — retrying markdown-only`);
-      const attempt2 = await fetch("https://api.firecrawl.dev/v1/scrape", {
+      const attempt2 = await fetch(scrapeEndpoint, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ url, formats: ["markdown"], timeout: 20000 }),
-        signal: AbortSignal.timeout(25_000),
+        body: JSON.stringify({
+          url,
+          formats: fallbackFormats,
+          onlyMainContent: !options.includeBranding,
+          maxAge: options.includeBranding ? 0 : undefined,
+          timeout: firecrawlFallbackTimeoutMs,
+        }),
+        signal: AbortSignal.timeout(fallbackTimeoutMs),
       }).catch(() => null);
       if (!attempt2 || !attempt2.ok) {
         console.warn("[roast] Firecrawl markdown-only retry also failed — proceeding with URL-only context");
-        return { markdown: "", screenshotUrl: null, metadata: {} };
+        return { markdown: "", screenshotUrl: null, metadata: {}, branding: null };
       }
       const data2 = (await attempt2.json()) as {
         success: boolean;
-        data?: { markdown?: string; metadata?: FirecrawlMetadata };
+        data?: { markdown?: string; metadata?: FirecrawlMetadata; branding?: FirecrawlBrandingProfile };
       };
       const d2 = data2.data ?? {};
       return {
         markdown: (d2.markdown ?? "").slice(0, 4500),
         screenshotUrl: null,
         metadata: d2.metadata ?? {},
+        branding: d2.branding ?? null,
       };
     }
     throw new Error(`Firecrawl network error: ${err?.message ?? err}`);
@@ -324,14 +378,20 @@ async function scrapeWithFirecrawlInner(
     console.warn(`[roast] Firecrawl 429 — waiting ${waitMs}ms then retrying once`);
     await new Promise((r) => setTimeout(r, Math.min(waitMs, 15_000)));
 
-    const retry429 = await fetch("https://api.firecrawl.dev/v1/scrape", {
+    const retry429 = await fetch(scrapeEndpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ url, formats: ["markdown"], timeout: 20000 }),
-      signal: AbortSignal.timeout(25_000),
+      body: JSON.stringify({
+        url,
+        formats: fallbackFormats,
+        onlyMainContent: !options.includeBranding,
+        maxAge: options.includeBranding ? 0 : undefined,
+        timeout: firecrawlFallbackTimeoutMs,
+      }),
+      signal: AbortSignal.timeout(fallbackTimeoutMs),
     }).catch(() => null);
 
     if (!retry429 || !retry429.ok) {
@@ -342,13 +402,14 @@ async function scrapeWithFirecrawlInner(
 
     const data429 = (await retry429.json()) as {
       success: boolean;
-      data?: { markdown?: string; metadata?: FirecrawlMetadata };
+      data?: { markdown?: string; metadata?: FirecrawlMetadata; branding?: FirecrawlBrandingProfile };
     };
     const d429 = data429.data ?? {};
     return {
       markdown: (d429.markdown ?? "").slice(0, 4500),
       screenshotUrl: null,
       metadata: d429.metadata ?? {},
+      branding: d429.branding ?? null,
     };
   }
 
@@ -356,7 +417,7 @@ async function scrapeWithFirecrawlInner(
   if (attempt1.status === 408) {
     console.warn("[roast] Firecrawl 408 on attempt 1 — retrying markdown-only");
 
-    const attempt2 = await fetch("https://api.firecrawl.dev/v1/scrape", {
+    const attempt2 = await fetch(scrapeEndpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -364,27 +425,30 @@ async function scrapeWithFirecrawlInner(
       },
       body: JSON.stringify({
         url,
-        formats: ["markdown"],
-        timeout: 20000,
+        formats: fallbackFormats,
+        onlyMainContent: !options.includeBranding,
+        maxAge: options.includeBranding ? 0 : undefined,
+        timeout: firecrawlFallbackTimeoutMs,
       }),
-      signal: AbortSignal.timeout(25_000),
+      signal: AbortSignal.timeout(fallbackTimeoutMs),
     }).catch(() => null);
 
     if (!attempt2 || !attempt2.ok) {
       // Both attempts failed — still produce a roast with minimal context
       console.warn("[roast] Firecrawl attempt 2 also failed — proceeding with URL-only context");
-      return { markdown: "", screenshotUrl: null, metadata: {} };
+      return { markdown: "", screenshotUrl: null, metadata: {}, branding: null };
     }
 
     const data2 = (await attempt2.json()) as {
       success: boolean;
-      data?: { markdown?: string; metadata?: FirecrawlMetadata };
+      data?: { markdown?: string; metadata?: FirecrawlMetadata; branding?: FirecrawlBrandingProfile };
     };
     const d2 = data2.data ?? {};
     return {
       markdown: (d2.markdown ?? "").slice(0, 4500),
       screenshotUrl: null, // no screenshot on fallback
       metadata: d2.metadata ?? {},
+      branding: d2.branding ?? null,
     };
   }
 
@@ -423,6 +487,7 @@ async function scrapeWithFirecrawlInner(
       markdown?: string;
       screenshot?: string;
       metadata?: FirecrawlMetadata;
+      branding?: FirecrawlBrandingProfile;
     };
   };
 
@@ -432,6 +497,7 @@ async function scrapeWithFirecrawlInner(
     markdown: (d.markdown ?? "").slice(0, 4500),
     screenshotUrl: d.screenshot ?? null,
     metadata: d.metadata ?? {},
+    branding: d.branding ?? null,
   };
 }
 
@@ -439,7 +505,7 @@ async function scrapeWithFirecrawlInner(
 // Firecrawl gives us the product's OWN marketing language (og tags, keywords).
 // We surface this separately so DeepSeek can roast the gap between claim and reality.
 
-function buildBrandBrief(metadata: FirecrawlMetadata, projectName: string): string {
+export function buildBrandBrief(metadata: FirecrawlMetadata, projectName: string): string {
   const lines: string[] = [];
 
   const name = metadata.ogTitle || metadata.title || projectName;

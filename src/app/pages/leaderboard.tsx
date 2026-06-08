@@ -649,7 +649,7 @@ function FeaturedStripe({ data, loading }: { data: any[]; loading: boolean }) {
 
 export function Leaderboard() {
   const { data, loading, error } = useQuery(GET_LEADERBOARD, {
-    fetchPolicy: "cache-and-network",
+    fetchPolicy: "cache-first",
   });
 
   const lb = (data as any)?.leaderboard;

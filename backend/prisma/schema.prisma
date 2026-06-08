@@ -89,6 +89,7 @@ enum InteractionType {
   POST_LIKE
   POST_COMMENT
   POST_SHARE
+  POST_MODAL_OPEN
   PROJECT_LIKE
   PROJECT_STAR
   PROFILE_VIEW
@@ -158,6 +159,8 @@ model Profile {
   posts               Post[]
   projects            Project[]
   roastsGiven         Roast[]              @relation("RoastReviewer")
+  roastGenerations    RoastGeneration[]    @relation("RoastGenerationUser")
+  brandAnalyses       BrandAnalysis[]      @relation("BrandAnalysisUser")
   roastReactions      RoastReaction[]      @relation("RoastReactor")
   jobs                Job[]
   events              Event[]
@@ -187,9 +190,12 @@ model Profile {
   notInterestedPosts  UserNotInterested[]  @relation("NotInterestedBy")
   feedScoreLogs       FeedScoreLog[]
   feedSessions        FeedSession[]
+  postImpressions     UserPostImpression[]
   accountLinks        AccountLink[]
   shippingStreak      ShippingStreak?
   weeklyXpSnapshots   WeeklyXpSnapshot[]
+  creditAccount       CreditAccount?
+  creditLedger        CreditLedger[]
 
   // Interest vector for recommendation engine (pgvector)
   interestEmbedding Unsupported("vector(1536)")?
@@ -236,6 +242,39 @@ model XpLog {
 
   @@index([profileId])
   @@map("xp_logs")
+}
+
+// Durable credit balance for paid/limited AI tools.
+model CreditAccount {
+  profileId       String   @id @db.Uuid
+  balance         Int      @default(0)
+  lifetimeCredits Int      @default(0)
+  lifetimeSpent   Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  profile         Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@map("credit_accounts")
+}
+
+// Append-only audit trail for credit grants and spends.
+model CreditLedger {
+  id             String   @id @default(cuid())
+  profileId      String   @db.Uuid
+  amount         Int
+  balanceAfter   Int
+  tool           String   @db.VarChar(50)
+  action         String   @db.VarChar(50)
+  idempotencyKey String?  @unique @db.VarChar(160)
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now())
+
+  profile        Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, createdAt])
+  @@index([tool, createdAt])
+  @@map("credit_ledger")
 }
 
 // ============================================================
@@ -573,6 +612,55 @@ model Roast {
   @@map("roasts")
 }
 
+// Stores every successful AI roast generation, whether or not it is published
+// to the feed. This powers live roast history and aggregate usage reporting.
+model RoastGeneration {
+  id               String   @id @default(cuid())
+  profileId        String   @db.Uuid
+  projectUrl       String   @db.Text
+  canonicalUrl     String   @db.Text
+  projectName      String   @db.VarChar(200)
+  title            String?  @db.Text
+  quickRoast       String?  @db.Text
+  fullRoast        String?  @db.Text
+  screenshotUrl    String?  @db.Text
+  faviconUrl       String?  @db.Text
+  ogImageUrl       String?  @db.Text
+  publishedRoastId String?
+  publishedAt      DateTime?
+  createdAt        DateTime @default(now())
+
+  profile          Profile  @relation("RoastGenerationUser", fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([profileId, createdAt(sort: Desc)])
+  @@index([canonicalUrl])
+  @@map("roast_generations")
+}
+
+// Stores successful Brand Analyzer generations so users can revisit design.md
+// outputs without regenerating or spending credits again.
+model BrandAnalysis {
+  id            String   @id @default(cuid())
+  profileId     String   @db.Uuid
+  projectUrl    String   @db.Text
+  canonicalUrl  String   @db.Text
+  projectName   String   @db.VarChar(200)
+  title         String   @db.Text
+  designMd      String   @db.Text
+  screenshotUrl String?  @db.Text
+  faviconUrl    String?  @db.Text
+  ogImageUrl    String?  @db.Text
+  createdAt     DateTime @default(now())
+
+  profile       Profile  @relation("BrandAnalysisUser", fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([profileId, createdAt(sort: Desc)])
+  @@index([canonicalUrl])
+  @@map("brand_analyses")
+}
+
 // Tracks individual roast likes (prevents infinite like farming)
 model RoastLike {
   id        String   @id @default(cuid())
@@ -606,24 +694,6 @@ model RoastReaction {
   @@index([postId])
   @@index([reactorId])
   @@map("roast_reactions")
-}
-
-// Persistent generation quota for AI roast previews.
-// successfulCount is what the user has actually consumed today.
-// inFlightCount reserves capacity while Firecrawl/OpenRouter is running and is
-// refunded if generation fails.
-model RoastGenerationQuota {
-  scope           String   @db.VarChar(20)
-  quotaKey        String   @db.VarChar(255)
-  quotaDate       DateTime @db.Date
-  successfulCount Int      @default(0)
-  inFlightCount   Int      @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@id([scope, quotaKey, quotaDate])
-  @@index([quotaDate])
-  @@map("roast_generation_quotas")
 }
 
 // ============================================================
@@ -1019,6 +1089,12 @@ model FeedScoreLog {
   dwellBoost         Float
   notInterestedPenalty Float  @default(1.0)
 
+  // Phase 0: per-user signals (the user's OWN behavior on this post)
+  ownDwellMs          Int      @default(0)
+  ownDwellScore       Float    @default(0)
+  modalOpenScore      Float    @default(0)
+  commentQualityScore Float    @default(0)
+
   // Context signals (for offline analysis)
   postType           String   @db.VarChar(20)
   authorId           String   @db.Uuid
@@ -1068,6 +1144,33 @@ model FeedSession {
   @@index([userId, createdAt(sort: Desc)])
   @@index([feedVariant, createdAt(sort: Desc)])
   @@map("feed_sessions")
+}
+
+// Phase 0: per-user, per-post impression log. Captures the user's OWN
+// dwell time + engagement + source (FEED_CARD, MODAL_OPEN, etc.) for
+// each post they encountered. The feed resolver reads this table to apply
+// the strongest intent signal (the user's own behavior) when scoring
+// posts. Aggregated to 1 row per (user, post, 30-minute window) via the
+// resolver's upsert.
+model UserPostImpression {
+  id          String   @id @default(cuid())
+  userId      String   @db.Uuid
+  postId      String   @db.VarChar(200)
+  sessionId   String?  @db.VarChar(60)
+  source      String   @db.VarChar(20)  // "FEED_CARD" | "MODAL_OPEN" | "PROFILE_VIEW" | "SEARCH" | "SHARE"
+  dwellMs     Int      @default(0)
+  engaged     Boolean  @default(false)
+  position    Int?     // 0-indexed position in the feed at the time of impression
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, postId, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([sessionId])
+  @@index([createdAt(sort: Desc)])
+  @@map("user_post_impressions")
 }
 
 // ============================================================

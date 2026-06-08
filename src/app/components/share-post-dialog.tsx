@@ -1,15 +1,12 @@
 import { useState, useRef, useEffect } from "react";
 import { gql } from "@apollo/client/core";
 import { useMutation } from "@apollo/client/react";
-import { Globe, ChevronDown, Smile, ImageIcon } from "lucide-react";
+import { Smile, ImageIcon } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Button } from "./ui/button";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "./ui/dialog";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
 import { useAuth } from "../../contexts/AuthContext";
 
 /* ─── GQL ────────────────────────────────────────────────────────────────── */
@@ -39,10 +36,6 @@ interface SharePostDialogProps {
   onShared?: () => void;   // called after successful share so parent can bump count
 }
 
-const AUDIENCES = [
-  { value: "public", label: "Public", icon: Globe },
-  { value: "friends", label: "Friends", icon: Globe },
-];
 
 const QUICK_EMOJIS = ["😊", "🔥", "🚀", "👏", "💯", "❤️", "😂", "🎉"];
 
@@ -56,7 +49,6 @@ function truncate(text: string) {
 export function SharePostDialog({ post, open, onOpenChange, onShared }: SharePostDialogProps) {
   const { user } = useAuth();
   const [message, setMessage] = useState("");
-  const [audience, setAudience] = useState(AUDIENCES[0]);
   const [showEmoji, setShowEmoji] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -128,28 +120,7 @@ export function SharePostDialog({ post, open, onOpenChange, onShared }: SharePos
             </Avatar>
             <div>
               <p className="font-semibold text-sm leading-tight">{userName}</p>
-              {/* Audience selector */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="flex items-center gap-1 mt-0.5 text-[11px] font-medium bg-muted rounded px-1.5 py-0.5 hover:bg-muted/80 transition-colors">
-                    <audience.icon className="w-3 h-3" />
-                    {audience.label}
-                    <ChevronDown className="w-3 h-3" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-40">
-                  {AUDIENCES.map((a) => (
-                    <DropdownMenuItem
-                      key={a.value}
-                      onClick={() => setAudience(a)}
-                      className="gap-2 text-sm"
-                    >
-                      <a.icon className="w-4 h-4" />
-                      {a.label}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">Shared to the public feed</p>
             </div>
           </div>
 
