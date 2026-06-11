@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useMutation } from "@apollo/client/react";
-import { BadgeCheck, Bookmark, BookmarkCheck, Flame, MessageCircle, MoreHorizontal, Repeat2, Trash2, UserCheck, UserPlus } from "lucide-react";
+import { BadgeCheck, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Flame, MessageCircle, MoreHorizontal, Repeat2, Trash2, UserCheck, UserPlus, X } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "../../../components/ui/avatar";
 import { Button } from "../../../components/ui/button";
 import {
@@ -142,6 +143,153 @@ function RoastProjectFallback({
         {domain && <p className="truncate text-xs text-muted-foreground">{domain}</p>}
       </div>
     </div>
+  );
+}
+
+function TimelineImageLightbox({
+  images,
+  startIndex,
+  onClose,
+}: {
+  images: string[];
+  startIndex: number;
+  onClose: () => void;
+}) {
+  const [index, setIndex] = useState(startIndex);
+  const previous = useCallback(() => setIndex((value) => (value - 1 + images.length) % images.length), [images.length]);
+  const next = useCallback(() => setIndex((value) => (value + 1) % images.length), [images.length]);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+      if (event.key === "ArrowLeft" && images.length > 1) previous();
+      if (event.key === "ArrowRight" && images.length > 1) next();
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [images.length, next, onClose, previous]);
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[99999] flex items-center justify-center bg-black"
+      onClick={onClose}
+    >
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onClose();
+        }}
+        className="absolute right-4 top-4 z-[100001] flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/25"
+      >
+        <X className="h-5 w-5" />
+      </button>
+
+      {images.length > 1 && (
+        <div className="absolute left-1/2 top-4 z-[100001] -translate-x-1/2 text-sm font-medium text-white/80">
+          {index + 1} / {images.length}
+        </div>
+      )}
+
+      {images.length > 1 && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            previous();
+          }}
+          className="absolute left-4 top-1/2 z-[100001] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/25"
+        >
+          <ChevronLeft className="h-7 w-7" />
+        </button>
+      )}
+
+      <img
+        key={images[index]}
+        src={images[index]}
+        alt=""
+        draggable={false}
+        onClick={(event) => event.stopPropagation()}
+        className="max-h-[calc(100vh-96px)] max-w-[calc(100vw-96px)] select-none object-contain"
+      />
+
+      {images.length > 1 && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            next();
+          }}
+          className="absolute right-4 top-1/2 z-[100001] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/25"
+        >
+          <ChevronRight className="h-7 w-7" />
+        </button>
+      )}
+    </div>,
+    document.body,
+  );
+}
+
+function TimelineMedia({
+  images,
+  postId,
+  onImageError,
+}: {
+  images: string[];
+  postId: string;
+  onImageError: (image: string) => void;
+}) {
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+
+  if (images.length === 0) return null;
+
+  return (
+    <>
+      {previewIndex !== null && (
+        <TimelineImageLightbox
+          images={images}
+          startIndex={previewIndex}
+          onClose={() => setPreviewIndex(null)}
+        />
+      )}
+
+      <div
+        className={`mt-3 overflow-hidden rounded-2xl border bg-muted/40 ${
+          images.length > 1 ? "grid grid-cols-2 gap-px" : ""
+        }`}
+      >
+        {images.slice(0, 4).map((image, index) => (
+          <button
+            key={`${postId}-${index}`}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setPreviewIndex(index);
+            }}
+            className={`group block min-w-0 bg-background/70 ${
+              images.length === 3 && index === 0 ? "col-span-2" : ""
+            }`}
+          >
+            <img
+              src={image}
+              alt=""
+              className="block h-auto max-h-[560px] w-full object-contain transition-opacity group-hover:opacity-95"
+              onClick={(event) => event.stopPropagation()}
+              onError={() => onImageError(image)}
+            />
+          </button>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -360,23 +508,11 @@ export function TimelinePost({ post, className = "", onOpenPost, onOpenComments,
             </div>
           )}
 
-          {images.length > 0 && (
-            <div className={`mt-3 grid overflow-hidden rounded-2xl border bg-muted ${images.length > 1 ? "grid-cols-2 gap-px" : ""}`}>
-              {images.slice(0, 4).map((image, index) => (
-                <div
-                  key={`${post.id}-${index}`}
-                  className={images.length === 3 && index === 0 ? "col-span-2" : ""}
-                >
-                  <img
-                    src={image}
-                    alt=""
-                    className="aspect-[16/10] h-full w-full object-cover"
-                    onError={() => setFailedImages((current) => new Set(current).add(image))}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
+          <TimelineMedia
+            images={images}
+            postId={post.id}
+            onImageError={(image) => setFailedImages((current) => new Set(current).add(image))}
+          />
 
           {isRoastPost && images.length === 0 && (
             <RoastProjectFallback
