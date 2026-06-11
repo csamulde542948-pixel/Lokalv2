@@ -2,7 +2,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { AvatarFrame } from "./avatar-frame";
 import { avatarSrc } from "../../lib/defaults";
 import { Skeleton } from "./ui/skeleton";
-import { User, Users, FolderKanban, BarChart3, Settings, Flame, Trophy, Sparkles, Shield, Briefcase, Calendar } from "lucide-react";
+import { User, Users, FolderKanban, BarChart3, Settings, Flame, Trophy, Sparkles, Shield, Briefcase, Calendar, Rocket } from "lucide-react";
 import { Link, useLocation } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useQuery } from "@apollo/client/react";
@@ -106,6 +106,12 @@ const menuItems = [
     label: "Projects",
     badge: null,
     path: "/projects",
+  },
+  {
+    icon: Rocket,
+    label: "Launchpad",
+    badge: null,
+    path: "/launchpad",
   },
   {
     icon: BarChart3,

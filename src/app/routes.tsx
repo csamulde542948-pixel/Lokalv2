@@ -8,7 +8,9 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 const Feed          = lazy(() => import("./pages/feed").then(m => ({ default: m.Feed })));
 const Leaderboard   = lazy(() => import("./pages/leaderboard").then(m => ({ default: m.Leaderboard })));
 const Launchpad       = lazy(() => import("./pages/launchpad").then(m => ({ default: m.Launchpad })));
+const LaunchpadEvent  = lazy(() => import("./pages/launchpad-event").then(m => ({ default: m.LaunchpadEvent })));
 const LaunchpadManage = lazy(() => import("./pages/launchpad-manage").then(m => ({ default: m.LaunchpadManage })));
+const LaunchpadChat   = lazy(() => import("./pages/launchpad-chat").then(m => ({ default: m.LaunchpadChat })));
 const Roast         = lazy(() => import("./pages/roast").then(m => ({ default: m.Roast })));
 const RoastResult   = lazy(() => import("./pages/roast-result").then(m => ({ default: m.RoastResult })));
 const Profile       = lazy(() => import("./pages/profile").then(m => ({ default: m.Profile })));
@@ -135,7 +137,9 @@ export const router = createBrowserRouter([
           { index: true, Component: withSuspense(Feed) },
           { path: "leaderboard", Component: withSuspense(Leaderboard) },
           { path: "launchpad", Component: withSuspense(Launchpad) },
+          { path: "launchpad/:id", Component: withSuspense(LaunchpadEvent) },
           { path: "launchpad/:id/manage", Component: withSuspense(LaunchpadManage) },
+          { path: "launchpad/:id/chat", Component: withSuspense(LaunchpadChat) },
           { path: "profile", Component: withSuspense(Profile) },
           { path: "profile/:username", Component: withSuspense(Profile) },
           { path: "friends", Component: withSuspense(Followers) },

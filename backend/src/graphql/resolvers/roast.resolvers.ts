@@ -6,8 +6,6 @@ import { createNotification } from "../../lib/notifications";
 import { assertSafeExternalUrl } from "../../lib/ssrf";
 import {
   normalizeRoastUrl,
-  roastUrlCache,
-  perUserUrlLimiter,
 } from "../../lib/rateLimit";
 import {
   assertHasCredits,
@@ -41,8 +39,20 @@ export const roastResolvers = {
       return { country: userCountry };
     },
 
+    /**
+     * roastStats — all-time platform totals for the rotating category
+     * counter on the roast landing page. Two cheap indexed COUNT(*)
+     * queries in parallel. No auth — public numbers.
+     */
+    roastStats: async (_: unknown, __: unknown, { prisma }: GraphQLContext) => {
+      const [totalRoasts, totalBrandAnalyses] = await Promise.all([
+        prisma.roastGeneration.count(),
+        prisma.brandAnalysis.count(),
+      ]);
+      return { totalRoasts, totalBrandAnalyses };
+    },
+
     roasts: async (
-      _: unknown,
       { limit = 20, offset = 0, projectId }: { limit?: number; offset?: number; projectId?: string },
       { prisma }: GraphQLContext
     ) => {
@@ -107,7 +117,7 @@ export const roastResolvers = {
       return rows[0] ?? null;
     },
 
-    recentRoastGenerations: async (
+recentRoastGenerations: async (
       _: unknown,
       { limit = 10 }: { limit?: number },
       { prisma }: GraphQLContext
@@ -131,6 +141,31 @@ export const roastResolvers = {
           "publishedAt",
           "createdAt"
         FROM public.roast_generations
+        ORDER BY "createdAt" DESC
+        LIMIT ${take}
+      `;
+    },
+
+    recentBrandAnalyses: async (
+      _: unknown,
+      { limit = 10 }: { limit?: number },
+      { prisma }: GraphQLContext
+    ) => {
+      const take = Math.min(Math.max(limit, 1), 10);
+      return prisma.$queryRaw`
+        SELECT
+          id,
+          "profileId",
+          "projectUrl",
+          "canonicalUrl",
+          "projectName",
+          title,
+          "designMd",
+          "screenshotUrl",
+          "faviconUrl",
+          "ogImageUrl",
+          "createdAt"
+        FROM public.brand_analyses
         ORDER BY "createdAt" DESC
         LIMIT ${take}
       `;
@@ -163,7 +198,6 @@ export const roastResolvers = {
      * OpenRouter, return structured preview.
      * Auth and credits are required. Credits are checked before Firecrawl/OpenRouter
      * work starts, then deducted only after the AI roast is generated successfully.
-     * Cached URL hits do not spend credits.
      */
     generateRoast: async (
       _: unknown,
@@ -177,34 +211,7 @@ export const roastResolvers = {
 
       // SSRF protection: validate URL before sending to Jina Reader
       const projectUrl = await assertSafeExternalUrl(input.projectUrl);
-
-      // ── Deduplication ────────────────────────────────────────────────────
-      // Normalise the URL so utm params, www, trailing slashes don't produce
-      // duplicate entries (e.g. myapp.com/ and myapp.com?ref=twitter are same)
       const canonicalUrl = normalizeRoastUrl(projectUrl);
-
-      // 1) Per-user-per-URL: authenticated users can only re-generate a roast
-      //    for the exact same URL once every 24 h. Return cached copy if seen.
-      if (perUserUrlLimiter.hasDuplicate(user.id, canonicalUrl)) {
-        const cached = roastUrlCache.get(canonicalUrl);
-        if (cached) {
-          return { ...cached, projectUrl, projectName, language };
-        }
-        // Cache expired but dedup window hasn't — still block and ask to wait
-        throw new Error(
-          "You already roasted this URL recently. Come back in 24 hours for a fresh roast!"
-        );
-      }
-
-      // 2) Per-URL global cooldown: any URL roasted in the last 24 h returns
-      //    the cached roast (saves AI credits, keeps feed varied).
-      const urlCached = roastUrlCache.get(canonicalUrl);
-      if (urlCached) {
-        // Register the user's "seen" entry so they also get dedup protection
-        perUserUrlLimiter.record(user.id, canonicalUrl);
-        return { ...urlCached, projectUrl, projectName, language };
-      }
-      // ────────────────────────────────────────────────────────────────────
 
       await assertHasCredits(user.id, TOOL_CREDIT_COSTS.AI_ROAST, prisma);
       const result = await generateAiRoast(projectUrl, projectName, language);
@@ -249,10 +256,6 @@ export const roastResolvers = {
         RETURNING id
       `;
       const generation = generations[0];
-
-      // Cache the result for both dedup layers
-      roastUrlCache.set(canonicalUrl, result as unknown as Record<string, unknown>);
-      perUserUrlLimiter.record(user.id, canonicalUrl);
 
       return {
         generationId: generation.id,

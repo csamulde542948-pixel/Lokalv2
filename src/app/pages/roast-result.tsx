@@ -18,6 +18,7 @@ import {
   UserPlus,
   FolderPlus,
   Flag,
+  Maximize2,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { BrandLogo } from "../components/brand-logo";
@@ -343,44 +344,194 @@ function extractBrandTypography(markdown: string): BrandTypographyToken[] {
   return tokens.slice(0, 4);
 }
 
+function filterBrandMarkdown(markdown: string): string {
+  return markdown.replace(/##\s+Detected\s+Tokens[\s\S]*?(?=\n##\s+|\n?$)/i, "").trim();
+}
+
+function renderInlineMarkdown(text: string): React.ReactNode {
+  const segments: React.ReactNode[] = [];
+  let remaining = text;
+  let key = 0;
+
+  while (remaining.length > 0) {
+    // Find the earliest markdown token
+    const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
+    const italicMatch = remaining.match(/(?<!\*)\*([^*]+)\*(?!\*)/);
+    const codeMatch = remaining.match(/`([^`]+)`/);
+    const linkMatch = remaining.match(/\[([^\]]+)\]\(([^)]+)\)/);
+
+    const boldIdx = boldMatch ? boldMatch.index! : Infinity;
+    const italicIdx = italicMatch ? italicMatch.index! : Infinity;
+    const codeIdx = codeMatch ? codeMatch.index! : Infinity;
+    const linkIdx = linkMatch ? linkMatch.index! : Infinity;
+
+    const earliest = Math.min(boldIdx, italicIdx, codeIdx, linkIdx);
+
+    if (earliest === Infinity) {
+      segments.push(<span key={key++}>{remaining}</span>);
+      break;
+    }
+
+    // Text before the match
+    if (earliest > 0) {
+      segments.push(<span key={key++}>{remaining.slice(0, earliest)}</span>);
+    }
+
+    if (earliest === boldIdx && boldMatch) {
+      segments.push(<strong key={key++} className="font-black text-foreground">{boldMatch[1]}</strong>);
+      remaining = remaining.slice(boldIdx + boldMatch[0].length);
+    } else if (earliest === italicIdx && italicMatch) {
+      segments.push(<em key={key++} className="italic text-foreground/90">{italicMatch[1]}</em>);
+      remaining = remaining.slice(italicIdx + italicMatch[0].length);
+    } else if (earliest === codeIdx && codeMatch) {
+      segments.push(
+        <code key={key++} className="px-1 py-0.5 text-[11px] font-mono bg-cyan-500/10 border border-cyan-500/20 text-cyan-300/90 rounded-sm">
+          {codeMatch[1]}
+        </code>
+      );
+      remaining = remaining.slice(codeIdx + codeMatch[0].length);
+    } else if (earliest === linkIdx && linkMatch) {
+      segments.push(
+        <a key={key++} href={linkMatch[2]} target="_blank" rel="noopener noreferrer"
+          className="text-cyan-400/80 hover:text-cyan-400 underline underline-offset-2 decoration-cyan-500/30 hover:decoration-cyan-400/60 transition-colors">
+          {linkMatch[1]}
+        </a>
+      );
+      remaining = remaining.slice(linkIdx + linkMatch[0].length);
+    }
+  }
+
+  return segments;
+}
+
 function renderMarkdownPreview(markdown: string) {
-  return markdown.split("\n").map((line, index) => {
-    const trimmed = line.trim();
-    if (!trimmed) return <div key={index} className="h-3" />;
+  const lines = markdown.split("\n");
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const trimmed = lines[i].trim();
+
+    // Empty line
+    if (!trimmed) {
+      elements.push(<div key={i} className="h-3" />);
+      i++;
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^[-_*]{3,}$/.test(trimmed)) {
+      elements.push(<hr key={i} className="my-4 border-border/30" />);
+      i++;
+      continue;
+    }
+
+    // Detect markdown table: starts with | and has at least 2 columns
+    const cells = trimmed.replace(/^\|\s*/, "").replace(/\s*\|$/, "").split("|").map((c) => c.trim());
+    const isTableRow = trimmed.startsWith("|") && trimmed.endsWith("|") && cells.length >= 2;
+
+    if (isTableRow) {
+      // Collect consecutive table rows
+      const tableRows: string[][] = [];
+      let j = i;
+      while (j < lines.length) {
+        const row = lines[j].trim();
+        if (!row.startsWith("|") || !row.endsWith("|")) break;
+        const rowCells = row.replace(/^\|\s*/, "").replace(/\s*\|$/, "").split("|").map((c) => c.trim());
+        if (rowCells.length < 2) break;
+        tableRows.push(rowCells);
+        j++;
+      }
+
+      const hasSeparator = tableRows.length >= 2 &&
+        tableRows[1].every((cell) => /^:?-{3,}:?$/.test(cell));
+
+      const headerRow = hasSeparator ? tableRows[0] : null;
+      const bodyRows = hasSeparator ? tableRows.slice(2) : tableRows;
+
+      elements.push(
+        <div key={i} className="my-3 overflow-x-auto border border-border/30">
+          <table className="w-full text-xs text-foreground/85 border-collapse">
+            {headerRow && (
+              <thead>
+                <tr className="border-b border-border/40 bg-cyan-500/10">
+                  {headerRow.map((cell, ci) => (
+                    <th key={ci} className="px-3 py-2 text-left font-black uppercase tracking-wide text-cyan-300/90 text-[11px]">
+                      {renderInlineMarkdown(cell)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+            )}
+            <tbody>
+              {bodyRows.map((row, ri) => (
+                <tr key={ri} className="border-b border-border/20 last:border-0 odd:bg-background/30">
+                  {row.map((cell, ci) => (
+                    <td key={ci} className="px-3 py-2 font-mono text-[11px] whitespace-nowrap">
+                      {renderInlineMarkdown(cell)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+      i = j;
+      continue;
+    }
+
+    // Headings
     if (trimmed.startsWith("### ")) {
-      return (
-        <h3 key={index} className="mt-5 mb-2 text-sm font-black uppercase tracking-wide text-foreground">
-          {trimmed.slice(4)}
+      elements.push(
+        <h3 key={i} className="mt-5 mb-2 text-sm font-black uppercase tracking-wide text-foreground">
+          {renderInlineMarkdown(trimmed.slice(4))}
         </h3>
       );
+      i++;
+      continue;
     }
     if (trimmed.startsWith("## ")) {
-      return (
-        <h2 key={index} className="mt-6 mb-2 text-base font-black uppercase tracking-wide text-orange-300">
-          {trimmed.slice(3)}
+      elements.push(
+        <h2 key={i} className="mt-6 mb-2 text-base font-black uppercase tracking-wide text-orange-300">
+          {renderInlineMarkdown(trimmed.slice(3))}
         </h2>
       );
+      i++;
+      continue;
     }
     if (trimmed.startsWith("# ")) {
-      return (
-        <h1 key={index} className="mb-3 text-lg font-black uppercase tracking-tight text-foreground">
-          {trimmed.slice(2)}
+      elements.push(
+        <h1 key={i} className="mb-3 text-lg font-black uppercase tracking-tight text-foreground">
+          {renderInlineMarkdown(trimmed.slice(2))}
         </h1>
       );
+      i++;
+      continue;
     }
-    if (/^[-*]\s+/.test(trimmed)) {
-      return (
-        <p key={index} className="pl-3 text-sm leading-relaxed text-foreground/80">
-          <span className="text-orange-400/70">•</span> {trimmed.replace(/^[-*]\s+/, "")}
+
+    // Bullet points (skip single * or - lines that aren't horizontal rules)
+    if (/^[-*]\s+/.test(trimmed) && !/^[-_*]{3,}$/.test(trimmed)) {
+      elements.push(
+        <p key={i} className="pl-3 text-sm leading-relaxed text-foreground/80">
+          <span className="text-orange-400/70">•</span>{" "}
+          {renderInlineMarkdown(trimmed.replace(/^[-*]\s+/, ""))}
         </p>
       );
+      i++;
+      continue;
     }
-    return (
-      <p key={index} className="text-sm leading-relaxed text-foreground/80">
-        {trimmed}
+
+    // Regular paragraph
+    elements.push(
+      <p key={i} className="text-sm leading-relaxed text-foreground/80">
+        {renderInlineMarkdown(trimmed)}
       </p>
     );
-  });
+    i++;
+  }
+
+  return elements;
 }
 
 interface GeneratedBrandAnalysis {
@@ -1442,14 +1593,25 @@ export function RoastResult() {
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground/45 mb-2">
                   Site Screenshot
                 </p>
-                <div className="h-52 sm:h-64 overflow-hidden border border-border/40 bg-card/40">
+                <a
+                  href={brandScreenshotUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block relative aspect-video overflow-hidden border border-border/40 bg-card/40 group cursor-pointer"
+                >
                   <img
                     src={brandScreenshotUrl}
                     alt={`${subject.projectName} screenshot`}
-                    className="h-full w-full object-cover object-top"
+                    className="h-full w-full object-contain object-top bg-card/60"
                     onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
                   />
-                </div>
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                    <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 px-3 py-1.5 bg-background/90 border border-border/50 text-[11px] font-black uppercase tracking-widest text-foreground/80">
+                      <Maximize2 className="w-3.5 h-3.5" />
+                      View Full
+                    </span>
+                  </div>
+                </a>
               </div>
             )}
 
@@ -1701,7 +1863,7 @@ export function RoastResult() {
                     </span>
                   </div>
                   <div className="space-y-1">
-                    {renderMarkdownPreview(brandMarkdown || displayed)}
+                    {renderMarkdownPreview(filterBrandMarkdown(brandMarkdown) || displayed)}
                     {!done && (
                       <span className="inline-block w-2 h-[1em] bg-cyan-400 ml-0.5 animate-pulse align-middle" />
                     )}
@@ -1710,7 +1872,7 @@ export function RoastResult() {
 
                 <TabsContent value="markdown" className="m-0 flex-1 min-h-0 px-5 py-5 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <pre className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/85">
-                    {brandMarkdown || displayed}
+                    {filterBrandMarkdown(brandMarkdown) || displayed}
                   </pre>
                 </TabsContent>
 

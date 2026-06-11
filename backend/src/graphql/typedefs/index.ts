@@ -422,6 +422,15 @@ export const typeDefs = gql`
     createdAt: DateTime!
   }
 
+  # Platform-wide aggregate counts for the rotating category counter on
+  # the roast landing page.
+  type RoastStats {
+    """All-time total of roast generations (roast engine runs)."""
+    totalRoasts: Int!
+    """All-time total of brand analysis generations (design.md runs)."""
+    totalBrandAnalyses: Int!
+  }
+
   # Daily 🔥 Roast Token status for the current user
   type RoastTokenStatus {
     used:      Int!
@@ -581,6 +590,16 @@ export const typeDefs = gql`
     message: String!
     creator: Profile!
     createdAt: DateTime!
+  }
+
+  type LaunchpadMessage {
+    id: ID!
+    body: String!
+    author: Profile!
+    isSystem: Boolean!
+    isDeleted: Boolean!
+    createdAt: DateTime!
+    updatedAt: DateTime!
   }
 
   type LaunchpadEventStats {
@@ -820,6 +839,14 @@ export const typeDefs = gql`
     roastGeneration(id: ID!): RoastGeneration
     brandAnalysis(id: ID!): BrandAnalysis
     recentRoastGenerations(limit: Int): [RoastGeneration!]!
+    recentBrandAnalyses(limit: Int): [BrandAnalysis!]!
+    """
+    All-time platform totals: how many URLs have been roasted
+    (via the Roast engine) and how many have been analysed by the
+    Brand Analyzer. Powers the rotating category counter on the roast
+    landing page ("# 1.2k <noun> roasted & analyzed").
+    """
+    roastStats: RoastStats!
     roast(id: ID!): Roast
     # Daily 🔥 Roast Token balance for the current user (requires auth)
     myRoastTokens: RoastTokenStatus!
@@ -859,6 +886,12 @@ export const typeDefs = gql`
     launchpadEventParticipants(eventId: ID!): [LaunchpadParticipant!]!
     launchpadEventStats(eventId: ID!): LaunchpadEventStats!
     launchpadAnnouncements(eventId: ID!): [LaunchpadAnnouncement!]!
+    """
+    Chat history for a launchpad event. Visible only to the event host and
+    users who have joined the event. Messages are returned oldest-first so
+    clients can scroll naturally without re-sorting.
+    """
+    launchpadEventMessages(eventId: ID!, limit: Int, offset: Int): [LaunchpadMessage!]!
     myLaunchpadEvents: [LaunchpadEvent!]!
 
     # Leaderboard
@@ -996,6 +1029,10 @@ export const typeDefs = gql`
     markInterested(launchpadEventId: ID!, commitmentEmail: String, commitmentNote: String): LaunchpadEvent!
     markNotInterested(launchpadEventId: ID!): LaunchpadEvent!
     createLaunchpadAnnouncement(eventId: ID!, message: String!): LaunchpadAnnouncement!
+    """Post a chat message in a launchpad event. Requires being a participant or the event host."""
+    sendLaunchpadMessage(eventId: ID!, body: String!): LaunchpadMessage!
+    """Soft-delete a chat message. Only the author or event host may delete."""
+    deleteLaunchpadMessage(id: ID!): Boolean!
 
     # Notifications
     markNotificationRead(notificationId: ID!): Notification!

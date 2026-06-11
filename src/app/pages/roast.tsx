@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { gql } from "@apollo/client/core";
 import { useQuery } from "@apollo/client/react";
 import { useNavigate, useSearchParams, Link } from "react-router";
@@ -6,7 +6,7 @@ import { Flame, Palette, Globe, Languages } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Checkbox } from "../components/ui/checkbox";
 import { useAuth } from "../../contexts/AuthContext";
-import { AsciiFireAnimation, ScrambleLine } from "../components/ascii-fire";
+import { AsciiFireAnimation, ScrambleLine, useScramble } from "../components/ascii-fire";
 
 const ROAST_MAINTENANCE = import.meta.env.PROD;
 
@@ -19,6 +19,7 @@ const GET_RECENT_ROASTS = gql`
       quickRoast
       projectName
       projectUrl
+      faviconUrl
       createdAt
       author {
         id
@@ -29,13 +30,20 @@ const GET_RECENT_ROASTS = gql`
   }
 `;
 
-const GET_MY_CREDITS = gql`
-  query GetMyCredits {
-    myCredits {
-      balance
-      lifetimeCredits
-      lifetimeSpent
-      starterCredits
+const GET_RECENT_BRAND_ANALYSES = gql`
+  query GetRecentBrandAnalyses {
+    recentBrandAnalyses(limit: 10) {
+      id
+      title
+      projectName
+      projectUrl
+      faviconUrl
+      createdAt
+      author {
+        id
+        name
+        avatarUrl
+      }
     }
   }
 `;
@@ -51,6 +59,17 @@ const GET_VIEWER_GEO = gql`
   }
 `;
 
+// All-time platform totals — powers the rotating category counter
+// (shows "# 1.2k <noun> roasted & analyzed").
+const GET_ROAST_STATS = gql`
+  query GetRoastStats {
+    roastStats {
+      totalRoasts
+      totalBrandAnalyses
+    }
+  }
+`;
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface RecentRoast {
@@ -58,15 +77,19 @@ interface RecentRoast {
   quickRoast: string;
   projectName: string;
   projectUrl: string;
+  faviconUrl: string | null;
   createdAt: string;
   author: { id: string; name: string; avatarUrl: string | null };
 }
 
-interface CreditBalance {
-  balance: number;
-  lifetimeCredits: number;
-  lifetimeSpent: number;
-  starterCredits: number;
+interface RecentBrandAnalysis {
+  id: string;
+  title: string;
+  projectName: string;
+  projectUrl: string;
+  faviconUrl: string | null;
+  createdAt: string;
+  author: { id: string; name: string; avatarUrl: string | null };
 }
 
 type RoastLanguage = "taglish" | "english";
@@ -95,34 +118,72 @@ function defaultLanguageFor(country: string | null | undefined): RoastLanguage {
   return PH_COUNTRIES.has(country.toUpperCase()) ? "taglish" : "english";
 }
 
-function CreditBalanceBadge({ credits }: { credits: CreditBalance }) {
-  if (credits.balance === 0) {
-    return (
-      <div className="flex items-center gap-2 font-mono text-[11px] text-orange-500/70 bg-orange-500/8 border border-orange-500/20 px-3 py-1.5 rounded-sm w-fit mx-auto">
-        <span className="text-orange-400">!</span>
-        <span>No roast credits available</span>
-      </div>
-    );
-  }
+// ─── Animated Category Counter ─────────────────────────────────────────────────
+// Shows the all-time total of roasted+analysed URLs (# 1.2k) and
+// animates the noun after the number — cycling through websites →
+// startups → portfolios → repos on a 2.4s loop with a scramble-text
+// transition matching the hero tagline animation.
 
-  const visiblePips = Math.min(Math.max(credits.lifetimeCredits, credits.balance), 8);
-  const flames = Array.from({ length: visiblePips }, (_, i) => i < credits.balance);
+const ROTATING_NOUNS = [
+  { word: "websites",  colorClass: "text-orange-400" },
+  { word: "startups",  colorClass: "text-amber-400"  },
+  { word: "portfolios", colorClass: "text-cyan-400"  },
+  { word: "repos",     colorClass: "text-emerald-400" },
+] as const;
+
+const NOUN_ROTATION_MS = 2400;
+
+function AnimatedCategoryCounter({ total, favicons }: { total: number; favicons: { url: string; domain: string }[] }) {
+  const [idx, setIdx] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      setIdx((i) => (i + 1) % ROTATING_NOUNS.length);
+    }, NOUN_ROTATION_MS);
+    return () => clearInterval(t);
+  }, []);
+
+  const fmt = (n: number) =>
+    n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : n.toLocaleString();
+
+  const { word, colorClass } = ROTATING_NOUNS[idx];
+  const display = useScramble(word, idx);
+  const favSrc = (f: { url: string; domain: string }) =>
+    f.url || `https://www.google.com/s2/favicons?domain=${f.domain}&sz=32`;
 
   return (
-    <div className="flex items-center gap-2.5 font-mono text-[11px] text-muted-foreground/60 w-fit mx-auto">
-      <span className="flex items-center gap-0.5">
-        {flames.map((filled, i) => (
-          <Flame
-            key={i}
-            className={`w-3.5 h-3.5 transition-colors ${filled ? "text-orange-500" : "text-muted-foreground/20"}`}
-            strokeWidth={2}
-          />
-        ))}
+    <div
+      className="flex items-center gap-2 font-mono text-sm text-muted-foreground/60 w-fit mx-auto"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      {/* Stacked favicon circles */}
+      {favicons.length > 0 && (
+        <div className="flex items-center -space-x-1.5 mr-1.5">
+          {favicons.map((f, i) => (
+            <div
+              key={i}
+              className="w-6 h-6 rounded-full border border-border/50 bg-card overflow-hidden flex-shrink-0"
+              style={{ zIndex: favicons.length - i }}
+            >
+              <img
+                src={favSrc(f)}
+                alt=""
+                className="w-full h-full object-cover"
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+              />
+            </div>
+          ))}
+          <span className="text-[10px] font-black text-orange-400 ml-0.5 flex-shrink-0" style={{ zIndex: 0 }}>
+            +
+          </span>
+        </div>
+      )}
+      <span className="text-orange-400 font-bold tabular-nums">{fmt(total)}+</span>
+      <span className={`${colorClass} font-semibold normal-case tracking-wider`}>
+        {display}
       </span>
-      <span>
-        <span className="text-orange-400 font-bold">{credits.balance}</span>
-        {" "}credit{credits.balance !== 1 ? "s" : ""} available
-      </span>
+      <span>roasted & analyzed</span>
     </div>
   );
 }
@@ -148,6 +209,8 @@ function LanguageTag({ lang }: { lang: RoastLanguage }) {
 
 function RoastMarqueeCard({ roast }: { roast: RecentRoast }) {
   const displayUrl = roast.projectUrl.replace(/^https?:\/\//, '');
+  const faviconSrc = roast.faviconUrl
+    ?? `https://www.google.com/s2/favicons?domain=${displayUrl}&sz=32`;
   return (
     <Link
       to={`/roast/result/${roast.id}`}
@@ -155,15 +218,58 @@ function RoastMarqueeCard({ roast }: { roast: RecentRoast }) {
     >
       <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/40 bg-muted/20">
         <span className="text-orange-500 font-mono font-bold text-[10px]">&gt;_</span>
-        <span className="text-[9px] font-mono text-muted-foreground truncate">{displayUrl} roasted</span>
+        <span className="text-[9px] font-mono text-muted-foreground truncate">{displayUrl}</span>
       </div>
       <div className="p-3 font-mono">
-        <span className="font-semibold text-xs text-orange-400 truncate block mb-1.5">
-          {roast.projectName}
-        </span>
+        <div className="flex items-center gap-2 mb-1.5">
+          <img
+            src={faviconSrc}
+            alt=""
+            className="w-4 h-4 flex-shrink-0"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+          />
+          <span className="font-semibold text-xs text-orange-400 truncate">
+            {roast.projectName}
+          </span>
+        </div>
         {roast.quickRoast && (
           <p className="text-xs text-muted-foreground leading-snug line-clamp-2">
             <span className="text-orange-500/50">$ </span>{roast.quickRoast}
+          </p>
+        )}
+      </div>
+    </Link>
+  );
+}
+
+function BrandMarqueeCard({ analysis }: { analysis: RecentBrandAnalysis }) {
+  const displayUrl = analysis.projectUrl.replace(/^https?:\/\//, '');
+  const faviconSrc = analysis.faviconUrl
+    ?? `https://www.google.com/s2/favicons?domain=${displayUrl}&sz=32`;
+  return (
+    <Link
+      to={`/roast/brand/${analysis.id}`}
+      className="flex-shrink-0 w-[260px] rounded-none border border-border/50 overflow-hidden bg-card/80 hover:border-cyan-500/30 transition-colors block"
+    >
+      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/40 bg-muted/20">
+        <span className="text-cyan-500 font-mono font-bold text-[10px]">#</span>
+        <span className="text-[9px] font-mono text-muted-foreground truncate">{displayUrl}</span>
+      </div>
+      <div className="p-3 font-mono">
+        <div className="flex items-center gap-2 mb-1.5">
+          <img
+            src={faviconSrc}
+            alt=""
+            className="w-4 h-4 flex-shrink-0"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+          />
+          <span className="font-semibold text-xs text-cyan-400 truncate">
+            {analysis.projectName}
+          </span>
+        </div>
+        {analysis.title && (
+          <p className="text-xs text-muted-foreground leading-snug line-clamp-2">
+            <span className="text-cyan-500/50">$ </span>{analysis.title}
           </p>
         )}
       </div>
@@ -282,17 +388,43 @@ export function Roast() {
     fetchPolicy: "cache-and-network",
   });
 
-  const { data: creditData } = useQuery<{ myCredits: CreditBalance }>(GET_MY_CREDITS, {
-    skip: !user,
+  const { data: recentBrandData } = useQuery<{ recentBrandAnalyses: RecentBrandAnalysis[] }>(GET_RECENT_BRAND_ANALYSES, {
     fetchPolicy: "cache-and-network",
   });
 
-  const recentRoasts = recentData?.recentRoastGenerations ?? [];
-  const loading = !recentData;
+  const { data: statsData } = useQuery<{
+    roastStats: { totalRoasts: number; totalBrandAnalyses: number };
+  }>(GET_ROAST_STATS, { fetchPolicy: "cache-and-network" });
 
-  // Duplicate for smooth infinite marquee (need enough items to fill viewport)
-  const rowOne = [...recentRoasts, ...recentRoasts];
-  const rowTwo = [...[...recentRoasts].reverse(), ...[...recentRoasts].reverse()];
+  const recentRoasts = recentData?.recentRoastGenerations ?? [];
+  const recentBrands = recentBrandData?.recentBrandAnalyses ?? [];
+  const loading = !recentData || !recentBrandData;
+
+  // Duplicate for smooth infinite marquee
+  const roastRow = recentRoasts.length >= 2
+    ? [...recentRoasts, ...recentRoasts]
+    : recentRoasts;
+  const brandRow = recentBrands.length >= 2
+    ? [...recentBrands, ...recentBrands]
+    : recentBrands;
+
+  // Collect up to 10 unique favicon sources for the counter bubble stack,
+  // preferring actual favicon URLs and falling back to Google favicons.
+  const faviconStack = useMemo(() => {
+    const seen = new Set<string>();
+    const stack: { url: string; domain: string }[] = [];
+    const items = [...recentRoasts, ...recentBrands].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    for (const item of items) {
+      const domain = item.projectUrl.replace(/^https?:\/\//, "").split("/")[0];
+      if (seen.has(domain)) continue;
+      seen.add(domain);
+      stack.push({ url: item.faviconUrl ?? "", domain });
+      if (stack.length >= 10) break;
+    }
+    return stack;
+  }, [recentRoasts, recentBrands]);
 
   const handleRoast = () => {
     if (ROAST_MAINTENANCE) return;
@@ -447,10 +579,13 @@ export function Roast() {
               </div>
             )}
 
-            {/* Credit balance indicator */}
-            {creditData?.myCredits && (
+            {/* All-time rotating category counter — replaces the old credit pill */}
+            {statsData?.roastStats && (
               <div className="mt-3">
-                <CreditBalanceBadge credits={creditData.myCredits} />
+                <AnimatedCategoryCounter
+                  total={statsData.roastStats.totalRoasts + statsData.roastStats.totalBrandAnalyses}
+                  favicons={faviconStack}
+                />
               </div>
             )}
 
@@ -505,28 +640,21 @@ export function Roast() {
         </div>
       </section>
 
-      {/* ═══════════════════════════════════════════
+{/* ═══════════════════════════════════════════
           LIVE ROASTS — separate section below hero
       ═══════════════════════════════════════════ */}
-      <section id="live-roasts" className="relative z-[4] w-full border-t border-border/30 py-8 space-y-3 bg-background">
-        <div className="container mx-auto px-4 mb-4">
-          <div className="max-w-4xl mx-auto flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
-              <p className="text-[10px] font-mono font-semibold text-muted-foreground uppercase tracking-widest">
-                Live Roasts
-              </p>
-            </div>
-            {recentRoasts.length > 0 && (
-              <span className="text-[10px] font-mono text-muted-foreground/50 border border-border/40 px-2 py-0.5">
-                latest {recentRoasts.length} roasted sites
-              </span>
-            )}
+      <section id="live-roasts" className="relative z-[4] w-full border-t border-border/30 py-8 space-y-4 bg-background">
+        <div className="container mx-auto px-4 mb-2">
+          <div className="max-w-4xl mx-auto flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
+            <p className="text-[10px] font-mono font-semibold text-muted-foreground uppercase tracking-widest">
+              Recently Roasted & Analyzed
+            </p>
           </div>
         </div>
 
         {/* Empty state */}
-        {!loading && recentRoasts.length === 0 && (
+        {!loading && recentRoasts.length === 0 && recentBrands.length === 0 && (
           <div className="container mx-auto px-4">
             <div className="max-w-4xl mx-auto flex flex-col items-center justify-center py-12 border border-dashed border-border/40 text-center gap-3">
               <Flame className="w-8 h-8 text-orange-500/30" />
@@ -536,20 +664,20 @@ export function Roast() {
           </div>
         )}
 
-        {/* Row 1 – scrolls right (only when there's data) */}
+        {/* Row 1 – Roasted (scrolls right) */}
         {recentRoasts.length > 0 && (
           <div className="relative overflow-hidden">
             <div className="flex gap-3 animate-scroll-right" style={{ width: "max-content" }}>
-              {rowOne.map((r, i) => <RoastMarqueeCard key={`r1-${i}`} roast={r} />)}
+              {roastRow.map((r, i) => <RoastMarqueeCard key={`r1-${i}`} roast={r} />)}
             </div>
           </div>
         )}
 
-        {/* Row 2 – scrolls left (only when there's data) */}
-        {recentRoasts.length > 0 && (
+        {/* Row 2 – Brand Analyzed (scrolls left) */}
+        {recentBrands.length > 0 && (
           <div className="relative overflow-hidden">
             <div className="flex gap-3 animate-scroll-left" style={{ width: "max-content" }}>
-              {rowTwo.map((r, i) => <RoastMarqueeCard key={`r2-${i}`} roast={r} />)}
+              {brandRow.map((b, i) => <BrandMarqueeCard key={`b1-${i}`} analysis={b} />)}
             </div>
           </div>
         )}

@@ -134,6 +134,40 @@ export const launchpadResolvers = {
         include: { creator: { include: { rank: true } } },
       });
     },
+
+    /**
+     * Chat thread for a launchpad event. Visible to the host and to any user
+     * who has joined the event via markInterested. We hard-fail for
+     * unauthenticated requests and for users who have no relationship with
+     * the event — never silently leak a private thread.
+     */
+    launchpadEventMessages: async (
+      _: unknown,
+      { eventId, limit = 100, offset = 0 }: { eventId: string; limit?: number; offset?: number },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+
+      const event = await prisma.launchpadEvent.findUnique({
+        where: { id: eventId },
+        include: { interests: { select: { profileId: true } } },
+      });
+      if (!event) throw new Error("Event not found");
+
+      const isHost = event.creatorId === user.id;
+      const isParticipant = event.interests.some((i) => i.profileId === user.id);
+      if (!isHost && !isParticipant) throw new Error("Forbidden");
+
+      const safeLimit = Math.min(Math.max(limit, 1), 200);
+
+      return prisma.launchpadMessage.findMany({
+        where: { launchpadEventId: eventId },
+        orderBy: { createdAt: "asc" },
+        take: safeLimit,
+        skip: offset,
+        include: { author: { include: { rank: true } } },
+      });
+    },
   },
 
   Mutation: {
@@ -333,6 +367,71 @@ export const launchpadResolvers = {
         },
       });
     },
+
+    /**
+     * Post a chat message in a launchpad event. Hard auth: the user must be
+     * the event host or have a launchpad_interest row for the event. The
+     * event must still be open. Body is trimmed and capped at 2000 chars.
+     */
+    sendLaunchpadMessage: async (
+      _: unknown,
+      { eventId, body }: { eventId: string; body: string },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+      const trimmed = String(body ?? "").trim();
+      if (!trimmed) throw new Error("Message body is required");
+      if (trimmed.length > 2000) throw new Error("Message too long (max 2000 chars)");
+
+      const event = await prisma.launchpadEvent.findUnique({
+        where: { id: eventId },
+        include: { interests: { select: { profileId: true } } },
+      });
+      if (!event) throw new Error("Event not found");
+      if (!event.isOpen) throw new Error("This event is closed");
+
+      const isHost = event.creatorId === user.id;
+      const isParticipant = event.interests.some((i) => i.profileId === user.id);
+      if (!isHost && !isParticipant) {
+        throw new Error("Join the event before posting in the chat");
+      }
+
+      return prisma.launchpadMessage.create({
+        data: {
+          launchpadEventId: eventId,
+          authorId: user.id,
+          body: trimmed,
+        },
+        include: { author: { include: { rank: true } } },
+      });
+    },
+
+    /**
+     * Soft-delete a chat message. Author and event host can delete. We never
+     * hard-delete so the surrounding messages stay in order.
+     */
+    deleteLaunchpadMessage: async (
+      _: unknown,
+      { id }: { id: string },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+      const message = await prisma.launchpadMessage.findUnique({
+        where: { id },
+        include: { launchpadEvent: { select: { creatorId: true } } },
+      });
+      if (!message || message.isDeleted) throw new Error("Message not found");
+
+      const isAuthor = message.authorId === user.id;
+      const isHost = message.launchpadEvent.creatorId === user.id;
+      if (!isAuthor && !isHost) throw new Error("Forbidden");
+
+      await prisma.launchpadMessage.update({
+        where: { id },
+        data: { isDeleted: true, body: "" },
+      });
+      return true;
+    },
   },
 
   LaunchpadEvent: {
@@ -403,5 +502,11 @@ export const launchpadResolvers = {
   // Field resolvers for LaunchpadAnnouncement
   LaunchpadAnnouncement: {
     creator: (parent: any) => parent.creator,
+  },
+
+  // Field resolvers for LaunchpadMessage
+  LaunchpadMessage: {
+    author: (parent: any) => parent.author,
+    body: (parent: any) => (parent.isDeleted ? "" : parent.body),
   },
 };

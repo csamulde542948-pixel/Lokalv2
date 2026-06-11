@@ -178,6 +178,7 @@ model Profile {
   jobApplications     JobApplication[]
   eventRegistrations  EventRegistration[]
   launchpadInterests  LaunchpadInterest[]
+  launchpadMessages   LaunchpadMessage[]
   sentInteractions    UserInteraction[]    @relation("InteractionFrom")
   receivedInteractions UserInteraction[]   @relation("InteractionTo")
   tagAffinities       UserTagAffinity[]
@@ -879,6 +880,7 @@ model LaunchpadEvent {
   tags          LaunchpadTag[]
   interests     LaunchpadInterest[]
   announcements LaunchpadAnnouncement[]
+  messages      LaunchpadMessage[]
 
   @@index([creatorId])
   @@map("launchpad_events")
@@ -922,6 +924,26 @@ model LaunchpadAnnouncement {
 
   @@index([launchpadEventId])
   @@map("launchpad_announcements")
+}
+
+/// Chat messages inside a launchpad event. Visible to the event host and
+/// every user who has marked themselves as interested. Soft-deletes only —
+/// we keep the row but mark it as deleted so the chat thread stays intact.
+model LaunchpadMessage {
+  id               String   @id @default(cuid())
+  launchpadEventId String   @map("launchpad_event_id")
+  authorId         String   @db.Uuid @map("author_id")
+  body             String   @db.Text
+  isSystem         Boolean  @default(false) @map("is_system")
+  isDeleted        Boolean  @default(false) @map("is_deleted")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  launchpadEvent   LaunchpadEvent @relation(fields: [launchpadEventId], references: [id], onDelete: Cascade)
+  author           Profile        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([launchpadEventId, createdAt])
+  @@map("launchpad_messages")
 }
 
 // ============================================================

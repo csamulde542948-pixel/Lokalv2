@@ -387,6 +387,10 @@
     animation: scan-shimmer 2.4s linear infinite;
   }
 
+  /* ── Animated rotating label (used by the roast credit counter) ──
+     The word slides up + fades out, the new word slides up + fades in.
+     Two stacked layers (current + incoming) are animated in tandem
+     using `current` and `next` modifier classes. */
   @media (prefers-reduced-motion: reduce) {
     .anim-spin, .anim-spin-slow, .anim-spin-rev,
     .anim-pulse, .anim-pulse-core, .anim-sweep,

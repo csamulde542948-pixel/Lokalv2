@@ -176,7 +176,7 @@ Required analysis behavior:
 
 Required output structure:
 # design.md
-## Source Evidence
+## Design Overview
 ## Brand Snapshot
 ## Positioning
 ## Audience
@@ -223,8 +223,8 @@ ${scrapeResult.markdown || "No page content could be extracted."}
 
 Return clean markdown only. Use this structure:
 # design.md
-## Source Evidence
-State that the analysis is based on Firecrawl branding profile, metadata, and page markdown. List which structured fields were detected: colors, fonts, typography, spacing, components, images, layout, personality.
+## Design Overview
+Title this section "Design System Inspired by \"${projectName}\"". Provide a high-level executive summary of the brand's design system: what the brand is, its core aesthetic, visual personality, key design decisions observed, strengths, and critical gaps. This is the 60-second read for a stakeholder — keep it to 4-6 paragraphs covering brand purpose, design quality, consistency, and the one thing the team should fix first.
 ## Brand Snapshot
 Summarize the product, current visual personality, maturity level, and design confidence in 3-5 concise bullets.
 ## Positioning
@@ -371,7 +371,7 @@ export async function generateBrandDesignAnalysis(
   const aiDesignMd = await callNvidiaForBrandDesign(scraped, projectName, url);
   const designMd = `${firecrawlTokenSection}\n\n${aiDesignMd}`;
   return {
-    title: `${projectName} Brand Analysis`,
+    title: `Design System Inspired by "${projectName}"`,
     designMd,
     screenshotUrl: scraped.screenshotUrl,
     faviconUrl: scraped.metadata.favicon ?? scraped.branding?.images?.favicon ?? scraped.branding?.logo ?? scraped.branding?.images?.logo ?? null,
