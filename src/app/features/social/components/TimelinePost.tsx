@@ -283,7 +283,6 @@ function TimelineMedia({
               src={image}
               alt=""
               className="block h-auto max-h-[560px] w-full object-contain transition-opacity group-hover:opacity-95"
-              onClick={(event) => event.stopPropagation()}
               onError={() => onImageError(image)}
             />
           </button>
