@@ -268,6 +268,7 @@ function createCommentMyReactionLoader(userId: string | null) {
 
 async function startServer() {
   const app = express();
+  app.set("trust proxy", 1);
   const httpServer = http.createServer(app);
 
   const server = new ApolloServer<GraphQLContext>({
@@ -331,6 +332,13 @@ async function startServer() {
           // Generic Firecrawl network failures
           "Firecrawl network error",
           "Website crawl failed",
+          // Business-rule validation that is safe and useful for users.
+          "You've reached the project limit",
+          "You've reached the launchpad event limit",
+          "Profile not found",
+          "Project name is required",
+          "Project tagline is required",
+          "Project description is required",
         ];
 
         const isAllowed =
