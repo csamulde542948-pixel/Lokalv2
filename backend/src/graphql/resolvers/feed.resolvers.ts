@@ -2291,6 +2291,33 @@ async function fetchPostsForSocialFeed(
     .filter(Boolean);
 }
 
+function isRoastFeedPost(post: any) {
+  return String(post?.postType ?? "").toLowerCase() === "roast";
+}
+
+function spaceOutConsecutiveRoastPosts<T>(posts: T[]): T[] {
+  const spaced: T[] = [];
+  const queuedRoasts: T[] = [];
+
+  for (const post of posts) {
+    const isRoast = isRoastFeedPost(post);
+    const previous = spaced[spaced.length - 1];
+
+    if (isRoast && previous && isRoastFeedPost(previous)) {
+      queuedRoasts.push(post);
+      continue;
+    }
+
+    spaced.push(post);
+
+    if (!isRoast && queuedRoasts.length > 0) {
+      spaced.push(queuedRoasts.shift() as T);
+    }
+  }
+
+  return [...spaced, ...queuedRoasts];
+}
+
 function encodeSocialCursor(post: { createdAt: Date | string; id: string }) {
   return Buffer.from(
     JSON.stringify({
@@ -2383,7 +2410,7 @@ async function fetchFallbackRecentPage(
   );
 
   return {
-    posts,
+    posts: spaceOutConsecutiveRoastPosts(posts),
     hasMore: rows.length > limit,
     nextCursor: rows.length > limit && sliced.length > 0 ? encodeSocialCursor(sliced[sliced.length - 1]) : null,
   };
@@ -2444,7 +2471,7 @@ async function fetchFollowingSocialFeed({
   );
 
   return {
-    posts,
+    posts: spaceOutConsecutiveRoastPosts(posts),
     hasMore: rows.length > limit,
     nextCursor: rows.length > limit && sliced.length > 0 ? encodeSocialCursor(sliced[sliced.length - 1]) : null,
     recommId: null,
@@ -2509,16 +2536,18 @@ async function fetchForYouSocialFeed({
       posts.map((post: any) => post.id)
     );
     posts = [...posts, ...fallbackPage.posts];
+    const spacedPosts = spaceOutConsecutiveRoastPosts(posts);
     return {
-      posts: posts.slice(0, limit),
+      posts: spacedPosts.slice(0, limit),
       hasMore: fallbackPage.hasMore,
       nextCursor: fallbackPage.nextCursor,
       recommId: recommendation.recommId,
     };
   }
 
+  const spacedPosts = spaceOutConsecutiveRoastPosts(posts);
   return {
-    posts: posts.slice(0, limit),
+    posts: spacedPosts.slice(0, limit),
     hasMore: posts.length > limit || recommendation.ids.length > limit,
     nextCursor: null,
     recommId: recommendation.recommId,
