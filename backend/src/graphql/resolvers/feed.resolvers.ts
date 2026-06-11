@@ -2,10 +2,14 @@ import { GraphQLContext } from "../context";
 import { addActivityToFeed, getRawFeed } from "../../lib/stream";
 import { createNotification } from "../../lib/notifications";
 import {
+  deletePostFromRecombee,
   recommendPostIdsForUser,
-  syncPostToRecombee,
   trackRecombeeInteraction,
 } from "../../lib/recombee";
+import {
+  schedulePostActivityRefresh,
+  schedulePostIntelligence,
+} from "../../services/postIntelligence.service";
 import { sanitizeInput } from "../../middleware/security";
 import {
   rankPosts,
@@ -1051,23 +1055,7 @@ export const feedResolvers = {
         content: post.content.slice(0, 200),
       }).catch(console.error);
 
-      syncPostToRecombee({
-        id: post.id,
-        authorId: post.authorId,
-        content: post.content,
-        createdAt: post.createdAt,
-        postType: post.tags.some((entry: { tag?: { name?: string } }) => entry.tag?.name?.toLowerCase() === "roast")
-          ? "ROAST"
-          : "POST",
-        feedVisibility: "MAIN_FEED",
-        rootPostId: post.id,
-        parentPostId: null,
-        depth: 0,
-        imageUrl: post.imageUrl,
-        likesCount: post.likesCount,
-        commentsCount: post.commentsCount,
-        sharesCount: post.sharesCount,
-      }).catch(console.error);
+      schedulePostIntelligence(prisma, post.id);
 
       // Award XP
       await awardXp(user.id, "CREATE_POST", undefined, clientIp).catch(console.error);
@@ -1090,6 +1078,7 @@ export const feedResolvers = {
       // HIGH-06: Return correct error — null post must be Not found, not Forbidden
       if (!post) throw new Error("Not found");
       if (post.authorId !== user.id) throw new Error("Forbidden");
+      deletePostFromRecombee(id).catch(console.error);
       await prisma.post.delete({ where: { id } });
       return true;
     },
@@ -1119,7 +1108,7 @@ export const feedResolvers = {
       // Only increment count on a new like (not a reaction change)
       const post = await prisma.post.update({
         where: { id: postId },
-        data: existing ? {} : { likesCount: { increment: 1 } },
+        data: existing ? { lastActivityAt: new Date() } : { likesCount: { increment: 1 }, lastActivityAt: new Date() },
         include: {
           author: { include: { rank: true } },
           tags: { include: { tag: true } },
@@ -1140,6 +1129,7 @@ export const feedResolvers = {
         }
 
         // Phase 3: CTR tracking — mark the most recent PostView for this post as "engaged"
+        schedulePostActivityRefresh(prisma, postId);
         markPostViewEngaged(prisma, user.id, postId).catch(console.error);
 
         // Phase 3: Interest embedding trigger — increment engagement count
@@ -1172,14 +1162,16 @@ export const feedResolvers = {
       });
 
       if (deleted.count > 0) {
-        return prisma.post.update({
+        const post = await prisma.post.update({
           where: { id: postId },
-          data: { likesCount: { decrement: 1 } },
+          data: { likesCount: { decrement: 1 }, lastActivityAt: new Date() },
           include: {
             author: { include: { rank: true } },
             tags: { include: { tag: true } },
           },
         });
+        schedulePostActivityRefresh(prisma, postId);
+        return post;
       }
 
       // No like existed — just return the post unchanged
@@ -1201,7 +1193,7 @@ export const feedResolvers = {
 
       const post = await prisma.post.update({
         where: { id: postId },
-        data: { sharesCount: { increment: 1 } },
+        data: { sharesCount: { increment: 1 }, lastActivityAt: new Date() },
         include: {
           author: { include: { rank: true } },
           tags: { include: { tag: true } },
@@ -1210,6 +1202,7 @@ export const feedResolvers = {
 
       logInteraction(prisma, user.id, post.authorId, postId, "POST_SHARE_EXTERNAL", 2.5);
       trackRecombeeInteraction({ userId: user.id, postId, kind: "share" }).catch(console.error);
+      schedulePostActivityRefresh(prisma, postId);
 
       if (post.authorId !== user.id) {
         createNotification(prisma, {
@@ -1269,7 +1262,7 @@ export const feedResolvers = {
       // Increment sharesCount on the ROOT original post
       await prisma.post.update({
         where: { id: rootOriginalId },
-        data: { sharesCount: { increment: 1 } },
+        data: { sharesCount: { increment: 1 }, lastActivityAt: new Date() },
       });
 
       // Notify root original author (not for self-shares)
@@ -1294,6 +1287,8 @@ export const feedResolvers = {
       markPostViewEngaged(prisma, user.id, rootOriginalId).catch(console.error);
       incrementFeedEngagementCount(prisma, user.id).catch(console.error);
       trackRecombeeInteraction({ userId: user.id, postId: rootOriginalId, kind: "share" }).catch(console.error);
+      schedulePostIntelligence(prisma, newPost.id);
+      schedulePostActivityRefresh(prisma, rootOriginalId);
 
       return newPost;
     },
@@ -1338,7 +1333,7 @@ export const feedResolvers = {
       // Update comment counter
       await prisma.post.update({
         where: { id: input.postId },
-        data: { commentsCount: { increment: 1 } },
+        data: { commentsCount: { increment: 1 }, lastActivityAt: new Date() },
       });
 
       // Track author affinity + tag affinity for feed ranking
@@ -1350,6 +1345,7 @@ export const feedResolvers = {
       markPostViewEngaged(prisma, user.id, input.postId).catch(console.error);
       incrementFeedEngagementCount(prisma, user.id).catch(console.error);
       trackRecombeeInteraction({ userId: user.id, postId: input.postId, kind: "comment" }).catch(console.error);
+      schedulePostActivityRefresh(prisma, input.postId);
 
       // Award XP to post author
       awardXp(comment.post.authorId, "RECEIVE_COMMENT", user.id, clientIp).catch(console.error);
@@ -1428,8 +1424,9 @@ export const feedResolvers = {
       // Update post comment counter
       await prisma.post.update({
         where: { id: input.postId },
-        data: { commentsCount: { increment: 1 } },
+        data: { commentsCount: { increment: 1 }, lastActivityAt: new Date() },
       });
+      schedulePostActivityRefresh(prisma, input.postId);
 
       // Notify the parent comment author
       if (parent.authorId !== user.id) {
@@ -1679,6 +1676,17 @@ export const feedResolvers = {
           select: { authorId: true },
         });
         if (!post) return view.id;
+        if (safeDwell >= 1000) {
+          prisma.post.update({
+            where: { id: postId },
+            data: {
+              viewsCount: { increment: 1 },
+              lastActivityAt: now,
+            },
+          })
+            .then(() => schedulePostActivityRefresh(prisma, postId))
+            .catch(console.error);
+        }
 
         // 4. Update author affinity (async, don't block response)
         updateAuthorAffinity(user.id, post.authorId, "viewCount", prisma).catch(console.error);
@@ -1998,7 +2006,8 @@ export const feedResolvers = {
       return loaders.originalPostLoader.load(parent.originalPostId);
     },
 
-    postType: async (parent: { id: string; tags?: any[] }, _: unknown, { loaders }: GraphQLContext) => {
+    postType: async (parent: { id: string; postType?: string | null; tags?: any[] }, _: unknown, { loaders }: GraphQLContext) => {
+      if (parent.postType) return parent.postType;
       // Use pre-loaded tags if available on parent, otherwise batch-load via DataLoader
       const tags: { name: string }[] = parent.tags?.length
         ? parent.tags.map((t: any) => t.tag ?? t) // handle PostTag join or raw Tag
@@ -2250,7 +2259,12 @@ async function fetchPostsForSocialFeed(
 
   const [posts, myLikes] = await Promise.all([
     prisma.post.findMany({
-      where: { id: { in: postIds } },
+      where: {
+        id: { in: postIds },
+        visibility: "public",
+        moderationStatus: "approved",
+        isDeleted: false,
+      },
       include: {
         author: { include: { rank: true } },
       },
@@ -2310,6 +2324,9 @@ async function fetchFallbackRecentPage(
   const rows = await prisma.post.findMany({
     where: {
       id: { notIn: excludeIds },
+      visibility: "public",
+      moderationStatus: "approved",
+      isDeleted: false,
       ...(viewerId ? { authorId: { not: viewerId } } : {}),
       createdAt: { gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) },
       ...(decoded
@@ -2373,6 +2390,9 @@ async function fetchFollowingSocialFeed({
   const rows = await prisma.post.findMany({
     where: {
       authorId: { in: authorIds },
+      visibility: "public",
+      moderationStatus: "approved",
+      isDeleted: false,
       ...(decoded
         ? {
             OR: [
@@ -2480,9 +2500,12 @@ async function exploreFeed(
 
   const windows = [7, 30, null] as const; // null = no time filter (all-time)
   for (const days of windows) {
-    const where = days
-      ? { createdAt: { gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) } }
-      : {};
+    const where = {
+      visibility: "public",
+      moderationStatus: "approved",
+      isDeleted: false,
+      ...(days ? { createdAt: { gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) } } : {}),
+    };
     const posts = await prisma.post.findMany({
       where,
       orderBy,

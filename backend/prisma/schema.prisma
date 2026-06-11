@@ -348,9 +348,25 @@ model Post {
   likesCount         Int      @default(0)
   commentsCount      Int      @default(0)
   sharesCount        Int      @default(0)
+  bookmarksCount     Int      @default(0)
+  viewsCount         Int      @default(0)
   roastReactionCount Int      @default(0)  // 🔥 token reactions received
 
   // Feed ranking — cached latest score (P3 #16)
+  postType         String   @default("post") @db.VarChar(40)
+  topicTags        String[] @default([])
+  intentTags       String[] @default([])
+  language         String   @default("mixed") @db.VarChar(16)
+  lastActivityAt   DateTime @default(now())
+  hasLink          Boolean  @default(false)
+  linkDomain       String?  @db.VarChar(120)
+  engagementScore  Float    @default(0)
+  qualityScore     Float    @default(0)
+  visibility       String   @default("public") @db.VarChar(20)
+  isDeleted        Boolean  @default(false)
+  moderationStatus String   @default("approved") @db.VarChar(20)
+  isSensitive      Boolean  @default(false)
+
   rankScore     Float?
 
   // Global pinned post — only one can be true at a time (enforced by DB partial unique index)
@@ -372,6 +388,7 @@ model Post {
 
   @@index([authorId])
   @@index([createdAt(sort: Desc)])
+  @@index([visibility, moderationStatus, isDeleted, lastActivityAt(sort: Desc)])
   @@map("posts")
 }
 

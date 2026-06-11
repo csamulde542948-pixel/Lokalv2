@@ -7,6 +7,7 @@ import {
   recommendPostIdsForUser,
   sendRecombeeBatch,
 } from "../src/lib/recombee";
+import { inferPostMetadata } from "../src/services/postIntelligence.service";
 
 const BATCH_SIZE = 250;
 const MAX_VIEW_EVENTS = 15_000;
@@ -74,6 +75,23 @@ async function syncPosts() {
       likesCount: true,
       commentsCount: true,
       sharesCount: true,
+      bookmarksCount: true,
+      viewsCount: true,
+      roastReactionCount: true,
+      postType: true,
+      topicTags: true,
+      intentTags: true,
+      language: true,
+      lastActivityAt: true,
+      hasLink: true,
+      linkDomain: true,
+      engagementScore: true,
+      qualityScore: true,
+      visibility: true,
+      isDeleted: true,
+      moderationStatus: true,
+      isSensitive: true,
+      author: { select: { isVerified: true } },
       tags: { select: { tag: { select: { name: true } } } },
     },
     orderBy: { createdAt: "asc" },
@@ -81,23 +99,40 @@ async function syncPosts() {
 
   const requests = posts.map((post) => {
     const tagNames = post.tags.map((entry) => entry.tag.name.toLowerCase());
-    const postType = tagNames.includes("roast") ? "ROAST" : "POST";
+    const inferred = inferPostMetadata(post);
+    const postType = post.postType || (tagNames.includes("roast") ? "roast" : inferred.postType);
     return (
       new rqs.SetItemValues(
         post.id,
         {
           authorId: post.authorId,
           content: post.content.slice(0, 4000),
-          createdAt: post.createdAt.toISOString(),
           postType,
+          topicTags: post.topicTags.length > 0 ? post.topicTags : inferred.topicTags,
+          intentTags: post.intentTags.length > 0 ? post.intentTags : inferred.intentTags,
+          language: post.language || inferred.language,
+          createdAt: post.createdAt.toISOString(),
+          lastActivityAt: (post.lastActivityAt ?? post.createdAt).toISOString(),
           feedVisibility: "MAIN_FEED",
+          visibility: post.visibility || "public",
           rootPostId: post.id,
           parentPostId: "",
           depth: 0,
           hasImage: !!post.imageUrl || post.imageUrls.length > 0,
+          hasLink: post.hasLink || inferred.hasLink,
+          linkDomain: post.linkDomain ?? inferred.linkDomain ?? "",
+          fireCount: post.roastReactionCount + post.likesCount,
           likesCount: post.likesCount,
           commentsCount: post.commentsCount,
           sharesCount: post.sharesCount,
+          bookmarksCount: post.bookmarksCount,
+          viewsCount: post.viewsCount,
+          engagementScore: post.engagementScore || inferred.engagementScore,
+          qualityScore: post.qualityScore || inferred.qualityScore,
+          isDeleted: post.isDeleted,
+          moderationStatus: post.moderationStatus || "approved",
+          isSensitive: post.isSensitive,
+          isAuthorVerified: post.author?.isVerified ?? false,
         },
         { cascadeCreate: true }
       )

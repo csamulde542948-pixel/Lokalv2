@@ -191,11 +191,25 @@ export const typeDefs = gql`
     commentsCount: Int!
     sharesCount: Int!
     roastReactionCount: Int!        # 🔥 token reactions received
+    bookmarksCount: Int!
+    viewsCount: Int!
     tags: [Tag!]!
     likedByMe: Boolean!             # requires auth context
     myReaction: String              # "Like" | "Love" | "Fire" | "Haha" | "Wow" | "Sad" | null
     roastReactedByMe: Boolean!      # true if current user gave a 🔥 token react
     postType: String!               # "roast" | "post" — derived from tags
+    topicTags: [String!]!
+    intentTags: [String!]!
+    language: String!
+    lastActivityAt: DateTime!
+    hasLink: Boolean!
+    linkDomain: String
+    engagementScore: Float!
+    qualityScore: Float!
+    visibility: String!
+    isDeleted: Boolean!
+    moderationStatus: String!
+    isSensitive: Boolean!
     createdAt: DateTime!
     updatedAt: DateTime!
     comments(limit: Int, offset: Int): [PostComment!]!
