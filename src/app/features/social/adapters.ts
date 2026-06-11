@@ -18,6 +18,9 @@ type RawComment = {
   likedByMe?: boolean | null;
   myReaction?: string | null;
   parentId?: string | null;
+  rootPostId?: string | null;
+  depth?: number | null;
+  feedVisibility?: string | null;
   mentions?: string[] | null;
   isEdited?: boolean | null;
   editHistory?: { id: string; previousContent: string; editedAt: string }[] | null;
@@ -82,6 +85,9 @@ export function adaptComment(raw: RawComment): CommentData {
     likedByMe: raw.likedByMe ?? false,
     myReaction: raw.myReaction ?? null,
     parentId: raw.parentId ?? null,
+    rootPostId: raw.rootPostId ?? null,
+    depth: raw.depth ?? (raw.parentId ? 2 : 1),
+    feedVisibility: raw.feedVisibility ?? "THREAD_ONLY",
     mentions: raw.mentions ?? [],
     isEdited: raw.isEdited ?? false,
     editHistory: (raw.editHistory ?? []).map((entry) => ({
@@ -105,12 +111,16 @@ export function makeOptimisticComment({
   id,
   content,
   parentId = null,
+  rootPostId = null,
+  depth = parentId ? 2 : 1,
   mentions = [],
   user,
 }: {
   id: string;
   content: string;
   parentId?: string | null;
+  rootPostId?: string | null;
+  depth?: number;
   mentions?: string[];
   user: RawUser;
 }): CommentData {
@@ -121,6 +131,9 @@ export function makeOptimisticComment({
     likedByMe: false,
     myReaction: null,
     parentId,
+    rootPostId,
+    depth,
+    feedVisibility: "THREAD_ONLY",
     mentions,
     isEdited: false,
     editHistory: [],

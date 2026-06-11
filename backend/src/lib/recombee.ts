@@ -10,6 +10,11 @@ type SyncPostInput = {
   authorId: string;
   content: string;
   createdAt: Date;
+  postType?: string | null;
+  feedVisibility?: string | null;
+  rootPostId?: string | null;
+  parentPostId?: string | null;
+  depth?: number | null;
   imageUrl?: string | null;
   imageUrls?: string[] | null;
   likesCount?: number;
@@ -45,10 +50,16 @@ const RECOMBEE_TOKEN = process.env.RECOMBEE_PRIVATE_TOKEN ?? "";
 const RECOMBEE_REGION = process.env.RECOMBEE_REGION ?? "ap-se";
 
 const SOCIAL_SCENARIO = "social_feed";
+const MAIN_FEED_FILTER = `'feedVisibility' == "MAIN_FEED" and 'postType' != "REPLY"`;
 const ITEM_PROPERTIES = [
   { name: "authorId", type: "string" },
   { name: "content", type: "string" },
   { name: "createdAt", type: "timestamp" },
+  { name: "postType", type: "string" },
+  { name: "feedVisibility", type: "string" },
+  { name: "rootPostId", type: "string" },
+  { name: "parentPostId", type: "string" },
+  { name: "depth", type: "int" },
   { name: "hasImage", type: "boolean" },
   { name: "likesCount", type: "int" },
   { name: "commentsCount", type: "int" },
@@ -147,6 +158,11 @@ export async function syncPostToRecombee(post: SyncPostInput) {
           authorId: post.authorId,
           content: post.content.slice(0, 4000),
           createdAt: post.createdAt.toISOString(),
+          postType: post.postType ?? "POST",
+          feedVisibility: post.feedVisibility ?? "MAIN_FEED",
+          rootPostId: post.rootPostId ?? post.id,
+          parentPostId: post.parentPostId ?? "",
+          depth: post.depth ?? 0,
           hasImage: !!post.imageUrl || !!post.imageUrls?.length,
           likesCount: post.likesCount ?? 0,
           commentsCount: post.commentsCount ?? 0,
@@ -203,6 +219,7 @@ export async function recommendPostIdsForUser({
           new requests.RecommendItemsToUser(userId, count, {
             cascadeCreate: true,
             scenario: SOCIAL_SCENARIO,
+            filter: MAIN_FEED_FILTER,
             minRelevance: "medium",
             rotationRate: 0.35,
             rotationTime: 3600,
@@ -217,6 +234,7 @@ export async function recommendPostIdsForUser({
         const response = (await client.send(
           new requests.RecommendItemsToUser(userId, count, {
             cascadeCreate: true,
+            filter: MAIN_FEED_FILTER,
             minRelevance: "low",
             rotationRate: 0.35,
             rotationTime: 3600,

@@ -74,18 +74,26 @@ async function syncPosts() {
       likesCount: true,
       commentsCount: true,
       sharesCount: true,
+      tags: { select: { tag: { select: { name: true } } } },
     },
     orderBy: { createdAt: "asc" },
   });
 
-  const requests = posts.map(
-    (post) =>
+  const requests = posts.map((post) => {
+    const tagNames = post.tags.map((entry) => entry.tag.name.toLowerCase());
+    const postType = tagNames.includes("roast") ? "ROAST" : "POST";
+    return (
       new rqs.SetItemValues(
         post.id,
         {
           authorId: post.authorId,
           content: post.content.slice(0, 4000),
           createdAt: post.createdAt.toISOString(),
+          postType,
+          feedVisibility: "MAIN_FEED",
+          rootPostId: post.id,
+          parentPostId: "",
+          depth: 0,
           hasImage: !!post.imageUrl || post.imageUrls.length > 0,
           likesCount: post.likesCount,
           commentsCount: post.commentsCount,
@@ -93,7 +101,8 @@ async function syncPosts() {
         },
         { cascadeCreate: true }
       )
-  );
+    );
+  });
 
   await sendBatches("posts synced", chunk(requests, BATCH_SIZE));
   return posts.length;

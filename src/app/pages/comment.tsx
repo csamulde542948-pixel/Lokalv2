@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { ArrowLeft, BadgeCheck, Flame, Loader2, MessageCircle } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Flame, Loader2, MessageCircle, Repeat2 } from "lucide-react";
 import { LeftSidebar } from "../components/left-sidebar";
 import { RightSidebar } from "../components/right-sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
@@ -94,6 +94,9 @@ interface RawFocusedComment {
   likedByMe: boolean;
   myReaction: string | null;
   parentId: string | null;
+  rootPostId?: string | null;
+  depth?: number;
+  feedVisibility?: string;
   repliesCount: number;
   createdAt: string;
   author: {
@@ -155,8 +158,16 @@ function FocusedCommentCard({
     }
   }
 
+  function handleShare() {
+    const shareUrl = `${window.location.origin}/comment/${comment.id}`;
+    const authorName = comment.author.displayName ?? comment.author.name ?? `@${comment.author.username}`;
+    const text = `${authorName} replied on lokalhost.club\n\n${comment.content.slice(0, 220)}`;
+    const intent = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
+    window.open(intent, "_blank", "noopener,noreferrer");
+  }
+
   return (
-    <article className="border-b px-4 py-4">
+    <article className="border-b px-4 py-4 transition-colors hover:bg-muted/25">
       <div className="flex items-start gap-3">
         <Link to={`/profile/${comment.author.username}`} className="h-10 w-10 shrink-0 rounded-full">
           <Avatar className="h-10 w-10">
@@ -182,11 +193,11 @@ function FocusedCommentCard({
             @{comment.author.username}
           </Link>
 
-          <p className="mt-2 whitespace-pre-wrap break-words text-[17px] leading-7 text-foreground">
+          <p className="mt-1 whitespace-pre-wrap break-words text-[15px] leading-6 text-foreground/95">
             {comment.content}
           </p>
 
-          <div className="mt-4 grid max-w-md grid-cols-2 border-t pt-2 text-muted-foreground">
+          <div className="mt-3 grid max-w-md grid-cols-3 text-muted-foreground">
             <button
               type="button"
               onClick={onReplyClick}
@@ -208,6 +219,16 @@ function FocusedCommentCard({
                 <Flame className={`h-4 w-4 ${liked ? "fill-current" : ""}`} />
               </span>
               <span className="tabular-nums">{likes}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleShare}
+              className="group inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-green-500"
+            >
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full group-hover:bg-green-500/10">
+                <Repeat2 className="h-4 w-4" />
+              </span>
+              <span className="sr-only">Share</span>
             </button>
           </div>
         </div>
@@ -278,6 +299,8 @@ export function CommentPage() {
       id: `temp-reply-${Date.now()}`,
       content: text,
       parentId: comment.id,
+      rootPostId: comment.rootPostId ?? comment.post.id,
+      depth: (comment.depth ?? 1) + 1,
       mentions: mentions ?? [],
       user: me
         ? {

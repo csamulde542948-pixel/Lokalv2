@@ -396,6 +396,9 @@ model PostComment {
   authorId    String   @db.Uuid
   content     String   @db.Text
   parentId    String?  // null = top-level comment; non-null = reply
+  rootPostId  String?  // original post that owns the thread; X-style conversation root
+  depth       Int      @default(1) // 1 = reply to post, 2+ = reply to reply
+  feedVisibility String @default("THREAD_ONLY") @db.VarChar(30)
   mentions    String[] @default([]) // array of profile IDs (UUID strings) mentioned
   likesCount  Int      @default(0)
   createdAt   DateTime @default(now())
@@ -410,6 +413,8 @@ model PostComment {
 
   @@index([postId])
   @@index([parentId])
+  @@index([rootPostId])
+  @@index([feedVisibility])
   @@map("post_comments")
 }
 

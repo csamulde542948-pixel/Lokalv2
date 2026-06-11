@@ -65,6 +65,8 @@ export function useCommentComposer({
     const temp = makeOptimisticComment({
       id: `temp-${Date.now()}`,
       content: text,
+      rootPostId: postId,
+      depth: 1,
       mentions: mentions ?? [],
       user: optimisticAuthor as any,
     });
@@ -97,6 +99,8 @@ export function useCommentComposer({
       id: `temp-reply-${Date.now()}`,
       content: text,
       parentId,
+      rootPostId: postId,
+      depth: visualParentId ? 3 : 2,
       mentions: mentions ?? [],
       user: optimisticAuthor as any,
     });

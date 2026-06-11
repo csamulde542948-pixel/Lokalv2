@@ -225,6 +225,9 @@ export const typeDefs = gql`
     myReaction: String          # "Like" | "Love" | "Fire" | "Haha" | "Wow" | "Sad" | null
     parentId: ID
     parent: PostComment
+    rootPostId: ID
+    depth: Int!
+    feedVisibility: String!
     mentions: [ID!]!            # profile IDs mentioned in this comment
     replies(limit: Int, offset: Int): [PostComment!]!
     repliesCount: Int!

@@ -7,6 +7,77 @@ import { captureAndUploadScreenshot } from "../../services/screenshot.service";
 import { assertSafeExternalUrl } from "../../lib/ssrf";
 import { scrapeRateLimiter } from "../../lib/rateLimit";
 
+const PROJECT_NAME_MAX = 100;
+const PROJECT_TAGLINE_MAX = 255;
+const PROJECT_DESCRIPTION_MAX = 5000;
+const PROJECT_TAG_MAX = 24;
+const PROJECT_TAG_LIMIT = 8;
+const PROJECT_URL_MAX = 2000;
+const PROJECT_SCREENSHOT_LIMIT = 8;
+
+function optionalString(value: unknown, max: number) {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, max) : undefined;
+}
+
+function requiredString(value: unknown, fieldName: string, max: number) {
+  const normalized = optionalString(value, max);
+  if (!normalized) throw new Error(`${fieldName} is required`);
+  return normalized;
+}
+
+function normalizeProjectTags(value: unknown) {
+  if (!Array.isArray(value)) return [];
+
+  const seen = new Set<string>();
+  const tags: string[] = [];
+
+  for (const raw of value) {
+    const tag = optionalString(raw, PROJECT_TAG_MAX)
+      ?.toLowerCase()
+      .replace(/^#+/, "")
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+    if (tags.length >= PROJECT_TAG_LIMIT) break;
+  }
+
+  return tags;
+}
+
+function normalizeScreenshots(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((s) => optionalString(s, PROJECT_URL_MAX))
+    .filter((s): s is string => Boolean(s))
+    .slice(0, PROJECT_SCREENSHOT_LIMIT);
+}
+
+function normalizeCreateProjectInput(input: any) {
+  return {
+    name: requiredString(input.name, "Project name", PROJECT_NAME_MAX),
+    tagline: requiredString(input.tagline, "Project tagline", PROJECT_TAGLINE_MAX),
+    description: requiredString(input.description, "Project description", PROJECT_DESCRIPTION_MAX),
+    iconUrl: optionalString(input.iconUrl, PROJECT_URL_MAX),
+    bannerUrl: optionalString(input.bannerUrl, PROJECT_URL_MAX),
+    projectUrl: optionalString(input.projectUrl, PROJECT_URL_MAX),
+    githubUrl: optionalString(input.githubUrl, PROJECT_URL_MAX),
+    twitterUrl: optionalString(input.twitterUrl, PROJECT_URL_MAX),
+    linkedinUrl: optionalString(input.linkedinUrl, PROJECT_URL_MAX),
+    facebookUrl: optionalString(input.facebookUrl, PROJECT_URL_MAX),
+    youtubeUrl: optionalString(input.youtubeUrl, PROJECT_URL_MAX),
+    screenshots: normalizeScreenshots(input.screenshots),
+    type: input.type,
+    visibility: input.visibility,
+    category: input.category,
+    tags: normalizeProjectTags(input.tags),
+  };
+}
+
 export const projectResolvers = {
   Query: {
     projects: async (
@@ -158,8 +229,9 @@ export const projectResolvers = {
       { input }: { input: any },
       { user, prisma, clientIp }: GraphQLContext
     ) => {
-      console.log('[CREATE PROJECT] Request received', { user, inputKeys: Object.keys(input) });
+      console.log('[CREATE PROJECT] Request received', { userId: user?.id, inputKeys: Object.keys(input ?? {}) });
       if (!user) throw new Error("Unauthorized");
+      const normalized = normalizeCreateProjectInput(input ?? {});
 
       // Ã¢â€â‚¬Ã¢â€â‚¬ Verify profile exists Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
       console.log('[CREATE PROJECT] Looking up profile for user:', user.id);
@@ -176,7 +248,7 @@ export const projectResolvers = {
       await assertCanCreateProject(user.id);
 
       const project = await prisma.$transaction(async (tx: any) => {
-        const tagNames: string[] = input.tags ?? [];
+        const tagNames: string[] = normalized.tags;
         const tagRecords = await Promise.all(
           tagNames.map((name: string) =>
             tx.tag.upsert({ where: { name }, create: { name }, update: {} })
@@ -186,21 +258,21 @@ export const projectResolvers = {
         return tx.project.create({
           data: {
             authorId: user.id,
-            name: input.name,
-            tagline: input.tagline,
-            description: input.description,
-            iconUrl: input.iconUrl,
-            bannerUrl: input.bannerUrl,
-            projectUrl: input.projectUrl,
-            githubUrl: input.githubUrl,
-            twitterUrl: input.twitterUrl,
-            linkedinUrl: input.linkedinUrl,
-            facebookUrl: input.facebookUrl,
-            youtubeUrl: input.youtubeUrl,
-            screenshots: input.screenshots ?? [],
-            type: input.type,
-            visibility: input.visibility,
-            category: input.category,
+            name: normalized.name,
+            tagline: normalized.tagline,
+            description: normalized.description,
+            iconUrl: normalized.iconUrl,
+            bannerUrl: normalized.bannerUrl,
+            projectUrl: normalized.projectUrl,
+            githubUrl: normalized.githubUrl,
+            twitterUrl: normalized.twitterUrl,
+            linkedinUrl: normalized.linkedinUrl,
+            facebookUrl: normalized.facebookUrl,
+            youtubeUrl: normalized.youtubeUrl,
+            screenshots: normalized.screenshots,
+            type: normalized.type,
+            visibility: normalized.visibility,
+            category: normalized.category,
             tags: { create: tagRecords.map((t: any) => ({ tagId: t.id })) },
           },
           include: {
@@ -211,8 +283,8 @@ export const projectResolvers = {
       }, { timeout: 15000 });
 
       // Auto-capture screenshot in background (non-blocking)
-      if (input.projectUrl) {
-        captureAndUploadScreenshot(input.projectUrl, project.id, user.id)
+      if (normalized.projectUrl) {
+        captureAndUploadScreenshot(normalized.projectUrl, project.id, user.id)
           .then(screenshotUrl => {
             prisma.project.update({
               where: { id: project.id },

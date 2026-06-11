@@ -64,6 +64,10 @@ const SCRAPE_PROJECT = gql`
       githubLanguage
       githubTopics
       brandColor
+      twitterUrl
+      linkedinUrl
+      facebookUrl
+      youtubeUrl
     }
   }
 `;
@@ -97,6 +101,10 @@ interface ScrapedInfo {
   githubForks?: number | null;
   githubLanguage?: string | null;
   githubTopics: string[];
+  twitterUrl?: string | null;
+  linkedinUrl?: string | null;
+  facebookUrl?: string | null;
+  youtubeUrl?: string | null;
 }
 
 interface AddProjectDialogProps {
@@ -132,6 +140,37 @@ const CATEGORY_ICONS: Record<ProjectCategory, React.ElementType> = {
   PORTFOLIO: Award,
   OTHER: Code2,
 };
+
+function clampText(value: string | null | undefined, max: number) {
+  return (value ?? "").trim().slice(0, max);
+}
+
+function normalizeUrl(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed || null;
+}
+
+function normalizeScrapedTags(values: Array<string | null | undefined>) {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const raw of values) {
+    const tag = raw
+      ?.trim()
+      .toLowerCase()
+      .replace(/^#+/, "")
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 24);
+
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    normalized.push(tag);
+    if (normalized.length >= 8) break;
+  }
+
+  return normalized;
+}
 
 // ─── Terminal frame ──────────────────────────────────────────────────────────
 // Shared dark terminal "window" chrome (red/yellow/green dots + title bar
@@ -233,6 +272,10 @@ export function AddProjectDialog({ open, onOpenChange, onCreated, defaultUrl }: 
   const [screenshots, setScreenshots] = useState<string[]>([]);
   const [projectUrl, setProjectUrl] = useState("");
   const [githubUrl, setGithubUrl] = useState<string | null>(null);
+  const [twitterUrl, setTwitterUrl] = useState<string | null>(null);
+  const [linkedinUrl, setLinkedinUrl] = useState<string | null>(null);
+  const [facebookUrl, setFacebookUrl] = useState<string | null>(null);
+  const [youtubeUrl, setYoutubeUrl] = useState<string | null>(null);
   const [category, setCategory] = useState<ProjectCategory>("WEB_APP");
   const [type, setType] = useState<ProjectType>("PERSONAL");
   const [visibility, setVisibility] = useState<Visibility>("PUBLIC");
@@ -263,6 +306,10 @@ export function AddProjectDialog({ open, onOpenChange, onCreated, defaultUrl }: 
       setScreenshots([]);
       setProjectUrl(initialUrl);
       setGithubUrl(null);
+      setTwitterUrl(null);
+      setLinkedinUrl(null);
+      setFacebookUrl(null);
+      setYoutubeUrl(null);
       setCategory("WEB_APP");
       setType("PERSONAL");
       setVisibility("PUBLIC");
@@ -288,21 +335,25 @@ export function AddProjectDialog({ open, onOpenChange, onCreated, defaultUrl }: 
       const res = await scrape({ variables: { url: trimmed } });
       const info: ScrapedInfo = res.data?.scrapeProjectInfo;
       if (!info) throw new Error("No data returned");
-      setName(info.name ?? "");
-      setTagline(info.tagline ?? "");
-      setDescription(info.description ?? "");
-      setIconUrl(info.iconUrl ?? null);
-      setBannerUrl(info.bannerUrl ?? null);
-      setScreenshots(info.screenshots ?? []);
+      setName(clampText(info.name, 60));
+      setTagline(clampText(info.tagline, 80));
+      setDescription(clampText(info.description, 500));
+      setIconUrl(normalizeUrl(info.iconUrl));
+      setBannerUrl(normalizeUrl(info.bannerUrl));
+      setScreenshots((info.screenshots ?? []).map(normalizeUrl).filter(Boolean).slice(0, 8) as string[]);
       setProjectUrl(trimmed);
-      setGithubUrl(info.githubUrl ?? null);
+      setGithubUrl(normalizeUrl(info.githubUrl));
+      setTwitterUrl(normalizeUrl(info.twitterUrl));
+      setLinkedinUrl(normalizeUrl(info.linkedinUrl));
+      setFacebookUrl(normalizeUrl(info.facebookUrl));
+      setYoutubeUrl(normalizeUrl(info.youtubeUrl));
       setCategory(info.category ?? "WEB_APP");
       setType(info.isGithubRepo ? "GITHUB" : "PERSONAL");
-      setTags([...new Set([...(info.techStack ?? []), ...(info.githubTopics ?? [])])].slice(0, 8));
+      setTags(normalizeScrapedTags([...(info.techStack ?? []), ...(info.githubTopics ?? [])]));
       setStep("edit");
       toast.success("Scrape complete — review & ship");
     } catch (e: any) {
-      toast.error(e?.message ?? "Scrape failed. Try a different URL.");
+      toast.error(e?.graphQLErrors?.[0]?.message ?? e?.message ?? "Scrape failed. Try a different URL.");
     }
   }
 
@@ -331,19 +382,26 @@ export function AddProjectDialog({ open, onOpenChange, onCreated, defaultUrl }: 
       return;
     }
     try {
+      const normalizedTags = normalizeScrapedTags(tags);
       const res = await createProject({
         variables: {
           input: {
-            name: name.trim(),
-            tagline: tagline.trim(),
-            description: description.trim(),
+            name: clampText(name, 60),
+            tagline: clampText(tagline, 80),
+            description: clampText(description, 500),
             iconUrl: iconUrl ?? undefined,
+            bannerUrl: bannerUrl ?? undefined,
             projectUrl: projectUrl.trim() || undefined,
             githubUrl: githubUrl ?? undefined,
+            twitterUrl: twitterUrl ?? undefined,
+            linkedinUrl: linkedinUrl ?? undefined,
+            facebookUrl: facebookUrl ?? undefined,
+            youtubeUrl: youtubeUrl ?? undefined,
+            screenshots: screenshots.length > 0 ? screenshots : undefined,
             type,
             visibility,
             category,
-            tags,
+            tags: normalizedTags,
           },
         },
       });
@@ -353,7 +411,7 @@ export function AddProjectDialog({ open, onOpenChange, onCreated, defaultUrl }: 
       onOpenChange(false);
       onCreated(id);
     } catch (e: any) {
-      toast.error(e?.message ?? "Could not create project");
+      toast.error(e?.graphQLErrors?.[0]?.message ?? e?.message ?? "Could not create project");
     }
   }
 

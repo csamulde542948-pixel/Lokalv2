@@ -13,6 +13,9 @@ export interface CommentData {
   likedByMe: boolean;
   myReaction?: string | null;
   parentId: string | null;
+  rootPostId?: string | null;
+  depth?: number;
+  feedVisibility?: "THREAD_ONLY" | "MAIN_FEED" | "PROFILE_ONLY" | string;
   mentions?: string[];
   isEdited?: boolean;
   editHistory?: CommentEditEntry[];

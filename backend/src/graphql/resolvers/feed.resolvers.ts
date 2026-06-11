@@ -1056,6 +1056,13 @@ export const feedResolvers = {
         authorId: post.authorId,
         content: post.content,
         createdAt: post.createdAt,
+        postType: post.tags.some((entry: { tag?: { name?: string } }) => entry.tag?.name?.toLowerCase() === "roast")
+          ? "ROAST"
+          : "POST",
+        feedVisibility: "MAIN_FEED",
+        rootPostId: post.id,
+        parentPostId: null,
+        depth: 0,
         imageUrl: post.imageUrl,
         likesCount: post.likesCount,
         commentsCount: post.commentsCount,
@@ -1312,6 +1319,9 @@ export const feedResolvers = {
           authorId: user.id,
           content: safeContent,
           parentId: null,
+          rootPostId: input.postId,
+          depth: 1,
+          feedVisibility: "THREAD_ONLY",
           mentions: input.mentions ?? [],
         },
         include: {
@@ -1391,6 +1401,7 @@ export const feedResolvers = {
         include: { post: true },
       });
       if (!parent) throw new Error("Parent comment not found");
+      if (parent.postId !== input.postId) throw new Error("Reply parent does not belong to this post");
 
       const reply = await prisma.postComment.create({
         data: {
@@ -1398,6 +1409,9 @@ export const feedResolvers = {
           authorId: user.id,
           content: safeContent,
           parentId: input.parentId,
+          rootPostId: parent.rootPostId ?? parent.postId,
+          depth: (parent.depth ?? 1) + 1,
+          feedVisibility: "THREAD_ONLY",
           mentions: input.mentions ?? [],
         },
         include: {
@@ -2089,6 +2103,19 @@ export const feedResolvers = {
   },
 
   PostComment: {
+    rootPostId: (parent: { rootPostId?: string | null; postId?: string }) => {
+      return parent.rootPostId ?? parent.postId ?? null;
+    },
+
+    depth: (parent: { depth?: number | null; parentId?: string | null }) => {
+      if (typeof parent.depth === "number") return parent.depth;
+      return parent.parentId ? 2 : 1;
+    },
+
+    feedVisibility: (parent: { feedVisibility?: string | null }) => {
+      return parent.feedVisibility ?? "THREAD_ONLY";
+    },
+
     parent: async (
       parent: { parent?: any; parentId?: string | null },
       _: unknown,
