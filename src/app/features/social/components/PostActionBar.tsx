@@ -1,4 +1,4 @@
-import { MessageCircle, Share2 } from "lucide-react";
+import { Bookmark, BookmarkCheck, MessageCircle, Share2 } from "lucide-react";
 import type { ReactionOption } from "../reactions";
 import { ReactionButton } from "./ReactionButton";
 
@@ -19,6 +19,8 @@ interface PostActionBarProps {
   onReactionPickerMouseLeave?: () => void;
   onComment: () => void;
   onShare: () => void;
+  bookmarked?: boolean;
+  onBookmarkToggle?: () => void;
 }
 
 export function PostActionBar({
@@ -36,8 +38,14 @@ export function PostActionBar({
   onReactionPickerMouseLeave,
   onComment,
   onShare,
+  bookmarked = false,
+  onBookmarkToggle,
 }: PostActionBarProps) {
   const isModal = variant === "modal";
+  const runAction = (event: React.MouseEvent<HTMLButtonElement>, action: () => void) => {
+    event.stopPropagation();
+    action();
+  };
   const containerClassName = isModal ? "flex items-stretch flex-shrink-0" : "flex items-stretch";
   const actionClassName = isModal
     ? "flex-1 flex items-center justify-center gap-2 py-2.5 hover:bg-muted transition-colors text-muted-foreground hover:text-foreground font-semibold text-[13px]"
@@ -65,17 +73,30 @@ export function PostActionBar({
 
       <div className="w-px bg-border self-stretch" />
 
-      <button type="button" onClick={onComment} className={actionClassName}>
+      <button type="button" onClick={(event) => runAction(event, onComment)} className={actionClassName}>
         <MessageCircle className="w-[18px] h-[18px]" strokeWidth={2} />
         <span>Comment</span>
       </button>
 
       <div className="w-px bg-border self-stretch" />
 
-      <button type="button" onClick={onShare} className={actionClassName}>
+      <button type="button" onClick={(event) => runAction(event, onShare)} className={actionClassName}>
         <Share2 className="w-[18px] h-[18px]" strokeWidth={2} />
         <span>Share</span>
       </button>
+
+      {onBookmarkToggle && (
+        <>
+          <div className="w-px bg-border self-stretch" />
+
+          <button type="button" onClick={(event) => runAction(event, onBookmarkToggle)} className={actionClassName}>
+            {bookmarked
+              ? <BookmarkCheck className="w-[18px] h-[18px] fill-primary text-primary" strokeWidth={2} />
+              : <Bookmark className="w-[18px] h-[18px]" strokeWidth={2} />}
+            <span>Bookmark</span>
+          </button>
+        </>
+      )}
     </div>
   );
 }

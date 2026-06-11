@@ -152,9 +152,9 @@ export function PostCard({
     ? "overflow-hidden border border-primary/20 bg-gradient-to-br from-card via-card to-primary/5 shadow-sm rounded-xl gap-0"
     : `overflow-hidden border bg-card shadow-sm rounded-xl gap-0 relative ${full?.isPinnedToFeed ? "pt-6" : ""}`;
 
-  // Roast never showed pin/delete/not-interested in the original implementation.
+  // Roast cards keep their simpler menu, but owned roast posts can still be deleted.
   const menuHandlers = isRoast
-    ? { onDelete: undefined, onNotInterested: undefined, onPinToggle: undefined }
+    ? { onDelete: handleDelete, onNotInterested: undefined, onPinToggle: undefined }
     : { onDelete: handleDelete, onNotInterested: handleNotInterested,
         onPinToggle: () => { onPinToggle?.(); handlePinToggle(!!full?.isPinnedToFeed); } };
 
@@ -177,8 +177,6 @@ export function PostCard({
           onFollowToggle={toggleFollow}
           sharedFromAuthor={sharedFromAuthor}
           {...menuHandlers}
-          bookmarked={bookmarked}
-          onBookmarkToggle={() => setBookmarked((v) => !v)}
         />
 
         {/* ── Body ────────────────────────────────────────────────────────── */}
@@ -235,6 +233,8 @@ export function PostCard({
           onReactionPickerMouseLeave={onPickerMouseLeave}
           onComment={() => setShowComments((v) => !v)}
           onShare={() => setShareOpen(true)}
+          bookmarked={bookmarked}
+          onBookmarkToggle={() => setBookmarked((v) => !v)}
         />
 
         {/* ── Share dialog ──────────────────────────────────────────────── */}

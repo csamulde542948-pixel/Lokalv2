@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { Pin, Bookmark, BookmarkCheck, MoreHorizontal, Trash2, EyeOff, PinOff, Flame } from "lucide-react";
+import { Pin, MoreHorizontal, Trash2, EyeOff, PinOff, Flame } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "../../../components/ui/avatar";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
@@ -45,8 +45,6 @@ interface PostHeaderProps {
   onNotInterested?: () => void;
   onPinToggle?: () => void;
   /** Bookmark state — only rendered in `card` variant. */
-  bookmarked?: boolean;
-  onBookmarkToggle?: () => void;
 }
 
 /**
@@ -71,8 +69,6 @@ export function PostHeader({
   onDelete,
   onNotInterested,
   onPinToggle,
-  bookmarked = false,
-  onBookmarkToggle,
 }: PostHeaderProps) {
   const isModal = variant === "modal";
   const isPreview = variant === "preview";
@@ -87,6 +83,14 @@ export function PostHeader({
     : "flex items-center gap-3 px-4 py-3";
 
   const stopBubble = (e: React.MouseEvent) => e.stopPropagation();
+  const handleFollowClick = (e: React.MouseEvent) => {
+    stopBubble(e);
+    onFollowToggle?.();
+  };
+  const runMenuAction = (e: Event, action: () => void) => {
+    e.stopPropagation();
+    action();
+  };
 
   return (
     <>
@@ -112,15 +116,29 @@ export function PostHeader({
         </Link>
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1.5 min-w-0">
             <Link
               to={profileHref}
-              className="font-semibold text-sm hover:underline cursor-pointer leading-tight"
+              className="font-semibold text-sm hover:underline cursor-pointer leading-tight truncate"
               onClick={isModal ? undefined : stopBubble}
             >
               {authorName}
             </Link>
             {author.isVerified && <VerifiedBadge />}
+            <span className="text-muted-foreground text-xs flex-shrink-0">·</span>
+            <span className="text-xs text-muted-foreground flex-shrink-0">{timestamp}</span>
+
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+            {authorUsername && (
+              <Link
+                to={profileHref}
+                className="text-xs text-muted-foreground hover:underline leading-tight"
+                onClick={isModal ? undefined : stopBubble}
+              >
+                @{authorUsername}
+              </Link>
+            )}
 
             {isRoastPost ? (
               <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px] px-1.5 py-0 h-4 gap-1">
@@ -133,11 +151,6 @@ export function PostHeader({
               </Badge>
             ) : null}
           </div>
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5">
-            <span>{timestamp}</span>
-            <span>·</span>
-            <span className="text-[10px]">🌐</span>
-          </div>
         </div>
 
         {/* Right-side action cluster — skipped in preview mode and when hideActions. */}
@@ -148,7 +161,7 @@ export function PostHeader({
               isModal ? (
                 <FollowButton
                   isFollowing={!!isFollowing}
-                  onClick={onFollowToggle}
+                  onClick={handleFollowClick}
                   className={`flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-full border transition-colors flex-shrink-0 ${
                     isFollowing
                       ? "border-border text-muted-foreground hover:border-destructive hover:text-destructive"
@@ -158,40 +171,29 @@ export function PostHeader({
               ) : (
                 <FollowButton
                   isFollowing={!!isFollowing}
-                  onClick={onFollowToggle}
-                  className="gap-1.5 h-8 text-xs rounded-md px-2 text-primary hover:bg-primary/10"
-                  labelClassName="hidden sm:inline"
+                  onClick={handleFollowClick}
+                  className="gap-1.5 h-8 text-xs rounded-full border border-primary/30 px-3 text-primary hover:bg-primary/10"
+                  labelClassName="hidden sm:inline font-semibold"
                 />
               )
             )}
-
-            {/* Bookmark — card variant only. */}
-            {variant === "card" && onBookmarkToggle && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onBookmarkToggle}
-                className="rounded-full h-8 w-8 hover:bg-muted"
-                title={bookmarked ? "Remove bookmark" : "Save"}
-              >
-                {bookmarked
-                  ? <BookmarkCheck className="w-4 h-4 fill-primary text-primary" strokeWidth={2} />
-                  : <Bookmark className="w-4 h-4" strokeWidth={2} />}
-              </Button>
-            )}
-
             {/* Dropdown menu — only when at least one menu item is enabled. */}
             {(onDelete || onNotInterested || onPinToggle) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="rounded-full h-8 w-8 hover:bg-muted">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="rounded-full h-8 w-8 hover:bg-muted"
+                    onClick={stopBubble}
+                  >
                     <MoreHorizontal className="w-4 h-4" strokeWidth={2} />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
                   {onDelete && isOwnPost && (
                     <DropdownMenuItem
-                      onClick={onDelete}
+                      onSelect={(e) => runMenuAction(e, onDelete)}
                       className="gap-2 text-destructive focus:text-destructive cursor-pointer"
                     >
                       <Trash2 className="w-4 h-4" />Delete post
@@ -199,7 +201,7 @@ export function PostHeader({
                   )}
                   {onNotInterested && !isOwnPost && (
                     <DropdownMenuItem
-                      onClick={onNotInterested}
+                      onSelect={(e) => runMenuAction(e, onNotInterested)}
                       className="gap-2 cursor-pointer"
                     >
                       <EyeOff className="w-4 h-4" />Not interested
@@ -207,7 +209,7 @@ export function PostHeader({
                   )}
                   {onPinToggle && (
                     <DropdownMenuItem
-                      onClick={onPinToggle}
+                      onSelect={(e) => runMenuAction(e, onPinToggle)}
                       className="gap-2 cursor-pointer"
                     >
                       {isPinnedToFeed ? (
