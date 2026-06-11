@@ -2321,14 +2321,16 @@ async function fetchFallbackRecentPage(
   excludeIds: string[] = []
 ) {
   const decoded = decodeSocialCursor(cursor);
-  const rows = await prisma.post.findMany({
-    where: {
+  const windows = [14, 60, null] as const;
+  let rows: Array<{ id: string; createdAt: Date }> = [];
+
+  for (const days of windows) {
+    const baseWhere = {
       id: { notIn: excludeIds },
       visibility: "public",
       moderationStatus: "approved",
       isDeleted: false,
-      ...(viewerId ? { authorId: { not: viewerId } } : {}),
-      createdAt: { gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) },
+      ...(days ? { createdAt: { gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) } } : {}),
       ...(decoded
         ? {
             OR: [
@@ -2340,14 +2342,38 @@ async function fetchFallbackRecentPage(
             ],
           }
         : {}),
-    },
-    orderBy: [
-      { createdAt: "desc" },
-      { id: "desc" },
-    ],
-    take: limit + 1,
-    select: { id: true, createdAt: true },
-  });
+    };
+
+    rows = await prisma.post.findMany({
+      where: viewerId ? { ...baseWhere, authorId: { not: viewerId } } : baseWhere,
+      orderBy: [
+        { lastActivityAt: "desc" },
+        { engagementScore: "desc" },
+        { createdAt: "desc" },
+        { id: "desc" },
+      ],
+      take: limit + 1,
+      select: { id: true, createdAt: true },
+    });
+
+    if (rows.length > 0 || !viewerId) break;
+
+    // If there are no non-self posts, allow the user's own posts so the feed
+    // never appears broken for a brand-new/low-volume community.
+    rows = await prisma.post.findMany({
+      where: baseWhere,
+      orderBy: [
+        { lastActivityAt: "desc" },
+        { engagementScore: "desc" },
+        { createdAt: "desc" },
+        { id: "desc" },
+      ],
+      take: limit + 1,
+      select: { id: true, createdAt: true },
+    });
+
+    if (rows.length > 0) break;
+  }
 
   const sliced = rows.slice(0, limit);
   const posts = await fetchPostsForSocialFeed(
@@ -2443,10 +2469,13 @@ async function fetchForYouSocialFeed({
     return { ...fallbackPage, recommId: null };
   }
 
+  const coldStart = await isColdStartFeedUser(prisma, userId);
   const recommendation = await recommendPostIdsForUser({
     userId,
     count: limit + 1,
     recommId,
+    scenario: coldStart ? "cold_start" : "for_you",
+    coldStart,
   });
 
   let posts = await fetchPostsForSocialFeed(
@@ -2454,6 +2483,22 @@ async function fetchForYouSocialFeed({
     recommendation.ids.slice(0, limit + 1),
     userId
   );
+
+  if (posts.length < limit) {
+    const trendingRecommendation = await recommendPostIdsForUser({
+      userId,
+      count: limit + 1,
+      scenario: "trending",
+      coldStart: true,
+    });
+    const known = new Set(posts.map((post: any) => post.id));
+    const trendingPosts = await fetchPostsForSocialFeed(
+      prisma,
+      trendingRecommendation.ids.filter((id) => !known.has(id)).slice(0, limit + 1),
+      userId
+    );
+    posts = [...posts, ...trendingPosts];
+  }
 
   if (posts.length < limit) {
     const fallbackPage = await fetchFallbackRecentPage(
@@ -2478,6 +2523,21 @@ async function fetchForYouSocialFeed({
     nextCursor: null,
     recommId: recommendation.recommId,
   };
+}
+
+async function isColdStartFeedUser(prisma: any, userId: string) {
+  try {
+    const [likes, comments, views, impressions] = await Promise.all([
+      prisma.postLike.count({ where: { profileId: userId } }),
+      prisma.postComment.count({ where: { authorId: userId } }),
+      prisma.postView.count({ where: { viewerId: userId } }),
+      prisma.userPostImpression.count({ where: { userId } }).catch(() => 0),
+    ]);
+    return likes + comments + views + impressions < 5;
+  } catch (error) {
+    console.warn("[feed] cold-start signal check failed:", (error as any)?.message ?? error);
+    return false;
+  }
 }
 
 async function exploreFeed(

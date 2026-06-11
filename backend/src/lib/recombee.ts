@@ -51,8 +51,9 @@ type RecommendPostsOptions = {
   userId: string;
   count: number;
   recommId?: string | null;
-  scenario?: "for_you" | "following" | "social_feed";
+  scenario?: "for_you" | "following" | "trending" | "cold_start" | "social_feed";
   followingAuthorIds?: string[];
+  coldStart?: boolean;
 };
 
 type TrackInteractionInput = {
@@ -70,7 +71,27 @@ const RECOMBEE_REGION = process.env.RECOMBEE_REGION ?? "ap-se";
 const SOCIAL_SCENARIO = "social_feed";
 const FOR_YOU_SCENARIO = "social_for_you";
 const FOLLOWING_SCENARIO = "social_following";
+const TRENDING_SCENARIO = "social_trending";
+const COLD_START_SCENARIO = "social_cold_start";
+export const REQUIRED_RECOMBEE_SCENARIOS = [
+  SOCIAL_SCENARIO,
+  FOR_YOU_SCENARIO,
+  FOLLOWING_SCENARIO,
+  TRENDING_SCENARIO,
+  COLD_START_SCENARIO,
+] as const;
 const MAIN_FEED_FILTER = `'visibility' == "public" and 'isDeleted' == false and 'moderationStatus' == "approved" and 'feedVisibility' == "MAIN_FEED"`;
+const NEW_POST_BOOSTER = [
+  "if 'createdAt' > now() - 6*3600 then 3.0",
+  "else if 'createdAt' > now() - 24*3600 then 2.2",
+  "else if 'createdAt' > now() - 3*24*3600 then 1.5",
+  "else 1.0",
+].join(" ");
+const TRENDING_BOOSTER = [
+  NEW_POST_BOOSTER,
+  "* (if 'engagementScore' > 50 then 2.0 else if 'engagementScore' > 10 then 1.5 else 1.0)",
+  "* (if 'qualityScore' > 0.75 then 1.4 else if 'qualityScore' > 0.45 then 1.15 else 1.0)",
+].join(" ");
 const ITEM_PROPERTIES = [
   { name: "authorId", type: "string" },
   { name: "content", type: "string" },
@@ -256,12 +277,25 @@ export function createRecombeeRequests() {
   return requests;
 }
 
+export async function listRecombeeScenarios() {
+  const client = getClient();
+  if (!client) return [];
+  try {
+    const scenarios = await client.send(new requests.ListScenarios()) as Array<{ name?: string; id?: string }>;
+    return scenarios.map((scenario) => scenario.name ?? scenario.id).filter((name): name is string => Boolean(name));
+  } catch (error) {
+    console.error("[recombee] listRecombeeScenarios failed:", error);
+    return [];
+  }
+}
+
 export async function recommendPostIdsForUser({
   userId,
   count,
   recommId,
   scenario = "for_you",
   followingAuthorIds,
+  coldStart,
 }: RecommendPostsOptions): Promise<{ ids: string[]; recommId: string | null }> {
   const client = getClient();
   if (!client) return { ids: [], recommId: null };
@@ -277,15 +311,21 @@ export async function recommendPostIdsForUser({
     };
   };
 
+  const scenarioName =
+    scenario === "following" ? FOLLOWING_SCENARIO :
+    scenario === "trending" ? TRENDING_SCENARIO :
+    scenario === "cold_start" || coldStart ? COLD_START_SCENARIO :
+    scenario === "social_feed" ? SOCIAL_SCENARIO :
+    FOR_YOU_SCENARIO;
+  const followingFilter = followingAuthorIds?.length
+    ? ` and 'authorId' in {${followingAuthorIds.map((id) => `"${id}"`).join(",")}}`
+    : "";
+  const filter = `${MAIN_FEED_FILTER}${scenario === "following" ? followingFilter : ""}`;
+  const booster = scenario === "trending" || coldStart ? TRENDING_BOOSTER : NEW_POST_BOOSTER;
+  const minRelevance = coldStart || scenario === "trending" ? "low" : "medium";
+  const rotationRate = coldStart ? 0.08 : 0.18;
+
   try {
-    const scenarioName =
-      scenario === "following" ? FOLLOWING_SCENARIO :
-      scenario === "social_feed" ? SOCIAL_SCENARIO :
-      FOR_YOU_SCENARIO;
-    const followingFilter = followingAuthorIds?.length
-      ? ` and 'authorId' in {${followingAuthorIds.map((id) => `"${id}"`).join(",")}}`
-      : "";
-    const filter = `${MAIN_FEED_FILTER}${scenario === "following" ? followingFilter : ""}`;
     const response: RecombeeResponse = recommId
       ? ((await client.send(new requests.RecommendNextItems(recommId, count))) as RecombeeResponse)
       : ((await client.send(
@@ -293,8 +333,10 @@ export async function recommendPostIdsForUser({
             cascadeCreate: true,
             scenario: scenarioName,
             filter,
-            minRelevance: "medium",
-            rotationRate: 0.35,
+            booster,
+            minRelevance,
+            diversity: 0.25,
+            rotationRate,
             rotationTime: 3600,
           })
         )) as RecombeeResponse);
@@ -307,9 +349,11 @@ export async function recommendPostIdsForUser({
         const response = (await client.send(
           new requests.RecommendItemsToUser(userId, count, {
             cascadeCreate: true,
-            filter: MAIN_FEED_FILTER,
+            filter,
+            booster,
             minRelevance: "low",
-            rotationRate: 0.35,
+            diversity: 0.2,
+            rotationRate: 0.12,
             rotationTime: 3600,
           })
         )) as RecombeeResponse;

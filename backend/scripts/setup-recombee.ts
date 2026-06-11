@@ -4,7 +4,9 @@ import {
   bootstrapRecombeeCatalog,
   createRecombeeRequests,
   isRecombeeConfigured,
+  listRecombeeScenarios,
   recommendPostIdsForUser,
+  REQUIRED_RECOMBEE_SCENARIOS,
   sendRecombeeBatch,
 } from "../src/lib/recombee";
 import { inferPostMetadata } from "../src/services/postIntelligence.service";
@@ -239,6 +241,24 @@ async function smokeRecommendation() {
   console.log(`[recombee:setup] smoke recommendations: ${result.ids.length}`);
 }
 
+async function reportScenarioSetup() {
+  const existing = await listRecombeeScenarios();
+  const existingSet = new Set(existing);
+  const missing = REQUIRED_RECOMBEE_SCENARIOS.filter((name) => !existingSet.has(name));
+
+  console.log("[recombee:setup] scenarios", {
+    required: REQUIRED_RECOMBEE_SCENARIOS,
+    existing,
+    missing,
+  });
+
+  if (missing.length > 0) {
+    console.log(
+      "[recombee:setup] create missing scenarios in Recombee Admin UI for per-scenario analytics/tuning; runtime requests still use request-level filters/boosters and fallback safely."
+    );
+  }
+}
+
 async function main() {
   if (!isRecombeeConfigured()) {
     throw new Error("Recombee is not configured. Set RECOMBEE_DATABASE_ID and RECOMBEE_PRIVATE_TOKEN.");
@@ -246,6 +266,7 @@ async function main() {
 
   console.log("[recombee:setup] bootstrapping properties");
   await bootstrapRecombeeCatalog();
+  await reportScenarioSetup();
 
   const userCount = await syncUsers();
   const postCount = await syncPosts();
