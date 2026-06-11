@@ -8,7 +8,7 @@ import { Checkbox } from "../components/ui/checkbox";
 import { useAuth } from "../../contexts/AuthContext";
 import { AsciiFireAnimation, ScrambleLine, useScramble } from "../components/ascii-fire";
 
-const ROAST_MAINTENANCE = import.meta.env.PROD;
+const ROAST_MAINTENANCE = false;
 
 // ─── GraphQL ─────────────────────────────────────────────────────────────────
 
