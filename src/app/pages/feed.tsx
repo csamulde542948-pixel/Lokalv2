@@ -38,6 +38,7 @@ const GET_SOCIAL_FEED = gql`
           username
           avatarUrl
           isVerified
+          isFollowedByMe
         }
       }
       hasMore
@@ -237,6 +238,7 @@ export function Feed() {
               post={post}
               onOpenPost={(nextPost) => navigate(`/post/${nextPost.id}`)}
               onOpenComments={setCommentPost}
+              onDeleted={(postId) => setPosts((current) => current.filter((item) => item.id !== postId))}
             />
           ))}
 
