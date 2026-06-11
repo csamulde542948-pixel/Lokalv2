@@ -1398,15 +1398,16 @@ export const feedResolvers = {
       });
       if (!parent) throw new Error("Parent comment not found");
       if (parent.postId !== input.postId) throw new Error("Reply parent does not belong to this post");
+      const flatParentId = parent.parentId ?? parent.id;
 
       const reply = await prisma.postComment.create({
         data: {
           postId: input.postId,
           authorId: user.id,
           content: safeContent,
-          parentId: input.parentId,
+          parentId: flatParentId,
           rootPostId: parent.rootPostId ?? parent.postId,
-          depth: (parent.depth ?? 1) + 1,
+          depth: 2,
           feedVisibility: "THREAD_ONLY",
           mentions: input.mentions ?? [],
         },
@@ -1414,10 +1415,7 @@ export const feedResolvers = {
           author: { include: { rank: true } },
           post: true,
           editHistory: { orderBy: { editedAt: "desc" } },
-          replies: {
-            include: { author: { include: { rank: true } } },
-            orderBy: { createdAt: "asc" },
-          },
+          _count: { select: { replies: true } },
         },
       });
 
@@ -2096,14 +2094,6 @@ export const feedResolvers = {
               author: { include: { rank: true } },
               editHistory: { orderBy: { editedAt: "desc" } },
               _count: { select: { replies: true } },
-              replies: {
-                orderBy: { createdAt: "asc" },
-                include: {
-                  author: { include: { rank: true } },
-                  editHistory: { orderBy: { editedAt: "desc" } },
-                  _count: { select: { replies: true } },
-                },
-              },
             },
           },
         },
@@ -2213,14 +2203,6 @@ export const feedResolvers = {
           author: { include: { rank: true } },
           editHistory: { orderBy: { editedAt: "desc" } },
           _count: { select: { replies: true } },
-          replies: {
-            orderBy: { createdAt: "asc" },
-            include: {
-              author: { include: { rank: true } },
-              editHistory: { orderBy: { editedAt: "desc" } },
-              _count: { select: { replies: true } },
-            },
-          },
         },
       });
     },

@@ -97,11 +97,6 @@ export const GET_COMMENT_REPLIES = gql`
       id content likesCount likedByMe myReaction parentId createdAt isEdited mentions repliesCount
       editHistory { id previousContent editedAt }
       author { id name displayName username avatarUrl }
-      replies {
-        id content likesCount likedByMe myReaction parentId createdAt isEdited mentions repliesCount
-        editHistory { id previousContent editedAt }
-        author { id name displayName username avatarUrl }
-      }
     }
   }
 `;

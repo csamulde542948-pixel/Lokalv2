@@ -92,20 +92,19 @@ export function useCommentComposer({
   async function handleReply(text: string, mentions?: string[]) {
     if (!text.trim() || !postId || !replyingTo || !isAuthenticated) return;
 
-    const parentId = replyingTo.id;
-    const visualParentId = replyingTo.visualParentId;
-    const topId = replyingTo.topLevelId ?? parentId;
+    const topId = replyingTo.topLevelId ?? replyingTo.id;
+    const parentId = topId;
     const temp = makeOptimisticComment({
       id: `temp-reply-${Date.now()}`,
       content: text,
       parentId,
       rootPostId: postId,
-      depth: visualParentId ? 3 : 2,
+      depth: 2,
       mentions: mentions ?? [],
       user: optimisticAuthor as any,
     });
 
-    setComments((prev) => appendReply(prev, { parentId, visualParentId, topLevelId: topId }, temp));
+    setComments((prev) => appendReply(prev, { parentId, topLevelId: topId }, temp));
     setCommentCount((count) => count + 1);
     setReplyingTo(null);
     setSubmittingReplyId(parentId);

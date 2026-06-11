@@ -37,23 +37,13 @@ export function appendReply(
   placement: ReplyPlacement,
   reply: CommentData
 ): CommentData[] {
-  const { parentId, visualParentId } = placement;
+  const { parentId } = placement;
   const topLevelId = placement.topLevelId ?? parentId;
 
   return comments.map((comment) => {
-    if (!visualParentId) {
-      return comment.id === parentId
-        ? { ...comment, replies: [...comment.replies, reply] }
-        : comment;
-    }
-
-    if (comment.id !== topLevelId) return comment;
-    return {
-      ...comment,
-      replies: comment.replies.map((child) =>
-        child.id === visualParentId ? { ...child, replies: [...child.replies, reply] } : child
-      ),
-    };
+    return comment.id === topLevelId
+      ? { ...comment, replies: [...comment.replies, { ...reply, replies: [] }] }
+      : comment;
   });
 }
 

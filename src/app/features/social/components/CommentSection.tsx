@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useLazyQuery } from "@apollo/client/react";
-import { X as XIcon, MessageCircle, Loader2 } from "lucide-react";
+import { X as XIcon, MessageSquare, Loader2 } from "lucide-react";
 import { CommentInput } from "./CommentInput";
 import { CommentItem } from "./CommentItem";
 import { adaptComment } from "../adapters";
@@ -257,7 +257,7 @@ export function CommentSection({
           )}
           {!commentsLoading && !commentsError && localComments.length === 0 && commentsFetchedRef.current && (
             <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-2">
-              <MessageCircle className="w-8 h-8 opacity-20" strokeWidth={1.5} />
+              <MessageSquare className="w-8 h-8 opacity-20" strokeWidth={1.5} />
               <p className="text-xs">No comments yet. Be the first!</p>
             </div>
           )}

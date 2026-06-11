@@ -1,4 +1,4 @@
-import { Bookmark, BookmarkCheck, MessageCircle, Share2 } from "lucide-react";
+import { Bookmark, BookmarkCheck, MessageSquare, Share2 } from "lucide-react";
 import type { ReactionOption } from "../reactions";
 import { ReactionButton } from "./ReactionButton";
 
@@ -74,7 +74,7 @@ export function PostActionBar({
       <div className="w-px bg-border self-stretch" />
 
       <button type="button" onClick={(event) => runAction(event, onComment)} className={actionClassName}>
-        <MessageCircle className="w-[18px] h-[18px]" strokeWidth={2} />
+        <MessageSquare className="w-[18px] h-[18px]" strokeWidth={2} />
         <span>Comment</span>
       </button>
 

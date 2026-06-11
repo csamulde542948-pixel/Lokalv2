@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Link } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useMutation } from "@apollo/client/react";
-import { BadgeCheck, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Flame, MessageCircle, MoreHorizontal, Repeat2, Trash2, UserCheck, UserPlus, X } from "lucide-react";
+import { BadgeCheck, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Flame, MessageSquare, MoreHorizontal, Repeat2, Trash2, UserCheck, UserPlus, X } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "../../../components/ui/avatar";
 import { Button } from "../../../components/ui/button";
 import {
@@ -531,7 +531,7 @@ export function TimelinePost({ post, className = "", onOpenPost, onOpenComments,
               className="group inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-sky-500"
             >
               <span className="inline-flex h-8 w-8 items-center justify-center rounded-full group-hover:bg-sky-500/10">
-                <MessageCircle className="h-4 w-4" />
+                <MessageSquare className="h-4 w-4" />
               </span>
               <span className="tabular-nums">{commentCount}</span>
             </button>

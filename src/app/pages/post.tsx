@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useQuery } from "@apollo/client/react";
-import { ArrowLeft, Loader2, MessageCircle } from "lucide-react";
+import { ArrowLeft, Loader2, MessageSquare } from "lucide-react";
 import { LeftSidebar } from "../components/left-sidebar";
 import { RightSidebar } from "../components/right-sidebar";
 import { Button } from "../components/ui/button";
@@ -104,7 +104,7 @@ export function PostPage() {
           {!loading && !error && !post && (
             <div className="px-8 py-16 text-center">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                <MessageCircle className="h-5 w-5" />
+                <MessageSquare className="h-5 w-5" />
               </div>
               <h2 className="mt-4 text-lg font-semibold">Post not found</h2>
               <p className="mt-2 text-sm text-muted-foreground">It may have been deleted or moved.</p>
@@ -125,8 +125,6 @@ export function PostPage() {
                 initialComments={[]}
                 mode="always"
                 composerPlacement="top"
-                onOpenComment={(commentId) => navigate(`/comment/${commentId}`)}
-                showNestedReplies={false}
                 onCountChange={setCommentCount}
               />
             </>

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { ArrowLeft, BadgeCheck, Flame, Loader2, MessageCircle, Repeat2 } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Flame, Loader2, MessageSquare } from "lucide-react";
 import { LeftSidebar } from "../components/left-sidebar";
 import { RightSidebar } from "../components/right-sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
@@ -158,14 +158,6 @@ function FocusedCommentCard({
     }
   }
 
-  function handleShare() {
-    const shareUrl = `${window.location.origin}/comment/${comment.id}`;
-    const authorName = comment.author.displayName ?? comment.author.name ?? `@${comment.author.username}`;
-    const text = `${authorName} replied on lokalhost.club\n\n${comment.content.slice(0, 220)}`;
-    const intent = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
-    window.open(intent, "_blank", "noopener,noreferrer");
-  }
-
   return (
     <article className="border-b px-4 py-4 transition-colors hover:bg-muted/25">
       <div className="flex items-start gap-3">
@@ -197,14 +189,14 @@ function FocusedCommentCard({
             {comment.content}
           </p>
 
-          <div className="mt-3 grid max-w-md grid-cols-3 text-muted-foreground">
+          <div className="mt-3 grid max-w-xs grid-cols-2 text-muted-foreground">
             <button
               type="button"
               onClick={onReplyClick}
               className="group inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-sky-500"
             >
               <span className="inline-flex h-8 w-8 items-center justify-center rounded-full group-hover:bg-sky-500/10">
-                <MessageCircle className="h-4 w-4" />
+                <MessageSquare className="h-4 w-4" />
               </span>
               <span className="tabular-nums">{comment.repliesCount}</span>
             </button>
@@ -219,16 +211,6 @@ function FocusedCommentCard({
                 <Flame className={`h-4 w-4 ${liked ? "fill-current" : ""}`} />
               </span>
               <span className="tabular-nums">{likes}</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleShare}
-              className="group inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-green-500"
-            >
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full group-hover:bg-green-500/10">
-                <Repeat2 className="h-4 w-4" />
-              </span>
-              <span className="sr-only">Share</span>
             </button>
           </div>
         </div>
@@ -375,7 +357,7 @@ export function CommentPage() {
 
           {!loading && !error && !comment && (
             <div className="px-8 py-16 text-center">
-              <MessageCircle className="mx-auto h-8 w-8 text-muted-foreground" />
+              <MessageSquare className="mx-auto h-8 w-8 text-muted-foreground" />
               <h2 className="mt-4 text-lg font-semibold">Reply not found</h2>
               <p className="mt-2 text-sm text-muted-foreground">It may have been deleted or moved.</p>
             </div>

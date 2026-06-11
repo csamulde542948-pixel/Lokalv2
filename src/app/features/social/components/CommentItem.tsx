@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { useLazyQuery } from "@apollo/client/react";
-import { Flame, History, MessageCircle, MoreHorizontal, Pencil, Trash2, X as XIcon } from "lucide-react";
+import { Flame, History, MessageSquare, MoreHorizontal, Pencil, Trash2, X as XIcon } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "../../../components/ui/avatar";
 import {
   DropdownMenu,
@@ -10,8 +9,6 @@ import {
   DropdownMenuTrigger,
 } from "../../../components/ui/dropdown-menu";
 import { avatarSrc } from "../../../../lib/defaults";
-import { GET_COMMENT_REPLIES } from "../graphql";
-import { adaptComment } from "../adapters";
 import { timeAgo } from "../time";
 import type { CommentData } from "../types";
 
@@ -27,7 +24,6 @@ export function CommentItem({
   showNestedReplies = true,
   depth = 0,
   topLevelParentId,
-  depth1ParentId,
 }: {
   comment: CommentData;
   currentUserId?: string;
@@ -40,7 +36,6 @@ export function CommentItem({
   showNestedReplies?: boolean;
   depth?: number;
   topLevelParentId?: string; // id of the root (depth-0) comment this thread belongs to
-  depth1ParentId?: string;   // id of the depth-1 ancestor (set when depth === 2)
 }) {
   const isOwn = comment.author?.id === currentUserId;
   const [localLiked, setLocalLiked] = useState(comment.likedByMe);
@@ -101,62 +96,31 @@ export function CommentItem({
     ? `/profile/${comment.author.username}`
     : "/profile";
 
-  // API parent: the direct parent comment ID to store in DB
-  //   depth-0 reply  → parentId = this comment (depth-1 in DB)
-  //   depth-1 reply  → parentId = this comment (depth-2 in DB, nested under depth-1)
-  //   depth-2 reply  → parentId = depth1ParentId (stays at depth-2 in DB, appended to same depth-1)
-  const replyApiParentId =
-    depth === 0 ? comment.id
-    : depth === 1 ? comment.id
-    : (depth1ParentId ?? topLevelParentId ?? comment.id);
-  // Visual parent: ensures the new reply is nested under the correct depth-1 item
-  //   depth-0 reply  → no visual parent needed (goes flat into top-level.replies[])
-  //   depth-1 reply  → visual parent = this comment (nest under me)
-  //   depth-2 reply  → visual parent = my depth-1 ancestor (stay in same thread)
-  const replyVisualParentId =
-    depth === 1 ? comment.id
-    : depth === 2 ? (depth1ParentId ?? undefined)
-    : undefined;
-
-  // Visible replies: cap at SUB_REPLY_LIMIT for depth < 2
-  // At depth-0, replies are collapsed until user clicks "View replies"
-  // At depth 1+, replies are shown immediately (already inside an expanded thread)
+  // Replies stay flat: replying to a reply still attaches to the top-level
+  // comment so the UI can show all replies inside one parent comment card.
+  const rootCommentId = topLevelParentId ?? comment.id;
+  const replyApiParentId = rootCommentId;
+  // Direct replies are collapsed until the user opens them.
   const [repliesExpanded, setRepliesExpanded] = useState(false);
 
-  const [fetchReplies, { data: repliesData, loading: repliesQueryLoading }] = useLazyQuery(GET_COMMENT_REPLIES, {
-    fetchPolicy: "network-only",
-  });
-
-  // Derive fetched replies from query data
-  const fetchedReplies: CommentData[] = (repliesData?.commentReplies ?? []).map(adaptComment);
-
-  // Effective replies: prefer fetched data, fall back to pre-loaded replies on the comment
-  const effectiveReplies = fetchedReplies.length > 0 ? fetchedReplies : comment.replies;
-  const lazyRepliesLoading = repliesQueryLoading;
+  const effectiveReplies = comment.replies;
 
   function handleExpandReplies() {
     setRepliesExpanded(true);
-    // Only fetch if we don't already have data loaded
-    if (fetchedReplies.length === 0 && comment.replies.length === 0 && comment.repliesCount > 0) {
-      fetchReplies({ variables: { commentId: comment.id, limit: 20, offset: 0 } });
-    }
   }
 
-  const visibleReplies = depth <= 1
-    ? (repliesExpanded
-        ? (showAllSubReplies ? effectiveReplies : effectiveReplies.slice(0, SUB_REPLY_LIMIT))
-        : [])
-    : (showAllSubReplies ? effectiveReplies : effectiveReplies.slice(0, SUB_REPLY_LIMIT));
+  const visibleReplies = repliesExpanded
+    ? (showAllSubReplies ? effectiveReplies : effectiveReplies.slice(0, SUB_REPLY_LIMIT))
+    : [];
 
   const hasMoreReplies = effectiveReplies.length > SUB_REPLY_LIMIT;
-  const hasReplies = effectiveReplies.length > 0 || comment.repliesCount > 0;
+  const hasReplies = effectiveReplies.length > 0;
 
   return (
     <>
       {/* ── Comment row ─────────────────────────────────────────────── */}
       <div
-        className={`flex gap-3 group relative ${onOpenComment ? "cursor-pointer" : ""}`}
-        onClick={() => onOpenComment?.(comment.id)}
+        className="flex gap-3 group relative"
       >
 
         {/* Avatar column — contains avatar + optional vertical line below it */}
@@ -281,14 +245,14 @@ export function CommentItem({
                   onReply(
                     replyApiParentId,
                     comment.author?.name ?? "",
-                    replyVisualParentId,
-                    depth >= 1 ? topLevelParentId : undefined,
+                    undefined,
+                    rootCommentId,
                   );
                 }}
                 className="group inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-sky-500"
               >
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-full group-hover:bg-sky-500/10">
-                  <MessageCircle className="h-4 w-4" />
+                  <MessageSquare className="h-4 w-4" />
                 </span>
                 <span className="tabular-nums">{comment.repliesCount}</span>
               </button>
@@ -350,10 +314,6 @@ export function CommentItem({
             )}
 
             {/* ── Loading indicator for lazy-loaded replies ── */}
-            {lazyRepliesLoading && (
-              <div className="text-[11px] text-muted-foreground py-1">Loading replies…</div>
-            )}
-
             {/* ── Expanded replies list ── */}
             {visibleReplies.map((reply) => (
               <CommentItem
@@ -365,11 +325,10 @@ export function CommentItem({
                 onReply={onReply}
                 onLikeToggle={onLikeToggle}
                 onEdit={onEdit}
-                onOpenComment={onOpenComment}
+                onOpenComment={undefined}
                 showNestedReplies={showNestedReplies}
                 depth={depth + 1}
-                topLevelParentId={depth === 0 ? comment.id : topLevelParentId}
-                depth1ParentId={depth === 0 ? reply.id : comment.id}
+                topLevelParentId={rootCommentId}
               />
             ))}
 
