@@ -41,17 +41,12 @@ export const roastResolvers = {
 
     /**
      * roastStats — all-time platform totals for the rotating category
-     * counter on the roast landing page. Counts from both legacy `roasts`
-     * (published/submitted roasts) and `roast_generations` (AI generation
-     * records) so historic data is included. No auth — public numbers.
+     * counter on the roast landing page. Two cheap indexed COUNT(*)
+     * queries in parallel. No auth — public numbers.
      */
     roastStats: async (_: unknown, __: unknown, { prisma }: GraphQLContext) => {
       const [totalRoasts, totalBrandAnalyses] = await Promise.all([
-        prisma.$queryRaw<{ count: number }[]>`
-          SELECT COUNT(*) as count FROM public.roasts
-          UNION ALL
-          SELECT COUNT(*) as count FROM public.roast_generations
-        `.then((rows) => (Number(rows[0]?.count ?? 0) + Number(rows[1]?.count ?? 0))),
+        prisma.roastGeneration.count(),
         prisma.brandAnalysis.count(),
       ]);
       return { totalRoasts, totalBrandAnalyses };
@@ -122,33 +117,13 @@ export const roastResolvers = {
       return rows[0] ?? null;
     },
 
-    recentRoastGenerations: async (
+recentRoastGenerations: async (
       _: unknown,
       { limit = 10 }: { limit?: number },
       { prisma }: GraphQLContext
     ) => {
       const take = Math.min(Math.max(limit, 1), 10);
-      // Merge legacy `roasts` (published roasts) with `roast_generations` (AI
-      // generations) so historic data still shows up on the landing page.
       return prisma.$queryRaw`
-        SELECT
-          id,
-          "profileId",
-          "projectUrl",
-          "canonicalUrl",
-          "projectName",
-          title,
-          "quickRoast",
-          "fullRoast",
-          'taglish' as language,
-          "screenshotUrl",
-          "faviconUrl",
-          "ogImageUrl",
-          NULL as "publishedRoastId",
-          "createdAt" as "publishedAt",
-          "createdAt"
-        FROM public.roasts
-        UNION ALL
         SELECT
           id,
           "profileId",
