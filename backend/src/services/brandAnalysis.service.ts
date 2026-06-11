@@ -351,7 +351,7 @@ Be specific, formal, and useful for a founder/designer. The style should be clos
   }
 
   if (!content) {
-    throw new Error("DeepSeek returned empty brand analysis content. Please try again shortly.");
+    throw new Error("NVIDIA returned empty brand analysis content. Please try again shortly.");
   }
   return content.trim();
 }

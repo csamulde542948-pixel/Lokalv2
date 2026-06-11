@@ -1,698 +1,275 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { useSearchParams } from "react-router";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import { gql } from "@apollo/client/core";
-import { useQuery, useMutation } from "@apollo/client/react";
-import { useWindowVirtualizer } from "@tanstack/react-virtual";
+import { useMutation, useQuery } from "@apollo/client/react";
+import { ImageIcon, Loader2 } from "lucide-react";
 import { CreatePost } from "../components/create-post";
-import { PostCard } from "../components/post-card";
-import { VerifiedBadge } from "../features/social/components/VerifiedBadge";
-// import { RoastedPostCard } from "../components/roasted-post-card";
-import { RoastedProjectCard, FeedPost } from "../components/roasted-project-card";
 import { LeftSidebar } from "../components/left-sidebar";
 import { RightSidebar } from "../components/right-sidebar";
-import { FeaturedProjects } from "../components/featured-projects";
-import { FeaturedProjectCard, FeaturedProject } from "../components/featured-project-card";
-import { Separator } from "../components/ui/separator";
+import { Button } from "../components/ui/button";
 import { Skeleton } from "../components/ui/skeleton";
-import { avatarSrc } from "../../lib/defaults";
-import { PostModal } from "../components/post-modal";
-import { Pin } from "lucide-react";
-import { useAuth } from "../../contexts/AuthContext";
-import { adaptPost } from "../features/social/adapters";
-import { useMeProfile } from "../features/social/hooks/useMeProfile";
-import { ALL_FRAGMENTS } from "../features/social/graphql";
+import { CommentModal } from "../features/social/components/CommentModal";
+import { TimelinePost, type TimelinePostData } from "../features/social/components/TimelinePost";
 
-// ─── GraphQL ─────────────────────────────────────────────────────────────────
-
-const GET_FEED = gql`
-  query GetFeed($first: Int, $after: String, $seenIds: [ID!], $feedVariant: String, $sessionId: String) {
-    feed(first: $first, after: $after, seenIds: $seenIds, feedVariant: $feedVariant, sessionId: $sessionId) {
-      posts { ...PostCardFields }
-      pageInfo { hasNextPage endCursor }
+const GET_SOCIAL_FEED = gql`
+  query GetSocialFeed($tab: SocialFeedTab!, $limit: Int, $cursor: String, $recommId: String) {
+    socialFeed(tab: $tab, limit: $limit, cursor: $cursor, recommId: $recommId) {
+      posts {
+        id
+        content
+        imageUrl
+        imageUrls
+        projectName
+        postType
+        tags {
+          id
+          name
+        }
+        likesCount
+        commentsCount
+        sharesCount
+        likedByMe
+        myReaction
+        createdAt
+        author {
+          id
+          name
+          displayName
+          username
+          avatarUrl
+          isVerified
+        }
+      }
       hasMore
-      feedVariant
-      sessionId
+      nextCursor
+      recommId
     }
   }
-  ${ALL_FRAGMENTS}
 `;
 
 const CREATE_POST_MUTATION = gql`
-  mutation CreateFeedPost($input: CreatePostInput!) {
+  mutation CreateFeedPostV2($input: CreatePostInput!) {
     createPost(input: $input) {
       id
-      content
-      imageUrl
-      imageUrls
-      projectName
-      likesCount
-      commentsCount
-      sharesCount
-      likedByMe
-      postType
-      createdAt
-      author { id name displayName username avatarUrl }
-      tags { id name }
-      originalPost {
-        id content imageUrl imageUrls projectName postType
-        tags { id name } createdAt
-        author { id name displayName username avatarUrl }
-        roastReactedByMe roastReactionCount
-      }
     }
   }
 `;
 
-const RECORD_POST_VIEW = gql`
-  mutation RecordPostView($postId: ID!, $dwellMs: Int!, $source: String, $feedVariant: String, $position: Int, $sessionId: String) {
-    recordPostView(postId: $postId, dwellMs: $dwellMs, source: $source, feedVariant: $feedVariant, position: $position, sessionId: $sessionId)
-  }
-`;
+type FeedTab = "FOR_YOU" | "FOLLOWING";
 
-const GET_PINNED_POST = gql`
-  query GetPinnedPost {
-    pinnedPost { ...PostCardFields }
-  }
-  ${ALL_FRAGMENTS}
-`;
-
-// ─── Post view tracking ──────────────────────────────────────────────────────
-
-/**
- * Wraps a post element and fires `recordPostView` when the post has been
- * in the viewport for ≥ 1 second. Only fires once per session per post.
- */
-function PostViewTracker({
-  postId,
-  position,
-  children,
-  recordView,
-}: {
-  postId: string;
-  position: number;
-  children: React.ReactNode;
-  recordView: (postId: string, dwellMs: number, position: number) => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const enteredAt = useRef<number | null>(null);
-  const firedRef = useRef(false);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || firedRef.current) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          enteredAt.current = Date.now();
-        } else if (enteredAt.current) {
-          const dwellMs = Date.now() - enteredAt.current;
-          enteredAt.current = null;
-          if (dwellMs >= 1000 && !firedRef.current) {
-            firedRef.current = true;
-            recordView(postId, dwellMs, position);
-          }
-        }
-      },
-      { threshold: 0.5 }
-    );
-
-    observer.observe(el);
-
-    // P1 #4: Pause dwell when tab is hidden, resume when visible
-    // Prevents inflated dwell times when users switch tabs
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        // Tab hidden — flush accumulated dwell time
-        if (enteredAt.current && !firedRef.current) {
-          const dwellMs = Date.now() - enteredAt.current;
-          enteredAt.current = null;
-          if (dwellMs >= 1000) {
-            firedRef.current = true;
-            recordView(postId, dwellMs, position);
-          }
-        }
-      } else {
-        // Tab visible again — restart tracking if post is still intersecting
-        if (!firedRef.current && el) {
-          const rect = el.getBoundingClientRect();
-          const viewportH = window.innerHeight;
-          const visibleRatio = Math.max(0, Math.min(rect.bottom, viewportH) - Math.max(rect.top, 0)) / rect.height;
-          if (visibleRatio >= 0.5) {
-            enteredAt.current = Date.now();
-          }
-        }
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      observer.disconnect();
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [postId, position, recordView]);
-
-  return <div ref={ref}>{children}</div>;
+interface SocialFeedData {
+  socialFeed: {
+    posts: TimelinePostData[];
+    hasMore: boolean;
+    nextCursor: string | null;
+    recommId: string | null;
+  };
 }
 
-// ─── Post skeleton loader ─────────────────────────────────────────────────────
-
-/**
- * Variant A — Standard text post (avatar + 3 lines + action bar)
- */
-function PostSkeletonA() {
+function FeedTabs({ value, onChange }: { value: FeedTab; onChange: (tab: FeedTab) => void }) {
   return (
-    <div className="rounded-lg border bg-card overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3">
-        <Skeleton className="w-10 h-10 rounded-full flex-shrink-0" />
-        <div className="flex-1 space-y-1.5 min-w-0">
-          <div className="flex items-center gap-2">
+    <div className="sticky top-16 z-20 border-b bg-background/90 backdrop-blur">
+      <div className="grid grid-cols-2">
+        {[
+          ["FOR_YOU", "For You"],
+          ["FOLLOWING", "Following"],
+        ].map(([tab, label]) => {
+          const selected = value === tab;
+          return (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => onChange(tab as FeedTab)}
+              className="relative h-13 text-sm font-semibold transition-colors hover:bg-muted/60"
+            >
+              <span className={selected ? "text-foreground" : "text-muted-foreground"}>{label}</span>
+              {selected && (
+                <span className="absolute bottom-0 left-1/2 h-1 w-14 -translate-x-1/2 rounded-full bg-primary" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function FeedSkeletonPost() {
+  return (
+    <article className="border-b px-4 py-4">
+      <div className="flex gap-3">
+        <Skeleton className="h-10 w-10 rounded-full" />
+        <div className="flex-1 space-y-3">
+          <div className="flex gap-2">
             <Skeleton className="h-3 w-28" />
-            <Skeleton className="h-4 w-16 rounded-md" />
+            <Skeleton className="h-3 w-16" />
           </div>
-          <Skeleton className="h-2.5 w-20" />
-        </div>
-        <Skeleton className="h-7 w-20 rounded-md flex-shrink-0" />
-      </div>
-
-      {/* Body — 3 lines of text */}
-      <div className="px-4 pb-3 space-y-2">
-        <Skeleton className="h-3 w-full" />
-        <Skeleton className="h-3 w-[90%]" />
-        <Skeleton className="h-3 w-[65%]" />
-      </div>
-
-      {/* Stats row */}
-      <div className="px-4 py-2 flex items-center justify-between">
-        <Skeleton className="h-2.5 w-12" />
-        <div className="flex gap-3">
-          <Skeleton className="h-2.5 w-16" />
-          <Skeleton className="h-2.5 w-12" />
+          <div className="space-y-2">
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-[84%]" />
+            <Skeleton className="h-3 w-[56%]" />
+          </div>
+          <Skeleton className="aspect-[16/9] w-full rounded-2xl" />
         </div>
       </div>
-
-      {/* Action bar */}
-      <div className="border-t flex">
-        {[...Array(3)].map((_, i) => (
-          <div key={i} className="flex-1 flex items-center justify-center gap-2 py-2.5 border-r last:border-r-0">
-            <Skeleton className="h-4 w-4 rounded" />
-            <Skeleton className="h-2.5 w-10" />
-          </div>
-        ))}
-      </div>
-    </div>
+    </article>
   );
 }
-
-/**
- * Variant B — Post with image banner (like a project share with cover photo)
- */
-function PostSkeletonB() {
-  return (
-    <div className="rounded-lg border bg-card overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3">
-        <Skeleton className="w-10 h-10 rounded-full flex-shrink-0" />
-        <div className="flex-1 space-y-1.5">
-          <Skeleton className="h-3 w-36" />
-          <Skeleton className="h-2.5 w-24" />
-        </div>
-        <Skeleton className="h-7 w-7 rounded-md flex-shrink-0" />
-      </div>
-
-      {/* 2 lines of text before image */}
-      <div className="px-4 pb-3 space-y-2">
-        <Skeleton className="h-3 w-full" />
-        <Skeleton className="h-3 w-4/5" />
-      </div>
-
-      {/* Image banner */}
-      <Skeleton className="w-full h-48 rounded-none" />
-
-      {/* Stats + actions */}
-      <div className="px-4 py-2 flex items-center justify-between">
-        <Skeleton className="h-2.5 w-14" />
-        <Skeleton className="h-2.5 w-24" />
-      </div>
-      <div className="border-t flex">
-        {[...Array(3)].map((_, i) => (
-          <div key={i} className="flex-1 flex items-center justify-center gap-2 py-2.5 border-r last:border-r-0">
-            <Skeleton className="h-4 w-4 rounded" />
-            <Skeleton className="h-2.5 w-10" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Variant C — Compact card (no image, tighter layout, badge pill, longer excerpt)
- */
-function PostSkeletonC() {
-  return (
-    <div className="rounded-lg border bg-card overflow-hidden">
-      {/* Header with follow button */}
-      <div className="flex items-start gap-3 px-4 pt-4 pb-2">
-        {/* Square avatar */}
-        <Skeleton className="w-10 h-10 rounded-md flex-shrink-0" />
-        <div className="flex-1 min-w-0 space-y-1.5">
-          <div className="flex items-center gap-2">
-            <Skeleton className="h-3 w-24" />
-            <Skeleton className="h-3 w-3 rounded-full" />
-            <Skeleton className="h-2.5 w-10" />
-          </div>
-          <div className="flex items-center gap-2">
-            <Skeleton className="h-2.5 w-16" />
-            <Skeleton className="h-4 w-14 rounded-full" />
-            <Skeleton className="h-4 w-14 rounded-full" />
-          </div>
-        </div>
-        <Skeleton className="h-7 w-24 rounded-md flex-shrink-0" />
-      </div>
-
-      {/* 4-line body */}
-      <div className="px-4 py-2 space-y-2">
-        <Skeleton className="h-3 w-full" />
-        <Skeleton className="h-3 w-[95%]" />
-        <Skeleton className="h-3 w-[80%]" />
-        <Skeleton className="h-3 w-[55%]" />
-      </div>
-
-      {/* Tags row */}
-      <div className="px-4 pb-3 flex items-center gap-2 flex-wrap">
-        <Skeleton className="h-5 w-16 rounded-full" />
-        <Skeleton className="h-5 w-20 rounded-full" />
-        <Skeleton className="h-5 w-12 rounded-full" />
-      </div>
-
-      {/* Stats + actions */}
-      <div className="px-4 py-2 flex items-center justify-between border-t">
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-2.5 w-10" />
-          <Skeleton className="h-2.5 w-10" />
-        </div>
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-7 w-7 rounded-md" />
-          <Skeleton className="h-7 w-7 rounded-md" />
-          <Skeleton className="h-7 w-7 rounded-md" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** Cycles through A → B → C → A … based on index */
-function PostSkeleton({ index = 0 }: { index?: number }) {
-  const variant = index % 3;
-  if (variant === 1) return <PostSkeletonB />;
-  if (variant === 2) return <PostSkeletonC />;
-  return <PostSkeletonA />;
-}
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-// ─── Static placeholders (shown when feed is empty / for featured cards) ───────
-// Note: roast posts from the real feed are detected via postType === "roast" and
-// rendered with RoastedProjectCard automatically — no static placeholders needed.
-
-const featuredProjects: FeaturedProject[] = [
-  {
-    id: "featured-1",
-    name: "CodeCollab PH",
-    description: "Real-time collaborative coding platform built for Filipino developers. Features include live code editing, video chat, and project management tools all in one place.",
-    author: {
-      name: "TeamSync Studios",
-      avatar: "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=100&h=100&fit=crop",
-      username: "@teamsync",
-    },
-    image: "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=800&h=400&fit=crop",
-    category: "SaaS",
-    stars: 2847,
-    forks: 342,
-    url: "https://codecollab.ph",
-    tags: ["TypeScript", "WebRTC", "Next.js", "Collaboration"],
-    isSponsored: true,
-  },
-  {
-    id: "featured-2",
-    name: "Pinoy DevTools",
-    description: "Essential development tools and utilities designed for Filipino developers.",
-    author: {
-      name: "DevTools Team",
-      avatar: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=100&h=100&fit=crop",
-      username: "@devtools",
-    },
-    image: "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=800&h=400&fit=crop",
-    category: "Tools",
-    stars: 1923,
-    forks: 156,
-    url: "https://pinoydevtools.com",
-    tags: ["CLI", "Productivity", "Open Source"],
-    isSponsored: false,
-  },
-  {
-    id: "featured-3",
-    name: "Manila Jobs Board",
-    description: "Job marketplace connecting Filipino developers with local and international companies.",
-    author: {
-      name: "CareerHub",
-      avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop",
-      username: "@careerhub",
-    },
-    image: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=800&h=400&fit=crop",
-    category: "Career",
-    stars: 3421,
-    url: "https://manilajobs.dev",
-    tags: ["Jobs", "Remote Work", "Careers"],
-    isSponsored: true,
-  },
-];
-
-// ─── Feed Component ───────────────────────────────────────────────────────────
-
-// Adapter: map GraphQL post shape → PostCard shape
-const DUMMY: never[] = []; // empty fallback so TS stays happy
 
 export function Feed() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const highlightPostId = searchParams.get("post");
-  // Optimistic local posts prepended before the server list
-  const [localPosts, setLocalPosts] = useState<ReturnType<typeof adaptPost>[]>([]);
-  // Modal for clicking original post inside shared post card
-  const [openModalPostId, setOpenModalPostId] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const [tab, setTab] = useState<FeedTab>("FOR_YOU");
+  const [posts, setPosts] = useState<TimelinePostData[]>([]);
+  const [recommId, setRecommId] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [commentPost, setCommentPost] = useState<TimelinePostData | null>(null);
 
-  const seenIdsRef = useRef<Set<string>>(new Set());
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-  // Ref map for scrolling to a highlighted post
-  const postElRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-
-  const { data, loading: feedLoading, error: feedError, refetch, fetchMore } = useQuery(GET_FEED, {
-    variables: { first: 10 },
-    fetchPolicy: "cache-and-network",
+  const { data, loading, error, refetch, fetchMore } = useQuery<SocialFeedData>(GET_SOCIAL_FEED, {
+    variables: { tab, limit: 10, cursor: null, recommId: null },
+    fetchPolicy: "network-only",
     notifyOnNetworkStatusChange: true,
   });
 
   const [createPostMutation] = useMutation(CREATE_POST_MUTATION);
-  const [recordPostViewMutation] = useMutation(RECORD_POST_VIEW);
 
-  const { user: authUser } = useAuth();
-  const { data: pinnedPostData } = useQuery(GET_PINNED_POST, { fetchPolicy: "cache-first" });
-
-  const pinnedPost = pinnedPostData?.pinnedPost ? adaptPost(pinnedPostData.pinnedPost) : null;
-
-  const recordView = useCallback((postId: string, dwellMs: number, position?: number) => {
-    seenIdsRef.current.add(postId);
-    const variant = data?.feed?.feedVariant ?? undefined;
-    const session = data?.feed?.sessionId ?? undefined;
-    recordPostViewMutation({ variables: { postId, dwellMs, source: "feed", feedVariant: variant, position, sessionId: session } }).catch(console.error);
-  }, [recordPostViewMutation, data?.feed?.feedVariant, data?.feed?.sessionId]);
-
-  const serverPosts: ReturnType<typeof adaptPost>[] = (data?.feed?.posts ?? DUMMY).map(adaptPost);
-  // Merge: local (optimistic) first, then server (deduped by id)
-  const serverIds = new Set(serverPosts.map((p) => p.id));
-  const allPosts = [
-    ...localPosts.filter((p) => !serverIds.has(p.id)),
-    ...serverPosts,
-  ];
-
-  // Read current user from Apollo cache (primed by useMeProfile, which
-  // fires a single `me` query that includes every field the optimistic
-  // new-post needs — name, username, displayName, avatarUrl, id).
-  const { me: meUser } = useMeProfile();
-
-  const handleNewPost = useCallback(async (content: string, images?: string[], videoUrl?: string) => {
-    // Optimistic: add to local list immediately with real user data
-    const tempId = `temp-${Date.now()}`;
-    const optimistic = {
-      id: tempId,
-      author: {
-        id: meUser?.id ?? "",
-        name: meUser?.displayName ?? meUser?.username ?? meUser?.name ?? "You",
-        avatar: avatarSrc(meUser?.avatarUrl),
-        username: `@${meUser?.username ?? "you"}`,
-      },
-      content,
-      image: images?.[0],
-      images: images ?? [],
-      likes: 0,
-      comments: 0,
-      shares: 0,
-      timestamp: "Just now",
-      projectName: undefined,
-      likedByMe: false,
-      tags: [],
-      initialComments: [],
-    };
-    setLocalPosts((prev) => [optimistic, ...prev]);
-
-    try {
-      await createPostMutation({
-        variables: { input: { content, imageUrl: images?.[0], imageUrls: images ?? [] } },
-      });
-      // On success, refetch to get the real post from server
-      refetch();
-      // Remove the optimistic post
-      setLocalPosts((prev) => prev.filter((p) => p.id !== tempId));
-    } catch (err) {
-      console.error("createPost failed:", err);
-      // Keep optimistic post but mark it somehow (for now just leave it)
-    }
-  }, [createPostMutation, refetch, meUser?.id, meUser?.displayName, meUser?.username, meUser?.name, meUser?.avatarUrl]);
-
-  const handleLoadMore = useCallback(async () => {
-    const endCursor = data?.feed?.pageInfo?.endCursor;
-    if (!endCursor) return;
-    // S4 #12: Cap seenIds to last 200 to prevent unbounded growth
-    const seen = Array.from(seenIdsRef.current).slice(-200);
-    const currentSessionId = data?.feed?.sessionId ?? undefined;
-    try {
-      await fetchMore({
-        variables: { first: 10, after: endCursor, seenIds: seen, sessionId: currentSessionId },
-        // Apollo merge function in apollo.ts handles concatenation
-      });
-    } catch (err) {
-      console.error("[feed] fetchMore failed:", err);
-    }
-  }, [fetchMore, data]);
-
-  // Scroll to + briefly highlight the post linked from a notification
   useEffect(() => {
-    if (!highlightPostId || allPosts.length === 0) return;
-    const el = postElRefs.current.get(highlightPostId);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      // Auto-clear the query param after 3 s so back-button works cleanly
-      const timer = setTimeout(() => {
-        setSearchParams((p) => { p.delete("post"); return p; }, { replace: true });
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [highlightPostId, allPosts.length, setSearchParams]);
+    setPosts([]);
+    setRecommId(null);
+    setNextCursor(null);
+    setHasMore(false);
+  }, [tab]);
 
-  const showSkeletons = feedLoading && allPosts.length === 0;
+  useEffect(() => {
+    const page = data?.socialFeed;
+    if (!page) return;
+    setPosts(page.posts);
+    setRecommId(page.recommId ?? null);
+    setNextCursor(page.nextCursor ?? null);
+    setHasMore(page.hasMore);
+  }, [data]);
 
-  // ── Derive items: interleave FeaturedProjectCards every 3 posts ──
-  const feedItems = useMemo(() => {
-    const items: Array<{ type: "post"; post: ReturnType<typeof adaptPost>; index: number } | { type: "featured"; project: FeaturedProject }> = [];
-    // Exclude the pinned post from the regular feed — it's already rendered above
-    const pinnedId = pinnedPost?.id;
-    const filteredPosts = pinnedId ? allPosts.filter((p) => p.id !== pinnedId) : allPosts;
-    filteredPosts.forEach((post, i) => {
-      items.push({ type: "post", post, index: i });
-      if ((i + 1) % 3 === 0) {
-        const project = featuredProjects[Math.floor(i / 3) % featuredProjects.length];
-        if (project) items.push({ type: "featured", project });
-      }
+  async function handleNewPost(content: string, images?: string[]) {
+    await createPostMutation({
+      variables: {
+        input: {
+          content,
+          imageUrl: images?.[0],
+          imageUrls: images ?? [],
+        },
+      },
     });
-    return items;
-  }, [allPosts, pinnedPost?.id]);
+    await refetch({ tab, limit: 10, cursor: null, recommId: null });
+  }
 
-  // ── TanStack Virtual — virtualise the post list ──
-  const virtualizer = useWindowVirtualizer({
-    count: feedItems.length,
-    estimateSize: () => 420, // avg post card height in px
-    overscan: 4,
-  });
-
-  // ── Infinite-scroll sentinel via IntersectionObserver ──
-  const hasNextPage = data?.feed?.pageInfo?.hasNextPage ?? false;
-  const loadingMore = feedLoading && allPosts.length > 0;
-
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasNextPage && !feedLoading) {
-          handleLoadMore();
-        }
+  async function handleLoadMore() {
+    const response = await fetchMore({
+      variables: {
+        tab,
+        limit: 10,
+        cursor: recommId ? null : nextCursor,
+        recommId: tab === "FOR_YOU" ? recommId : null,
       },
-      { rootMargin: "600px" } // trigger 600px before it scrolls into view
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [hasNextPage, feedLoading, handleLoadMore]);
+    });
 
-  // Only the admin email can pin/unpin; everyone else's pin toggle is hidden.
-  const canPin = authUser?.email === "hello@lokalhost.club";
+    const nextPage = response.data?.socialFeed;
+    if (!nextPage) return;
+
+    setPosts((current) => {
+      const known = new Set(current.map((post) => post.id));
+      return [...current, ...nextPage.posts.filter((post) => !known.has(post.id))];
+    });
+    setRecommId(nextPage.recommId ?? null);
+    setNextCursor(nextPage.nextCursor ?? null);
+    setHasMore(nextPage.hasMore);
+  }
 
   return (
-    <div className="flex min-h-screen">
-      {/* Left Sidebar — fixed, non-scrollable */}
-      <LeftSidebar className="hidden xl:block fixed top-14 left-0 w-64 h-[calc(100vh-3.5rem)] overflow-hidden" />
+    <div className="min-h-screen bg-background">
+      <LeftSidebar className="hidden xl:block fixed top-16 left-0 h-[calc(100vh-4rem)] overflow-hidden border-r" />
 
-      {/* Center Feed */}
-      <div className="flex-1 min-w-0 lg:border-x xl:ml-64 lg:mr-80">
-        <div className="max-w-[680px] mx-auto px-2 sm:px-4 py-4 space-y-4">
-          {/* Featured Projects Stories */}
-          <FeaturedProjects />
+      <main className="min-h-screen lg:mr-80 xl:ml-64">
+        <div className="mx-auto min-h-screen max-w-[640px] border-x bg-background">
+          <FeedTabs value={tab} onChange={setTab} />
 
-          {/* Create Post */}
-          <CreatePost onPost={handleNewPost} />
+          <section className="border-b bg-background">
+            <CreatePost onPost={handleNewPost} variant="timeline" />
+          </section>
 
-          <Separator />
-
-          {/* Pinned Post (always at top, visible to all) */}
-          {pinnedPost && (
-            <div className="relative">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium mb-1 px-1">
-                <Pin className="w-3 h-3" />
-                <span>Pinned by Lokalhost</span>
-              </div>
-              <PostCard
-                post={pinnedPost}
-                isFollowing={false}
-                onOpenPostModal={setOpenModalPostId}
-                onPinToggle={canPin ? () => {} : undefined}
-              />
+          {loading && posts.length === 0 && (
+            <div>
+              {[0, 1, 2].map((index) => (
+                <FeedSkeletonPost key={index} />
+              ))}
             </div>
           )}
 
-          {/* Error banner with retry */}
-          {feedError && !feedLoading && (
-            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive font-mono">
-              <p>⚠ Could not load feed — {feedError.message}</p>
-              <button
-                onClick={() => refetch()}
-                className="mt-2 px-4 py-1.5 rounded-md border border-destructive/30 text-xs font-medium hover:bg-destructive/10 transition-colors"
+          {error && !loading && (
+            <div className="border-b px-4 py-5">
+              <p className="text-sm font-medium text-destructive">Could not load the social feed.</p>
+              <Button
+                className="mt-3 rounded-full"
+                size="sm"
+                onClick={() => refetch({ tab, limit: 10, cursor: null, recommId: null })}
               >
                 Retry
-              </button>
+              </Button>
             </div>
           )}
 
-          {/* Skeletons while loading */}
-          {showSkeletons && (
-            <div className="space-y-4">
-              {[...Array(3)].map((_, i) => <PostSkeleton key={i} index={i} />)}
+          {!loading && posts.length === 0 && !error && (
+            <div className="px-8 py-14 text-center">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <ImageIcon className="h-5 w-5" />
+              </div>
+              <h2 className="mt-4 text-lg font-semibold">Nothing here yet</h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {tab === "FOR_YOU"
+                  ? "We need a little more signal before recommendations fill in."
+                  : "Follow a few builders and this tab will start to move."}
+              </p>
             </div>
           )}
 
-          {/* Virtualised Posts Feed */}
-          {!showSkeletons && feedItems.length > 0 && (
-            <div
-              style={{
-                height: `${virtualizer.getTotalSize()}px`,
-                width: "100%",
-                position: "relative",
-              }}
-            >
-              {virtualizer.getVirtualItems().map((virtualRow) => {
-                const item = feedItems[virtualRow.index];
-                return (
-                  <div
-                    key={virtualRow.key}
-                    data-index={virtualRow.index}
-                    ref={virtualizer.measureElement}
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      transform: `translateY(${virtualRow.start}px)`,
-                    }}
-                  >
-                    <div className="pb-4">
-                      {item.type === "featured" ? (
-                        <FeaturedProjectCard project={item.project} />
-                      ) : (
-                        <div
-                          ref={(el) => {
-                            if (el) postElRefs.current.set(item.post.id, el);
-                            else postElRefs.current.delete(item.post.id);
-                          }}
-                          className={
-                            highlightPostId === item.post.id
-                              ? "rounded-xl ring-2 ring-primary ring-offset-2 transition-all"
-                              : ""
-                          }
-                        >
-                        <PostViewTracker postId={item.post.id} position={item.index} recordView={recordView}>
-                          {item.post.postType === "roast" ? (
-                            <RoastedProjectCard
-                              post={item.post as unknown as FeedPost}
-                              isFollowing={item.post.author?.isFollowedByMe ?? false}
-                            />
-                          ) : (
-                            <PostCard
-                              post={item.post}
-                              onDelete={() => setLocalPosts((prev) => prev.filter((p) => p.id !== item.post.id))}
-                              isFollowing={item.post.author?.isFollowedByMe ?? false}
-                              onOpenPostModal={setOpenModalPostId}
-                              onPinToggle={canPin ? () => {} : undefined}
-                            />
-                          )}
-                        </PostViewTracker>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          {posts.map((post) => (
+            <TimelinePost
+              key={post.id}
+              post={post}
+              onOpenPost={(nextPost) => navigate(`/post/${nextPost.id}`)}
+              onOpenComments={setCommentPost}
+            />
+          ))}
 
-          {/* Empty state */}
-          {allPosts.length === 0 && !feedLoading && !showSkeletons && (
-            <div className="text-center py-16 text-muted-foreground font-mono text-sm">
-              <p className="text-2xl mb-2">📭</p>
-              <p>No posts yet. Be the first to share something!</p>
-            </div>
-          )}
-
-          {/* Infinite-scroll sentinel */}
-          <div ref={sentinelRef} className="h-1" />
-
-          {/* Loading indicator for next page */}
-          {loadingMore && (
-            <div className="space-y-4 pb-4">
-              {[...Array(1)].map((_, i) => <PostSkeleton key={`more-${i}`} index={i} />)}
-            </div>
-          )}
-
-          {/* End of feed */}
-          {!hasNextPage && allPosts.length > 0 && !feedLoading && (
-            <div className="text-center py-6 text-muted-foreground text-xs font-mono">
-              You're all caught up! 🎉
+          {hasMore && posts.length > 0 && (
+            <div className="flex justify-center px-4 py-5">
+              <Button variant="outline" className="rounded-full px-6" onClick={handleLoadMore}>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Load more
+              </Button>
             </div>
           )}
         </div>
-      </div>
+      </main>
 
-      {/* Right Sidebar — fixed, non-scrollable */}
-      <RightSidebar category="home" className="hidden lg:block fixed top-14 right-0 w-80 h-[calc(100vh-3.5rem)] overflow-hidden" />
+      <RightSidebar
+        category="home"
+        className="hidden lg:block fixed top-16 right-0 h-[calc(100vh-4rem)] overflow-hidden border-l"
+      />
 
-      {/* Modal for viewing original post from shared post card */}
-      {openModalPostId && (
-        <PostModal
-          postId={openModalPostId}
-          onClose={() => setOpenModalPostId(null)}
+      {commentPost && (
+        <CommentModal
+          postId={commentPost.id}
+          authorName={commentPost.author.displayName ?? commentPost.author.name ?? commentPost.author.username}
+          content={commentPost.content}
+          initialCount={commentPost.commentsCount}
+          onClose={() => setCommentPost(null)}
+          onCountChange={(count) => {
+            setPosts((current) =>
+              current.map((post) => (post.id === commentPost.id ? { ...post, commentsCount: count } : post)),
+            );
+          }}
         />
       )}
     </div>
   );
 }
-
-// ─── (end of file) ─────────────────────────────────────────────────────────

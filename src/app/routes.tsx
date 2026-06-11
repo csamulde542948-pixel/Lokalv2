@@ -6,6 +6,8 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 // ── S3 #6: Route-level code splitting via React.lazy ──
 // Only Layout + ProtectedRoute are eagerly loaded; all pages are lazy-loaded on navigation.
 const Feed          = lazy(() => import("./pages/feed").then(m => ({ default: m.Feed })));
+const PostPage      = lazy(() => import("./pages/post").then(m => ({ default: m.PostPage })));
+const CommentPage   = lazy(() => import("./pages/comment").then(m => ({ default: m.CommentPage })));
 const Leaderboard   = lazy(() => import("./pages/leaderboard").then(m => ({ default: m.Leaderboard })));
 const Launchpad       = lazy(() => import("./pages/launchpad").then(m => ({ default: m.Launchpad })));
 const LaunchpadEvent  = lazy(() => import("./pages/launchpad-event").then(m => ({ default: m.LaunchpadEvent })));
@@ -135,6 +137,8 @@ export const router = createBrowserRouter([
         Component: Layout,
         children: [
           { index: true, Component: withSuspense(Feed) },
+          { path: "post/:id", Component: withSuspense(PostPage) },
+          { path: "comment/:id", Component: withSuspense(CommentPage) },
           { path: "leaderboard", Component: withSuspense(Leaderboard) },
           { path: "launchpad", Component: withSuspense(Launchpad) },
           { path: "launchpad/:id", Component: withSuspense(LaunchpadEvent) },

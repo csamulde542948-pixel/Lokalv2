@@ -545,6 +545,90 @@ interface GeneratedBrandAnalysis {
   projectName: string;
 }
 
+type ToolErrorKind = "credits" | "auth" | "network" | "crawl" | "provider" | "generic";
+
+interface ToolErrorState {
+  kind: ToolErrorKind;
+  title: string;
+  message: string;
+  detail?: string;
+}
+
+function extractApolloMessage(err: any): string {
+  const graphMessage = err?.graphQLErrors?.find((item: any) => item?.message)?.message;
+  return String(graphMessage ?? err?.message ?? "").trim();
+}
+
+function formatToolError(err: any): ToolErrorState {
+  const msg = extractApolloMessage(err);
+  const msgLower = msg.toLowerCase();
+  const code: string = err?.graphQLErrors?.[0]?.extensions?.code ?? "";
+  const isNetworkErr =
+    msgLower.includes("failed to fetch") ||
+    msgLower.includes("load failed") ||
+    msgLower.includes("networkerror") ||
+    msgLower.includes("network request failed") ||
+    err?.networkError != null;
+
+  if (code === "INSUFFICIENT_CREDITS" || msgLower.includes("not enough credits")) {
+    return {
+      kind: "credits",
+      title: "NO CREDITS AVAILABLE",
+      message: "This tool needs 1 credit. Add or grant credits before trying again.",
+    };
+  }
+
+  if (code === "UNAUTHENTICATED" || msgLower.includes("unauthorized")) {
+    return {
+      kind: "auth",
+      title: "SIGN IN REQUIRED",
+      message: "Sign in so Lokal can use your credit balance for this request.",
+    };
+  }
+
+  if (
+    msgLower.includes("firecrawl") ||
+    msgLower.includes("crawl") ||
+    msgLower.includes("scrape") ||
+    msgLower.includes("protected by cloudflare") ||
+    msgLower.includes("requires login") ||
+    msgLower.includes("blocks automated access") ||
+    msgLower.includes("website appears to be down")
+  ) {
+    return {
+      kind: "crawl",
+      title: "SITE NOT SUPPORTED",
+      message: "We apologize for the inconvenience, but we do not support this site.",
+      detail: "Try a public landing page without login, bot protection, or anti-crawling restrictions.",
+    };
+  }
+
+  if (msgLower.includes("nvidia") || msgLower.includes("openrouter") || msgLower.includes("brand analysis timed out")) {
+    return {
+      kind: "provider",
+      title: "AI PROVIDER ERROR",
+      message: msg || "The AI provider did not finish the request.",
+      detail: "The crawl may have worked, but the model request failed or timed out. Retrying usually works.",
+    };
+  }
+
+  if (isNetworkErr) {
+    return {
+      kind: "network",
+      title: "CONNECTION ERROR",
+      message: "Couldn't reach the server. Check your connection and try again.",
+    };
+  }
+
+  return {
+    kind: "generic",
+    title: "REQUEST FAILED",
+    message: msg && msg !== "Internal server error"
+      ? msg
+      : "Something went wrong while processing this request. Please try again.",
+  };
+}
+
 // ─── Loading steps ────────────────────────────────────────────────────────────
 
 const ROAST_LOADING_STEPS = [
@@ -1049,7 +1133,7 @@ export function RoastResult() {
   });
   const [brandAnalysis,       setBrandAnalysis]     = useState<GeneratedBrandAnalysis | null>(null);
   const [activeTool,          setActiveTool]        = useState<ToolMode>(() => (location.state as IncomingState | null)?.tool ?? "roast");
-  const [mutationError,       setMutationError]     = useState<string | null>(null);
+  const [mutationError,       setMutationError]     = useState<ToolErrorState | null>(null);
   const [dismissedAddProject, setDismissedAddProject] = useState(false);
   const [websiteDetailsHeight, setWebsiteDetailsHeight] = useState<number | null>(null);
   const [isDesktopLayout,     setIsDesktopLayout]   = useState(false);
@@ -1164,16 +1248,7 @@ export function RoastResult() {
           }
         })
         .catch((err) => {
-          const msg: string = err?.message ?? "";
-          const msgLower = msg.toLowerCase();
-          const code: string = err?.graphQLErrors?.[0]?.extensions?.code ?? "";
-          if (code === "INSUFFICIENT_CREDITS" || msgLower.includes("not enough credits")) {
-            setMutationError("NO_CREDITS");
-          } else if (msgLower.includes("unauthorized")) {
-            setMutationError("AUTH_REQUIRED");
-          } else {
-            setMutationError(msg || "Something went wrong. Please try again.");
-          }
+          setMutationError(formatToolError(err));
         });
       return;
     }
@@ -1194,31 +1269,7 @@ export function RoastResult() {
         }
       })
       .catch((err) => {
-        const msg: string = err?.message ?? "";
-        const msgLower = msg.toLowerCase();
-        // Apollo passes through GraphQLError extensions from the backend.
-        const code: string = err?.graphQLErrors?.[0]?.extensions?.code ?? "";
-        const isNetworkErr =
-          msgLower.includes("failed to fetch") ||
-          msgLower.includes("load failed") ||
-          msgLower.includes("networkerror") ||
-          msgLower.includes("network request failed") ||
-          err?.networkError != null;
-        const isCreditErr =
-          code === "INSUFFICIENT_CREDITS" ||
-          msgLower.includes("not enough credits");
-        const isAuthErr =
-          code === "UNAUTHENTICATED" ||
-          msgLower.includes("unauthorized");
-        if (isNetworkErr) {
-          setMutationError("NETWORK");
-        } else if (isCreditErr) {
-          setMutationError("NO_CREDITS");
-        } else if (isAuthErr) {
-          setMutationError("AUTH_REQUIRED");
-        } else {
-          setMutationError(msg || "Something went wrong. Please try again.");
-        }
+        setMutationError(formatToolError(err));
       });
   };
 
@@ -1356,14 +1407,15 @@ export function RoastResult() {
 
   // ── Error ─────────────────────────────────────────────────────────────────
   if (mutationError) {
-    const isNoCredits = mutationError === "NO_CREDITS";
-    const isAuthRequired = mutationError === "AUTH_REQUIRED";
-    const isNetwork = mutationError === "NETWORK";
+    const isNoCredits = mutationError.kind === "credits";
+    const isAuthRequired = mutationError.kind === "auth";
+    const isNetwork = mutationError.kind === "network";
     const isRecoverable = isNoCredits || isAuthRequired;
+    const canRetry = !isNoCredits && !isAuthRequired;
 
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center px-4 font-mono">
-        <div className="w-full max-w-sm border border-border/50 overflow-hidden"
+      <div className="min-h-screen bg-background flex items-center justify-center px-4 py-8 font-mono">
+        <div className="w-full max-w-lg border border-border/50 overflow-hidden"
           style={{ boxShadow: "0 0 32px rgba(220,38,38,0.08)" }}>
           {/* Red top bar */}
           <div className="h-px bg-gradient-to-r from-transparent via-red-500/60 to-transparent" />
@@ -1377,24 +1429,29 @@ export function RoastResult() {
             <span className="text-[10px] text-muted-foreground/40 uppercase tracking-widest">LOKI.EXE — ERROR</span>
             <div className="w-14" />
           </div>
-          <div className="bg-card/40 px-5 py-6 space-y-5">
+          <div className="bg-card/40 px-5 sm:px-7 py-6 space-y-5">
             <div className="flex items-start gap-3">
               <div className={`w-9 h-9 flex items-center justify-center flex-shrink-0 border ${isRecoverable ? "border-orange-500/30 bg-orange-500/10" : "border-red-500/30 bg-red-500/10"}`}>
                 <AlertTriangle className={`w-4 h-4 ${isRecoverable ? "text-orange-500" : "text-red-500"}`} />
               </div>
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="font-black text-sm uppercase tracking-wide">
-                  {isNoCredits ? "NO CREDITS AVAILABLE" : isAuthRequired ? "SIGN IN REQUIRED" : isNetwork ? "CONNECTION ERROR" : "REQUEST FAILED"}
+                  {mutationError.title}
                 </p>
-                <p className="text-xs text-muted-foreground/60 mt-1 leading-relaxed normal-case">
+                <p className="text-sm text-muted-foreground/70 mt-2 leading-relaxed normal-case">
                   {isNoCredits
                     ? "This roast needs 1 credit. Add or grant credits before trying again."
                     : isAuthRequired
                     ? "Sign in so Lokal can use your credit balance for this roast."
                     : isNetwork
                     ? "Couldn't reach the server — check your connection and try again."
-                    : mutationError}
+                    : mutationError.message}
                 </p>
+                {mutationError.detail && mutationError.kind !== "crawl" && (
+                  <p className="text-[11px] text-muted-foreground/40 mt-2 leading-relaxed normal-case">
+                    {mutationError.detail}
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex gap-2">
@@ -1413,7 +1470,7 @@ export function RoastResult() {
                 </>
               ) : (
                 <>
-                  {!isNoCredits && (
+                  {canRetry && (
                     <button
                       className="flex-1 flex items-center justify-center gap-2 h-9 text-xs font-black uppercase tracking-widest text-white"
                       style={{ background: "linear-gradient(135deg,#ea580c,#dc2626)" }}

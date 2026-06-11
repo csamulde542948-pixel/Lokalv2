@@ -14,7 +14,8 @@
     "prisma:migrate:staging": "dotenv -e .env.staging -- prisma migrate deploy",
     "prisma:migrate:production": "dotenv -e .env.production -- prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "prisma:push": "prisma db push"
+    "prisma:push": "prisma db push",
+    "recombee:setup": "tsx scripts/setup-recombee.ts"
   },
   "dependencies": {
     "@apollo/server": "^5.5.0",
@@ -35,6 +36,7 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "lodash": "^4.17.21",
+    "recombee-api-client": "^6.3.0",
     "resend": "^4.0.0",
     "stream-chat": "^9.41.0"
   },

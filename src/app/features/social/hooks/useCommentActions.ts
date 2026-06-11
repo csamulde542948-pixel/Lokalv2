@@ -37,7 +37,7 @@ export function useCommentActions({
       if (wasLiked) {
         await unlikeCommentMutation({ variables: { commentId } });
       } else {
-        await likeCommentMutation({ variables: { commentId, reaction: reaction ?? "Like" } });
+        await likeCommentMutation({ variables: { commentId, reaction: reaction ?? "Fire" } });
       }
     } catch {
       // CommentItem already applied the optimistic reaction state.

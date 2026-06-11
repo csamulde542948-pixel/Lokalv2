@@ -224,6 +224,7 @@ export const typeDefs = gql`
     likedByMe: Boolean!
     myReaction: String          # "Like" | "Love" | "Fire" | "Haha" | "Wow" | "Sad" | null
     parentId: ID
+    parent: PostComment
     mentions: [ID!]!            # profile IDs mentioned in this comment
     replies(limit: Int, offset: Int): [PostComment!]!
     repliesCount: Int!
@@ -262,6 +263,18 @@ export const typeDefs = gql`
     nextOffset: Int!
     feedVariant: String
     sessionId: String
+  }
+
+  enum SocialFeedTab {
+    FOR_YOU
+    FOLLOWING
+  }
+
+  type SocialFeedPage {
+    posts: [Post!]!
+    hasMore: Boolean!
+    nextCursor: String
+    recommId: String
   }
 
   # Phase 3: Feed metrics for A/B comparison dashboard
@@ -810,6 +823,7 @@ export const typeDefs = gql`
     # Feed (ranked + personalized) — cursor-based pagination
     feed(first: Int, after: String, limit: Int, offset: Int, seenIds: [ID!], feedVariant: String, sessionId: String): FeedConnection!
     exploreFeed(limit: Int, offset: Int): FeedResult!
+    socialFeed(tab: SocialFeedTab!, limit: Int, cursor: String, recommId: String): SocialFeedPage!
 
     # Globally pinned post (Lokalhost admin only) — shown at top of feed for all users
     pinnedPost: Post
@@ -819,6 +833,7 @@ export const typeDefs = gql`
 
     # Posts
     post(id: ID!): Post
+    comment(id: ID!): PostComment
     userPosts(userId: ID!, limit: Int, offset: Int): FeedResult!
 
     # Projects
@@ -982,6 +997,7 @@ export const typeDefs = gql`
     deleteComment(commentId: ID!): Boolean!
     likeComment(commentId: ID!, reaction: String): PostComment!
     unlikeComment(commentId: ID!): PostComment!
+    recordPostShare(postId: ID!): Post!
     sharePost(postId: ID!, message: String): Post!
 
     # Follow

@@ -43,6 +43,9 @@ interface CommentSectionProps {
    * the stats row while the section is already open.
    */
   focusSignal?: number;
+  composerPlacement?: "top" | "bottom";
+  onOpenComment?: (commentId: string) => void;
+  showNestedReplies?: boolean;
   onCountChange?: (count: number) => void;
 }
 
@@ -62,6 +65,9 @@ export function CommentSection({
   focusInputOnMount = false,
   scrollToBottomOnOpen = false,
   focusSignal = 0,
+  composerPlacement = "bottom",
+  onOpenComment,
+  showNestedReplies = true,
   onCountChange,
 }: CommentSectionProps) {
   const { user } = useAuth();
@@ -161,7 +167,7 @@ export function CommentSection({
   function doFetchComments() {
     commentsFetchedRef.current = false;
     setCommentsError(false);
-    fetchComments({ variables: { postId, limit: 50, offset: 0 } });
+    fetchComments({ variables: { postId, limit: 20, offset: 0 } });
   }
 
   function openCommentBox() {
@@ -184,8 +190,6 @@ export function CommentSection({
     setReplyingTo,
     setComments: setLocalComments,
     setCommentCount: setLocalCommentCount,
-    onCommentSuccess: () => doFetchComments(),
-    onReplySuccess: () => doFetchComments(),
   });
 
   const { handleLikeComment, handleEditComment, handleDeleteComment } = useCommentActions({
@@ -198,9 +202,46 @@ export function CommentSection({
   if (mode === "always") {
     return (
       <>
+        {composerPlacement === "top" && (
+          <div className="px-4 py-3 border-b bg-card flex-shrink-0 space-y-2">
+            {replyingTo && (
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground bg-muted rounded-lg px-3 py-1.5">
+                <span>
+                  Replying to <span className="font-semibold text-foreground">{replyingTo.name}</span>
+                </span>
+                <button onClick={() => setReplyingTo(null)} className="hover:text-foreground">
+                  <XIcon className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+            {replyingTo ? (
+              <CommentInput
+                user={user}
+                displayName={myDisplayName}
+                avatarUrl={myAvatarUrl}
+                onSubmit={handleReply}
+                inputRef={replyInputRef}
+                autoFocus
+                submitting={submittingReply}
+                placeholder={`Reply to ${replyingTo.name}â€¦`}
+                initialText={`@${replyingTo.name} `}
+              />
+            ) : (
+              <CommentInput
+                user={user}
+                displayName={myDisplayName}
+                avatarUrl={myAvatarUrl}
+                onSubmit={handleComment}
+                inputRef={cardInputRef}
+                submitting={submittingComment}
+                placeholder="Post your reply"
+              />
+            )}
+          </div>
+        )}
         <div
           ref={commentListRef}
-          className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0"
+          className="flex-1 overflow-y-auto min-h-0"
           style={{ scrollbarWidth: "none" }}
         >
           {commentsLoading && localComments.length === 0 && (
@@ -221,21 +262,24 @@ export function CommentSection({
             </div>
           )}
           {localComments.map((comment) => (
-            <CommentItem
-              key={comment.id}
-              comment={comment}
-              currentUserId={user?.id}
-              postId={postId}
-              onDelete={handleDeleteComment}
-              onReply={startReply}
-              onLikeToggle={handleLikeComment}
-              onEdit={handleEditComment}
-            />
+            <div key={comment.id} className="border-b px-4 py-4 transition-colors last:border-b-0 hover:bg-muted/25">
+              <CommentItem
+                comment={comment}
+                currentUserId={user?.id}
+                postId={postId}
+                onDelete={handleDeleteComment}
+                onReply={startReply}
+                onLikeToggle={handleLikeComment}
+                onEdit={handleEditComment}
+                onOpenComment={onOpenComment}
+                showNestedReplies={showNestedReplies}
+              />
+            </div>
           ))}
         </div>
 
         {/* Pinned input */}
-        <div className="px-4 py-3 border-t bg-card flex-shrink-0 space-y-2">
+        {composerPlacement === "bottom" && <div className="px-4 py-3 border-t bg-card flex-shrink-0 space-y-2">
           {replyingTo && (
             <div className="flex items-center justify-between text-[11px] text-muted-foreground bg-muted rounded-lg px-3 py-1.5">
               <span>
@@ -269,7 +313,7 @@ export function CommentSection({
               placeholder="Write a comment…"
             />
           )}
-        </div>
+        </div>}
       </>
     );
   }
@@ -278,7 +322,7 @@ export function CommentSection({
   if (!open) return null;
 
   return (
-    <div className="border-t bg-muted/10 px-4 py-3 space-y-3">
+    <div className="border-t bg-background">
       {commentsLoading && localComments.length === 0 && (
         <div className="text-xs text-muted-foreground text-center py-2">Loading comments…</div>
       )}
@@ -292,16 +336,19 @@ export function CommentSection({
         <div className="text-xs text-muted-foreground text-center py-2">No comments yet. Be the first!</div>
       )}
       {localComments.map((comment) => (
-        <CommentItem
-          key={comment.id}
-          comment={comment}
-          currentUserId={user?.id}
-          postId={postId}
-          onDelete={handleDeleteComment}
-          onReply={startReply}
-          onLikeToggle={handleLikeComment}
-          onEdit={handleEditComment}
-        />
+        <div key={comment.id} className="border-b px-4 py-4 transition-colors last:border-b-0 hover:bg-muted/25">
+          <CommentItem
+            comment={comment}
+            currentUserId={user?.id}
+            postId={postId}
+            onDelete={handleDeleteComment}
+            onReply={startReply}
+            onLikeToggle={handleLikeComment}
+            onEdit={handleEditComment}
+            onOpenComment={onOpenComment}
+            showNestedReplies={showNestedReplies}
+          />
+        </div>
       ))}
 
       {replyingTo && (

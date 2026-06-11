@@ -1,0 +1,281 @@
+import { ApiClient, requests } from "recombee-api-client";
+
+type RecombeeResponse = {
+  recomms?: Array<{ id?: string } | string>;
+  recommId?: string;
+};
+
+type SyncPostInput = {
+  id: string;
+  authorId: string;
+  content: string;
+  createdAt: Date;
+  imageUrl?: string | null;
+  imageUrls?: string[] | null;
+  likesCount?: number;
+  commentsCount?: number;
+  sharesCount?: number;
+};
+
+type SyncUserInput = {
+  id: string;
+  username: string;
+  createdAt: Date;
+  rankId?: number | null;
+  xp?: number | null;
+  isVerified?: boolean | null;
+};
+
+type RecommendPostsOptions = {
+  userId: string;
+  count: number;
+  recommId?: string | null;
+};
+
+type TrackInteractionInput = {
+  userId: string;
+  postId: string;
+  kind: "view" | "fire" | "comment" | "share";
+  recommId?: string | null;
+  durationMs?: number;
+};
+
+const RECOMBEE_DB_ID = process.env.RECOMBEE_DATABASE_ID ?? "";
+const RECOMBEE_TOKEN = process.env.RECOMBEE_PRIVATE_TOKEN ?? "";
+const RECOMBEE_REGION = process.env.RECOMBEE_REGION ?? "ap-se";
+
+const SOCIAL_SCENARIO = "social_feed";
+const ITEM_PROPERTIES = [
+  { name: "authorId", type: "string" },
+  { name: "content", type: "string" },
+  { name: "createdAt", type: "timestamp" },
+  { name: "hasImage", type: "boolean" },
+  { name: "likesCount", type: "int" },
+  { name: "commentsCount", type: "int" },
+  { name: "sharesCount", type: "int" },
+] as const;
+
+const USER_PROPERTIES = [
+  { name: "username", type: "string" },
+  { name: "createdAt", type: "timestamp" },
+  { name: "rankId", type: "int" },
+  { name: "xp", type: "int" },
+  { name: "isVerified", type: "boolean" },
+] as const;
+
+let propertyBootstrapPromise: Promise<void> | null = null;
+
+function getClient() {
+  if (!RECOMBEE_DB_ID || !RECOMBEE_TOKEN) return null;
+  return new ApiClient(RECOMBEE_DB_ID, RECOMBEE_TOKEN, { region: RECOMBEE_REGION });
+}
+
+export function isRecombeeConfigured() {
+  return !!getClient();
+}
+
+async function ensureItemProperties() {
+  const client = getClient();
+  if (!client) return;
+
+  if (!propertyBootstrapPromise) {
+    propertyBootstrapPromise = (async () => {
+      for (const property of ITEM_PROPERTIES) {
+        try {
+          await client.send(new requests.AddItemProperty(property.name, property.type));
+        } catch (error: any) {
+          const message = String(error?.message ?? error);
+          if (!message.toLowerCase().includes("already exists")) {
+            console.error(`[recombee] item property ${property.name} failed:`, message);
+          }
+        }
+      }
+      for (const property of USER_PROPERTIES) {
+        try {
+          await client.send(new requests.AddUserProperty(property.name, property.type));
+        } catch (error: any) {
+          const message = String(error?.message ?? error);
+          if (!message.toLowerCase().includes("already exists")) {
+            console.error(`[recombee] user property ${property.name} failed:`, message);
+          }
+        }
+      }
+    })();
+  }
+
+  await propertyBootstrapPromise;
+}
+
+export async function bootstrapRecombeeCatalog() {
+  await ensureItemProperties();
+}
+
+export async function syncUserToRecombee(profile: SyncUserInput) {
+  const client = getClient();
+  if (!client) return;
+
+  try {
+    await ensureItemProperties();
+    await client.send(
+      new requests.SetUserValues(
+        profile.id,
+        {
+          username: profile.username,
+          createdAt: profile.createdAt.toISOString(),
+          rankId: profile.rankId ?? 0,
+          xp: profile.xp ?? 0,
+          isVerified: !!profile.isVerified,
+        },
+        { cascadeCreate: true }
+      )
+    );
+  } catch (error) {
+    console.error("[recombee] syncUserToRecombee failed:", error);
+  }
+}
+
+export async function syncPostToRecombee(post: SyncPostInput) {
+  const client = getClient();
+  if (!client) return;
+
+  try {
+    await ensureItemProperties();
+    await client.send(
+      new requests.SetItemValues(
+        post.id,
+        {
+          authorId: post.authorId,
+          content: post.content.slice(0, 4000),
+          createdAt: post.createdAt.toISOString(),
+          hasImage: !!post.imageUrl || !!post.imageUrls?.length,
+          likesCount: post.likesCount ?? 0,
+          commentsCount: post.commentsCount ?? 0,
+          sharesCount: post.sharesCount ?? 0,
+        },
+        { cascadeCreate: true }
+      )
+    );
+  } catch (error) {
+    console.error("[recombee] syncPostToRecombee failed:", error);
+  }
+}
+
+export async function sendRecombeeBatch(batchRequests: any[]) {
+  const client = getClient();
+  if (!client || batchRequests.length === 0) return null;
+
+  try {
+    const response = await client.send(new requests.Batch(batchRequests));
+    return response;
+  } catch (error) {
+    console.error("[recombee] batch request failed:", error);
+    return null;
+  }
+}
+
+export function createRecombeeRequests() {
+  return requests;
+}
+
+export async function recommendPostIdsForUser({
+  userId,
+  count,
+  recommId,
+}: RecommendPostsOptions): Promise<{ ids: string[]; recommId: string | null }> {
+  const client = getClient();
+  if (!client) return { ids: [], recommId: null };
+
+  const parseRecommendationResponse = (response: RecombeeResponse) => {
+    const ids = (response.recomms ?? [])
+      .map((entry) => (typeof entry === "string" ? entry : entry?.id))
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+
+    return {
+      ids,
+      recommId: response.recommId ?? recommId ?? null,
+    };
+  };
+
+  try {
+    const response: RecombeeResponse = recommId
+      ? ((await client.send(new requests.RecommendNextItems(recommId, count))) as RecombeeResponse)
+      : ((await client.send(
+          new requests.RecommendItemsToUser(userId, count, {
+            cascadeCreate: true,
+            scenario: SOCIAL_SCENARIO,
+            minRelevance: "medium",
+            rotationRate: 0.35,
+            rotationTime: 3600,
+          })
+        )) as RecombeeResponse);
+
+    return parseRecommendationResponse(response);
+  } catch (error) {
+    const message = String((error as any)?.message ?? error).toLowerCase();
+    if (!recommId && message.includes("scenario does not exist")) {
+      try {
+        const response = (await client.send(
+          new requests.RecommendItemsToUser(userId, count, {
+            cascadeCreate: true,
+            minRelevance: "low",
+            rotationRate: 0.35,
+            rotationTime: 3600,
+          })
+        )) as RecombeeResponse;
+
+        return parseRecommendationResponse(response);
+      } catch (fallbackError) {
+        console.error("[recombee] recommendPostIdsForUser fallback failed:", fallbackError);
+      }
+    }
+    console.error("[recombee] recommendPostIdsForUser failed:", error);
+    return { ids: [], recommId: null };
+  }
+}
+
+export async function trackRecombeeInteraction({
+  userId,
+  postId,
+  kind,
+  recommId,
+  durationMs,
+}: TrackInteractionInput) {
+  const client = getClient();
+  if (!client) return;
+
+  try {
+    let request:
+      | InstanceType<typeof requests.AddDetailView>
+      | InstanceType<typeof requests.AddBookmark>
+      | InstanceType<typeof requests.AddCartAddition>
+      | InstanceType<typeof requests.AddPurchase>;
+
+    if (kind === "view") {
+      request = new requests.AddDetailView(userId, postId, {
+        cascadeCreate: true,
+        recommId: recommId ?? undefined,
+        duration: durationMs ? Math.max(0, Math.round(durationMs / 1000)) : undefined,
+        autoPresented: true,
+      });
+    } else if (kind === "fire") {
+      request = new requests.AddBookmark(userId, postId, {
+        cascadeCreate: true,
+        recommId: recommId ?? undefined,
+      });
+    } else if (kind === "comment") {
+      request = new requests.AddCartAddition(userId, postId, {
+        cascadeCreate: true,
+        recommId: recommId ?? undefined,
+      });
+    } else {
+      request = new requests.AddPurchase(userId, postId, {
+        cascadeCreate: true,
+        recommId: recommId ?? undefined,
+      });
+    }
+
+    await client.send(request);
+  } catch (error) {
+    console.error("[recombee] trackRecombeeInteraction failed:", error);
+  }
+}

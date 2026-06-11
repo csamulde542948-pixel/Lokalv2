@@ -22,6 +22,10 @@ const OPTIONAL_ENV: string[] = [
   "OPENROUTER_API_KEY",
   "FIRECRAWL_API_KEY",
   "RESEND_API_KEY",
+  "NVIDIA_API_KEY",
+  "RECOMBEE_DATABASE_ID",
+  "RECOMBEE_PRIVATE_TOKEN",
+  "RECOMBEE_REGION",
 ];
 const missingOptional = OPTIONAL_ENV.filter((key) => !process.env[key]);
 if (missingOptional.length > 0) {

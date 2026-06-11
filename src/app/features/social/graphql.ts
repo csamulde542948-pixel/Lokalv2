@@ -24,11 +24,6 @@ export const GET_POST_COMMENTS = gql`
           id content likesCount likedByMe myReaction parentId createdAt isEdited mentions repliesCount
           editHistory { id previousContent editedAt }
           author { id name displayName username avatarUrl }
-          replies {
-            id content likesCount likedByMe myReaction parentId createdAt isEdited mentions repliesCount
-            editHistory { id previousContent editedAt }
-            author { id name displayName username avatarUrl }
-          }
         }
       }
     }
@@ -149,9 +144,9 @@ export const UNPIN_POST = gql`
   }
 `;
 
-export const SHARE_POST = gql`
-  mutation SharePost($postId: ID!, $message: String) {
-    sharePost(postId: $postId, message: $message) { id sharesCount }
+export const RECORD_POST_SHARE = gql`
+  mutation RecordPostShareShared($postId: ID!) {
+    recordPostShare(postId: $postId) { id sharesCount }
   }
 `;
 

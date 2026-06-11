@@ -1,6 +1,11 @@
 import { GraphQLContext } from "../context";
 import { addActivityToFeed, getRawFeed } from "../../lib/stream";
 import { createNotification } from "../../lib/notifications";
+import {
+  recommendPostIdsForUser,
+  syncPostToRecombee,
+  trackRecombeeInteraction,
+} from "../../lib/recombee";
 import { sanitizeInput } from "../../middleware/security";
 import {
   rankPosts,
@@ -45,6 +50,36 @@ function decodeCursor(cursor: string): CursorPayload | null {
 
 export const feedResolvers = {
   Query: {
+    socialFeed: async (
+      _: unknown,
+      {
+        tab,
+        limit = 12,
+        cursor,
+        recommId,
+      }: { tab: "FOR_YOU" | "FOLLOWING"; limit?: number; cursor?: string; recommId?: string },
+      { user, prisma }: GraphQLContext
+    ) => {
+      const safeLimit = Math.min(Math.max(limit, 1), 20);
+
+      if (tab === "FOLLOWING") {
+        return fetchFollowingSocialFeed({
+          prisma,
+          userId: user?.id ?? null,
+          limit: safeLimit,
+          cursor: cursor ?? null,
+        });
+      }
+
+      return fetchForYouSocialFeed({
+        prisma,
+        userId: user?.id ?? null,
+        limit: safeLimit,
+        cursor: cursor ?? null,
+        recommId: recommId ?? null,
+      });
+    },
+
     /**
      * Personalized ranked feed for the authenticated user.
      *
@@ -856,6 +891,42 @@ export const feedResolvers = {
       });
     },
 
+    comment: async (
+      _: unknown,
+      { id }: { id: string },
+      { prisma }: GraphQLContext
+    ) => {
+      return prisma.postComment.findUnique({
+        where: { id },
+        include: {
+          author: { include: { rank: true } },
+          post: {
+            include: {
+              author: { include: { rank: true } },
+              tags: { include: { tag: true } },
+            },
+          },
+          parent: {
+            include: {
+              author: { include: { rank: true } },
+              editHistory: { orderBy: { editedAt: "desc" } },
+              _count: { select: { replies: true } },
+            },
+          },
+          editHistory: { orderBy: { editedAt: "desc" } },
+          _count: { select: { replies: true } },
+          replies: {
+            orderBy: { createdAt: "asc" },
+            include: {
+              author: { include: { rank: true } },
+              editHistory: { orderBy: { editedAt: "desc" } },
+              _count: { select: { replies: true } },
+            },
+          },
+        },
+      });
+    },
+
     /**
      * On-demand lazy loading of comment replies.
      * Called when the user clicks "View X replies" on a comment.
@@ -980,6 +1051,17 @@ export const feedResolvers = {
         content: post.content.slice(0, 200),
       }).catch(console.error);
 
+      syncPostToRecombee({
+        id: post.id,
+        authorId: post.authorId,
+        content: post.content,
+        createdAt: post.createdAt,
+        imageUrl: post.imageUrl,
+        likesCount: post.likesCount,
+        commentsCount: post.commentsCount,
+        sharesCount: post.sharesCount,
+      }).catch(console.error);
+
       // Award XP
       await awardXp(user.id, "CREATE_POST", undefined, clientIp).catch(console.error);
 
@@ -1046,6 +1128,9 @@ export const feedResolvers = {
         updateAuthorAffinity(user.id, post.authorId, "likeCount", prisma).catch(console.error);
         updateTagAffinitiesOnEngagement(user.id, postId, 0.1, prisma).catch(console.error);
         logInteraction(prisma, user.id, post.authorId, postId, "POST_LIKE", 1.0);
+        if (safeReaction === "Fire") {
+          trackRecombeeInteraction({ userId: user.id, postId, kind: "fire" }).catch(console.error);
+        }
 
         // Phase 3: CTR tracking — mark the most recent PostView for this post as "engaged"
         markPostViewEngaged(prisma, user.id, postId).catch(console.error);
@@ -1098,6 +1183,37 @@ export const feedResolvers = {
           tags: { include: { tag: true } },
         },
       });
+    },
+
+    recordPostShare: async (
+      _: unknown,
+      { postId }: { postId: string },
+      { user, prisma }: GraphQLContext
+    ) => {
+      if (!user) throw new Error("Unauthorized");
+
+      const post = await prisma.post.update({
+        where: { id: postId },
+        data: { sharesCount: { increment: 1 } },
+        include: {
+          author: { include: { rank: true } },
+          tags: { include: { tag: true } },
+        },
+      });
+
+      logInteraction(prisma, user.id, post.authorId, postId, "POST_SHARE_EXTERNAL", 2.5);
+      trackRecombeeInteraction({ userId: user.id, postId, kind: "share" }).catch(console.error);
+
+      if (post.authorId !== user.id) {
+        createNotification(prisma, {
+          recipientId: post.authorId,
+          actorId: user.id,
+          type: "SHARE",
+          postId,
+        }).catch(console.error);
+      }
+
+      return post;
     },
 
     sharePost: async (
@@ -1170,6 +1286,7 @@ export const feedResolvers = {
       // Phase 3: CTR tracking + interest embedding trigger
       markPostViewEngaged(prisma, user.id, rootOriginalId).catch(console.error);
       incrementFeedEngagementCount(prisma, user.id).catch(console.error);
+      trackRecombeeInteraction({ userId: user.id, postId: rootOriginalId, kind: "share" }).catch(console.error);
 
       return newPost;
     },
@@ -1222,6 +1339,7 @@ export const feedResolvers = {
       // Phase 3: CTR tracking + interest embedding trigger
       markPostViewEngaged(prisma, user.id, input.postId).catch(console.error);
       incrementFeedEngagementCount(prisma, user.id).catch(console.error);
+      trackRecombeeInteraction({ userId: user.id, postId: input.postId, kind: "comment" }).catch(console.error);
 
       // Award XP to post author
       awardXp(comment.post.authorId, "RECEIVE_COMMENT", user.id, clientIp).catch(console.error);
@@ -1559,6 +1677,13 @@ export const feedResolvers = {
         if (dwellMs >= 2000) {
           updateTagAffinitiesOnEngagement(user.id, postId, 0.05, prisma).catch(console.error);
         }
+
+        trackRecombeeInteraction({
+          userId: user.id,
+          postId,
+          kind: "view",
+          durationMs: dwellMs,
+        }).catch(console.error);
 
         return view.id;
       } catch (err) {
@@ -1964,6 +2089,23 @@ export const feedResolvers = {
   },
 
   PostComment: {
+    parent: async (
+      parent: { parent?: any; parentId?: string | null },
+      _: unknown,
+      { prisma }: GraphQLContext
+    ) => {
+      if (parent.parent !== undefined) return parent.parent;
+      if (!parent.parentId) return null;
+      return prisma.postComment.findUnique({
+        where: { id: parent.parentId },
+        include: {
+          author: { include: { rank: true } },
+          editHistory: { orderBy: { editedAt: "desc" } },
+          _count: { select: { replies: true } },
+        },
+      });
+    },
+
     likedByMe: async (
       parent: { id: string },
       _: unknown,
@@ -2070,6 +2212,225 @@ function logInteraction(
       data: { fromId, toId, entityId, type, weight },
     })
     .catch((err: any) => console.error("[logInteraction]", type, err));
+}
+
+async function fetchPostsForSocialFeed(
+  prisma: any,
+  postIds: string[],
+  viewerId: string | null
+) {
+  if (postIds.length === 0) return [];
+
+  const [posts, myLikes] = await Promise.all([
+    prisma.post.findMany({
+      where: { id: { in: postIds } },
+      include: {
+        author: { include: { rank: true } },
+      },
+    }),
+    viewerId
+      ? prisma.postLike.findMany({
+          where: { postId: { in: postIds }, profileId: viewerId },
+          select: { postId: true, reaction: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const likeMap = new Map((myLikes as Array<{ postId: string; reaction: string }>).map((entry) => [entry.postId, entry.reaction]));
+  const postMap = new Map(posts.map((post: any) => [post.id, post]));
+
+  return postIds
+    .map((postId) => {
+      const post: any = postMap.get(postId);
+      if (!post) return null;
+      post._likedByMe = likeMap.has(postId);
+      post._myReaction = likeMap.get(postId) ?? null;
+      return post;
+    })
+    .filter(Boolean);
+}
+
+function encodeSocialCursor(post: { createdAt: Date | string; id: string }) {
+  return Buffer.from(
+    JSON.stringify({
+      createdAt: new Date(post.createdAt).toISOString(),
+      id: post.id,
+    })
+  ).toString("base64url");
+}
+
+function decodeSocialCursor(cursor: string | null) {
+  if (!cursor) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    if (typeof parsed?.id === "string" && typeof parsed?.createdAt === "string") {
+      return parsed as { createdAt: string; id: string };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchFallbackRecentPage(
+  prisma: any,
+  viewerId: string | null,
+  limit: number,
+  cursor: string | null,
+  excludeIds: string[] = []
+) {
+  const decoded = decodeSocialCursor(cursor);
+  const rows = await prisma.post.findMany({
+    where: {
+      id: { notIn: excludeIds },
+      ...(viewerId ? { authorId: { not: viewerId } } : {}),
+      createdAt: { gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) },
+      ...(decoded
+        ? {
+            OR: [
+              { createdAt: { lt: new Date(decoded.createdAt) } },
+              {
+                createdAt: new Date(decoded.createdAt),
+                id: { lt: decoded.id },
+              },
+            ],
+          }
+        : {}),
+    },
+    orderBy: [
+      { createdAt: "desc" },
+      { id: "desc" },
+    ],
+    take: limit + 1,
+    select: { id: true, createdAt: true },
+  });
+
+  const sliced = rows.slice(0, limit);
+  const posts = await fetchPostsForSocialFeed(
+    prisma,
+    sliced.map((row: any) => row.id),
+    viewerId
+  );
+
+  return {
+    posts,
+    hasMore: rows.length > limit,
+    nextCursor: rows.length > limit && sliced.length > 0 ? encodeSocialCursor(sliced[sliced.length - 1]) : null,
+  };
+}
+
+async function fetchFollowingSocialFeed({
+  prisma,
+  userId,
+  limit,
+  cursor,
+}: {
+  prisma: any;
+  userId: string | null;
+  limit: number;
+  cursor: string | null;
+}) {
+  const decoded = decodeSocialCursor(cursor);
+
+  if (!userId) {
+    const fallbackPage = await fetchFallbackRecentPage(prisma, null, limit, cursor);
+    return { ...fallbackPage, recommId: null };
+  }
+
+  const following = await prisma.follow.findMany({
+    where: { followerId: userId },
+    select: { followingId: true },
+  });
+  const authorIds = [...new Set([userId, ...following.map((row: any) => row.followingId)])];
+
+  const rows = await prisma.post.findMany({
+    where: {
+      authorId: { in: authorIds },
+      ...(decoded
+        ? {
+            OR: [
+              { createdAt: { lt: new Date(decoded.createdAt) } },
+              {
+                createdAt: new Date(decoded.createdAt),
+                id: { lt: decoded.id },
+              },
+            ],
+          }
+        : {}),
+    },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: limit + 1,
+    select: { id: true, createdAt: true },
+  });
+
+  const sliced = rows.slice(0, limit);
+  const posts = await fetchPostsForSocialFeed(
+    prisma,
+    sliced.map((row: any) => row.id),
+    userId
+  );
+
+  return {
+    posts,
+    hasMore: rows.length > limit,
+    nextCursor: rows.length > limit && sliced.length > 0 ? encodeSocialCursor(sliced[sliced.length - 1]) : null,
+    recommId: null,
+  };
+}
+
+async function fetchForYouSocialFeed({
+  prisma,
+  userId,
+  limit,
+  cursor,
+  recommId,
+}: {
+  prisma: any;
+  userId: string | null;
+  limit: number;
+  cursor: string | null;
+  recommId: string | null;
+}) {
+  if (!userId) {
+    const fallbackPage = await fetchFallbackRecentPage(prisma, null, limit, cursor);
+    return { ...fallbackPage, recommId: null };
+  }
+
+  const recommendation = await recommendPostIdsForUser({
+    userId,
+    count: limit + 1,
+    recommId,
+  });
+
+  let posts = await fetchPostsForSocialFeed(
+    prisma,
+    recommendation.ids.slice(0, limit + 1),
+    userId
+  );
+
+  if (posts.length < limit) {
+    const fallbackPage = await fetchFallbackRecentPage(
+      prisma,
+      userId,
+      limit - posts.length,
+      cursor,
+      posts.map((post: any) => post.id)
+    );
+    posts = [...posts, ...fallbackPage.posts];
+    return {
+      posts: posts.slice(0, limit),
+      hasMore: fallbackPage.hasMore,
+      nextCursor: fallbackPage.nextCursor,
+      recommId: recommendation.recommId,
+    };
+  }
+
+  return {
+    posts: posts.slice(0, limit),
+    hasMore: posts.length > limit || recommendation.ids.length > limit,
+    nextCursor: null,
+    recommId: recommendation.recommId,
+  };
 }
 
 async function exploreFeed(

@@ -66,11 +66,12 @@ const GET_ME_AVATAR = gql`
 
 interface CreatePostProps {
   onPost: (content: string, images?: string[], videoUrl?: string) => void;
+  variant?: "card" | "timeline";
 }
 
 type VideoPreview = { url: string } | null;
 
-export function CreatePost({ onPost }: CreatePostProps) {
+export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
   const [content, setContent] = useState("");
   const [images, setImages] = useState<{ file: File; preview: string }[]>([]);
   const [video, setVideo] = useState<VideoPreview>(null);
@@ -201,8 +202,8 @@ export function CreatePost({ onPost }: CreatePostProps) {
   };
 
   return (
-    <Card className="border">
-      <CardContent className="p-3 sm:p-4">
+    <Card className={variant === "timeline" ? "border-0 rounded-none shadow-none bg-transparent" : "border"}>
+      <CardContent className={variant === "timeline" ? "p-4" : "p-3 sm:p-4"}>
         {showFeelingPicker && (
           <div className="mb-3 rounded-xl border bg-card shadow-lg overflow-hidden">
             <div className="flex items-center gap-2 px-3 py-2.5 border-b">

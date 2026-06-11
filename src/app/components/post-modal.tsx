@@ -29,6 +29,7 @@ import { PostHeader } from "../features/social/components/PostHeader";
 import { PostStatsRow } from "../features/social/components/PostStatsRow";
 import { PostActionBar } from "../features/social/components/PostActionBar";
 import { RoastCardBody } from "../features/social/components/RoastCardBody";
+import { CommentModal } from "../features/social/components/CommentModal";
 import { CommentSection } from "../features/social/components/CommentSection";
 import { avatarSrc } from "../../lib/defaults";
 import { useAuth } from "../../contexts/AuthContext";
@@ -163,6 +164,7 @@ export function PostModal({ postId, onClose, notifType }: PostModalProps) {
   const [localShares, setLocalShares] = useState(0);
   const [commentCount, setCommentCount] = useState(0);
   const [commentFocusSignal, setCommentFocusSignal] = useState(0);
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
 
   // Seed counts from post on first load
   useEffect(() => {
@@ -333,7 +335,7 @@ export function PostModal({ postId, onClose, notifType }: PostModalProps) {
                     shares={localShares}
                     selectedReaction={selectedReaction}
                     variant="modal"
-                    onCommentClick={() => setCommentFocusSignal((n) => n + 1)}
+                    onCommentClick={() => setCommentModalOpen(true)}
                   />
 
                   <Separator />
@@ -352,7 +354,7 @@ export function PostModal({ postId, onClose, notifType }: PostModalProps) {
                     onReactionMouseEnter={onReactionMouseEnter}
                     onReactionMouseLeave={onReactionMouseLeave}
                     onReactionPickerMouseLeave={onReactionPickerMouseLeave}
-                    onComment={() => setCommentFocusSignal((n) => n + 1)}
+                    onComment={() => setCommentModalOpen(true)}
                     onShare={() => setShareOpen(true)}
                   />
 
@@ -393,6 +395,17 @@ export function PostModal({ postId, onClose, notifType }: PostModalProps) {
           open={shareOpen}
           onOpenChange={setShareOpen}
           onShared={() => setLocalShares((v) => v + 1)}
+        />
+      )}
+
+      {p && commentModalOpen && (
+        <CommentModal
+          postId={p.id}
+          authorName={p.author?.displayName ?? p.author?.name ?? p.author?.username ?? "Post"}
+          content={p.content}
+          initialCount={commentCount}
+          onClose={() => setCommentModalOpen(false)}
+          onCountChange={setCommentCount}
         />
       )}
     </>,

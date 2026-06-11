@@ -309,8 +309,13 @@ async function startServer() {
           "You already roasted this URL",
           "No Firecrawl API keys",
           "FIRECRAWL_API_KEY",
+          "Firecrawl scrape failed",
+          "Firecrawl could not extract enough branding",
           "OPENROUTER_API_KEY",
+          "NVIDIA_API_KEY",
+          "NVIDIA NIM API error",
           "DeepSeek returned empty content",
+          "NVIDIA returned empty brand analysis content",
           "Brand analysis timed out",
           // URL validation / reachability errors
           "That website appears to be down",
@@ -325,6 +330,7 @@ async function startServer() {
           "The operation was aborted",
           // Generic Firecrawl network failures
           "Firecrawl network error",
+          "Website crawl failed",
         ];
 
         const isAllowed =

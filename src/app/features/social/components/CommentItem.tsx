@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useLazyQuery } from "@apollo/client/react";
-import { History, MoreHorizontal, Pencil, Trash2, X as XIcon } from "lucide-react";
+import { Flame, History, MessageCircle, MoreHorizontal, Pencil, Trash2, X as XIcon } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "../../../components/ui/avatar";
 import {
   DropdownMenu,
@@ -12,10 +12,8 @@ import {
 import { avatarSrc } from "../../../../lib/defaults";
 import { GET_COMMENT_REPLIES } from "../graphql";
 import { adaptComment } from "../adapters";
-import { COMMENT_REACTIONS, type ReactionOption } from "../reactions";
 import { timeAgo } from "../time";
 import type { CommentData } from "../types";
-import { CommentReactionButton } from "./CommentReactionButton";
 
 export function CommentItem({
   comment,
@@ -25,6 +23,8 @@ export function CommentItem({
   onReply,
   onLikeToggle,
   onEdit,
+  onOpenComment,
+  showNestedReplies = true,
   depth = 0,
   topLevelParentId,
   depth1ParentId,
@@ -36,6 +36,8 @@ export function CommentItem({
   onReply: (parentId: string, parentName: string, visualParentId?: string, topLevelId?: string) => void;
   onLikeToggle: (commentId: string, wasLiked: boolean, reaction?: string) => void;
   onEdit: (commentId: string, newContent: string) => void;
+  onOpenComment?: (commentId: string) => void;
+  showNestedReplies?: boolean;
   depth?: number;
   topLevelParentId?: string; // id of the root (depth-0) comment this thread belongs to
   depth1ParentId?: string;   // id of the depth-1 ancestor (set when depth === 2)
@@ -43,11 +45,7 @@ export function CommentItem({
   const isOwn = comment.author?.id === currentUserId;
   const [localLiked, setLocalLiked] = useState(comment.likedByMe);
   const [localLikes, setLocalLikes] = useState(comment.likesCount);
-  const [selectedReaction, setSelectedReaction] = useState<typeof COMMENT_REACTIONS[0] | null>(
-    comment.myReaction ? (COMMENT_REACTIONS.find(r => r.label === comment.myReaction) ?? null) : null
-  );
-  const [commentReactionOpen, setCommentReactionOpen] = useState(false);
-  const commentHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fired = localLiked;
 
   // Edit state
   const [isEditing, setIsEditing] = useState(false);
@@ -64,48 +62,13 @@ export function CommentItem({
   useEffect(() => {
     setLocalLiked(comment.likedByMe);
     setLocalLikes(comment.likesCount);
-    setSelectedReaction(comment.myReaction ? (COMMENT_REACTIONS.find(r => r.label === comment.myReaction) ?? null) : null);
   }, [comment.likedByMe, comment.likesCount, comment.myReaction]);
-
-  function handleCommentReactMouseEnter() {
-    commentHoverTimer.current = setTimeout(() => setCommentReactionOpen(true), 400);
-  }
-  function handleCommentReactMouseLeave() {
-    if (commentHoverTimer.current) clearTimeout(commentHoverTimer.current);
-  }
-  function handleCommentPickerMouseLeave() {
-    setCommentReactionOpen(false);
-    if (commentHoverTimer.current) clearTimeout(commentHoverTimer.current);
-  }
 
   function handleLike() {
     const next = !localLiked;
     setLocalLiked(next);
     setLocalLikes((v) => (next ? v + 1 : Math.max(0, v - 1)));
-    if (next) {
-      setSelectedReaction(COMMENT_REACTIONS.find(r => r.label === "Like") ?? null);
-    } else {
-      setSelectedReaction(null);
-    }
-    onLikeToggle(comment.id, localLiked, next ? "Like" : undefined);
-  }
-
-  function pickCommentReaction(r: ReactionOption) {
-    setCommentReactionOpen(false);
-    if (selectedReaction?.label === r.label) {
-      // Un-pick
-      setSelectedReaction(null);
-      setLocalLiked(false);
-      setLocalLikes((v) => Math.max(0, v - 1));
-      onLikeToggle(comment.id, true);
-    } else {
-      setSelectedReaction(r);
-      if (!localLiked) {
-        setLocalLiked(true);
-        setLocalLikes((v) => v + 1);
-      }
-      onLikeToggle(comment.id, false, r.label);
-    }
+    onLikeToggle(comment.id, localLiked, next ? "Fire" : undefined);
   }
 
   function startEdit() {
@@ -133,9 +96,6 @@ export function CommentItem({
     onEdit(comment.id, editText.trim());
     setIsEditing(false);
   }
-
-  const likeLabel = selectedReaction?.label ?? "Like";
-  const likeColor = selectedReaction ? selectedReaction.color : "text-muted-foreground";
 
   const profileHref = comment.author?.username && comment.author.username !== "you"
     ? `/profile/${comment.author.username}`
@@ -194,12 +154,19 @@ export function CommentItem({
   return (
     <>
       {/* ── Comment row ─────────────────────────────────────────────── */}
-      <div className="flex gap-2 group relative">
+      <div
+        className={`flex gap-3 group relative ${onOpenComment ? "cursor-pointer" : ""}`}
+        onClick={() => onOpenComment?.(comment.id)}
+      >
 
         {/* Avatar column — contains avatar + optional vertical line below it */}
         <div className="flex flex-col items-center flex-shrink-0">
-          <Link to={profileHref} className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-            <Avatar className="w-7 h-7">
+          <Link
+            to={profileHref}
+            className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Avatar className="w-9 h-9">
               <AvatarImage src={avatarSrc(comment.author?.avatarUrl)} />
               <AvatarFallback className="text-[10px]">{comment.author?.name?.[0]}</AvatarFallback>
             </Avatar>
@@ -208,13 +175,22 @@ export function CommentItem({
         </div>
 
         {/* Content column */}
-        <div className="flex-1 min-w-0 pb-1">
+        <div className="flex-1 min-w-0 pb-3">
           {/* Bubble */}
           {isEditing ? (
-            <div className="bg-muted rounded-2xl px-3 py-2">
-              <Link to={profileHref} className="font-semibold text-xs block leading-tight mb-1 hover:underline">
-                {comment.author?.name}
-              </Link>
+            <div className="rounded-2xl border bg-background px-3 py-2" onClick={(event) => event.stopPropagation()}>
+              <div className="mb-1 flex min-w-0 items-center gap-1.5 text-sm">
+                <Link
+                  to={profileHref}
+                  className="truncate font-semibold hover:underline"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {comment.author?.name}
+                </Link>
+                {comment.author?.username && (
+                  <span className="truncate text-muted-foreground">@{comment.author.username}</span>
+                )}
+              </div>
               <textarea
                 ref={editInputRef}
                 value={editText}
@@ -238,10 +214,23 @@ export function CommentItem({
               </div>
             </div>
           ) : (
-            <div className="inline-block bg-muted rounded-2xl px-3 py-1.5 max-w-full">
-              <Link to={profileHref} className="font-semibold text-xs block leading-tight hover:underline">
-                {comment.author?.name}
-              </Link>
+            <div className="max-w-full">
+              <div className="flex min-w-0 items-center gap-1.5 text-sm leading-5">
+                <Link
+                  to={profileHref}
+                  className="truncate font-semibold hover:underline"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {comment.author?.name}
+                </Link>
+                {comment.author?.username && (
+                  <span className="truncate text-muted-foreground">@{comment.author.username}</span>
+                )}
+                <span className="text-muted-foreground">·</span>
+                <span className="shrink-0 text-muted-foreground">
+                  {comment.createdAt ? timeAgo(comment.createdAt) : "now"}
+                </span>
+              </div>
               {comment.mediaUrl && (
                 comment.mediaType === "video" ? (
                   <video src={comment.mediaUrl} controls className="mt-1 rounded-xl max-h-48 max-w-full" />
@@ -250,61 +239,69 @@ export function CommentItem({
                 )
               )}
               {comment.content && (
-                <p className="text-sm leading-snug text-foreground break-words">{comment.content}</p>
+                <p className="whitespace-pre-wrap break-words text-sm leading-5 text-foreground">{comment.content}</p>
               )}
             </div>
           )}
 
           {/* Action row */}
           {!isEditing && (
-            <div className="flex items-center gap-3 mt-0.5 ml-3">
-              <span className="text-[10px] text-muted-foreground">
-                {comment.createdAt ? timeAgo(comment.createdAt) : "Just now"}
-              </span>
+            <div className="mt-3 grid max-w-md grid-cols-3 text-muted-foreground">
               {comment.isEdited && (
                 <button
-                  onClick={() => setShowHistory(true)}
-                  className="text-[10px] text-muted-foreground italic hover:underline flex items-center gap-0.5"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setShowHistory(true);
+                  }}
+                  className="inline-flex h-9 items-center gap-1 text-xs italic hover:underline"
                 >
                   <History className="w-2.5 h-2.5" />Edited
                 </button>
               )}
 
-              {/* Like / reaction */}
-              <CommentReactionButton
-                open={commentReactionOpen}
-                onOpenChange={setCommentReactionOpen}
-                selectedReaction={selectedReaction}
-                liked={localLiked}
-                count={localLikes}
-                label={likeLabel}
-                colorClassName={likeColor}
-                onToggle={handleLike}
-                onPick={pickCommentReaction}
-                onMouseEnter={handleCommentReactMouseEnter}
-                onMouseLeave={handleCommentReactMouseLeave}
-                onPickerMouseLeave={handleCommentPickerMouseLeave}
-              />
+              <button
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleLike();
+                }}
+                className={`group inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-primary ${
+                  fired ? "text-primary" : ""
+                }`}
+              >
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full group-hover:bg-primary/10">
+                  <Flame className={`h-4 w-4 ${fired ? "fill-current" : ""}`} />
+                </span>
+                <span className="tabular-nums">{localLikes}</span>
+              </button>
 
               {/* Reply — direct parent stored in DB; visual/topLevel ids route optimistic update */}
               <button
-                onClick={() => onReply(
-                  replyApiParentId,
-                  comment.author?.name ?? "",
-                  replyVisualParentId,
-                  depth >= 1 ? topLevelParentId : undefined,
-                )}
-                className="text-[10px] font-semibold text-muted-foreground hover:underline"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onReply(
+                    replyApiParentId,
+                    comment.author?.name ?? "",
+                    replyVisualParentId,
+                    depth >= 1 ? topLevelParentId : undefined,
+                  );
+                }}
+                className="group inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-sky-500"
               >
-                Reply
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full group-hover:bg-sky-500/10">
+                  <MessageCircle className="h-4 w-4" />
+                </span>
+                <span className="tabular-nums">{comment.repliesCount}</span>
               </button>
 
               {/* 3-dot menu for own comments */}
               {isOwn && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground">
-                      <MoreHorizontal className="w-3 h-3" />
+                    <button
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="w-40">
@@ -331,7 +328,7 @@ export function CommentItem({
       </div>
 
       {/* ── Replies ──────────────────────────────────────────────── */}
-      {depth < 2 && hasReplies && (
+      {showNestedReplies && depth < 2 && hasReplies && (
         <div className="flex gap-2">
           <div className="w-7 flex-shrink-0" />
           <div className="flex-1 min-w-0 flex flex-col gap-2 pt-0.5">
@@ -339,7 +336,10 @@ export function CommentItem({
             {/* ── Depth-0 and depth-1: collapsed toggle ── */}
             {depth <= 1 && !repliesExpanded && (
               <button
-                onClick={handleExpandReplies}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleExpandReplies();
+                }}
                 className="text-[11px] font-semibold text-primary hover:underline self-start flex items-center gap-1"
               >
                 <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
@@ -365,6 +365,8 @@ export function CommentItem({
                 onReply={onReply}
                 onLikeToggle={onLikeToggle}
                 onEdit={onEdit}
+                onOpenComment={onOpenComment}
+                showNestedReplies={showNestedReplies}
                 depth={depth + 1}
                 topLevelParentId={depth === 0 ? comment.id : topLevelParentId}
                 depth1ParentId={depth === 0 ? reply.id : comment.id}
@@ -374,7 +376,10 @@ export function CommentItem({
             {/* ── Show more / Show less (when expanded) ── */}
             {repliesExpanded && hasMoreReplies && (
               <button
-                onClick={() => setShowAllSubReplies((v) => !v)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setShowAllSubReplies((v) => !v);
+                }}
                 className="text-[11px] font-semibold text-primary hover:underline self-start mt-0.5"
               >
                 {showAllSubReplies
@@ -388,7 +393,11 @@ export function CommentItem({
             {/* ── Collapse back ── */}
             {depth <= 1 && repliesExpanded && (
               <button
-                onClick={() => { setRepliesExpanded(false); setShowAllSubReplies(false); }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setRepliesExpanded(false);
+                  setShowAllSubReplies(false);
+                }}
                 className="text-[11px] text-muted-foreground hover:underline self-start"
               >
                 Hide replies

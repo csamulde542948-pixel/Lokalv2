@@ -1,24 +1,17 @@
-import { useState, useRef, useEffect } from "react";
-import { gql } from "@apollo/client/core";
+import { useEffect, useRef, useState } from "react";
 import { useMutation } from "@apollo/client/react";
-import { Smile, ImageIcon } from "lucide-react";
+import { ImageIcon, Share2 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Button } from "./ui/button";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
 } from "./ui/dialog";
 import { useAuth } from "../../contexts/AuthContext";
+import { RECORD_POST_SHARE } from "../features/social/graphql";
 
-/* ─── GQL ────────────────────────────────────────────────────────────────── */
-const SHARE_POST = gql`
-  mutation SharePost($postId: ID!, $message: String) {
-    sharePost(postId: $postId, message: $message) {
-      id sharesCount
-    }
-  }
-`;
-
-/* ─── Types ──────────────────────────────────────────────────────────────── */
 export interface ShareablePost {
   id: string;
   author: { name: string; username: string; avatar?: string; avatarUrl?: string };
@@ -33,37 +26,27 @@ interface SharePostDialogProps {
   post: ShareablePost;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onShared?: () => void;   // called after successful share so parent can bump count
+  onShared?: () => void;
 }
 
-
-const QUICK_EMOJIS = ["😊", "🔥", "🚀", "👏", "💯", "❤️", "😂", "🎉"];
-
-/* ─── Truncate helpers ───────────────────────────────────────────────────── */
 const PREVIEW_LIMIT = 180;
+
 function truncate(text: string) {
-  return text.length > PREVIEW_LIMIT ? text.slice(0, PREVIEW_LIMIT).trimEnd() + "…" : text;
+  return text.length > PREVIEW_LIMIT ? `${text.slice(0, PREVIEW_LIMIT).trimEnd()}...` : text;
 }
 
-/* ─── Component ──────────────────────────────────────────────────────────── */
 export function SharePostDialog({ post, open, onOpenChange, onShared }: SharePostDialogProps) {
   const { user } = useAuth();
   const [message, setMessage] = useState("");
-  const [showEmoji, setShowEmoji] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [recordShare, { loading }] = useMutation(RECORD_POST_SHARE);
 
-  const [sharePost, { loading }] = useMutation(SHARE_POST);
-
-  // Reset message when dialog opens
   useEffect(() => {
-    if (open) {
-      setMessage("");
-      setShowEmoji(false);
-      setTimeout(() => textareaRef.current?.focus(), 80);
-    }
+    if (!open) return;
+    setMessage("");
+    setTimeout(() => textareaRef.current?.focus(), 80);
   }, [open]);
 
-  // Auto-grow textarea
   function handleInput() {
     const el = textareaRef.current;
     if (!el) return;
@@ -71,48 +54,37 @@ export function SharePostDialog({ post, open, onOpenChange, onShared }: SharePos
     el.style.height = `${el.scrollHeight}px`;
   }
 
-  function insertEmoji(emoji: string) {
-    const el = textareaRef.current;
-    if (!el) { setMessage((v) => v + emoji); return; }
-    const start = el.selectionStart ?? message.length;
-    const end   = el.selectionEnd   ?? message.length;
-    const next  = message.slice(0, start) + emoji + message.slice(end);
-    setMessage(next);
-    setShowEmoji(false);
-    setTimeout(() => {
-      el.focus();
-      el.setSelectionRange(start + emoji.length, start + emoji.length);
-    }, 0);
-  }
-
   async function handleShare() {
     try {
-      await sharePost({ variables: { postId: post.id, message: message.trim() || undefined } });
+      const shareUrl = `${window.location.origin}/?post=${post.id}`;
+      const authorName = post.author.name || `@${post.author.username}`;
+      const composedText = [message.trim(), `${authorName} posted on lokalhost.club`, truncate(post.content)]
+        .filter(Boolean)
+        .join("\n\n");
+      const intent = `https://twitter.com/intent/tweet?text=${encodeURIComponent(composedText)}&url=${encodeURIComponent(shareUrl)}`;
+
+      await recordShare({ variables: { postId: post.id } });
       onShared?.();
+      window.open(intent, "_blank", "noopener,noreferrer");
       onOpenChange(false);
-    } catch (e) {
-      console.error("Share failed:", e);
+    } catch (error) {
+      console.error("Share failed:", error);
     }
   }
 
-  const userName    = user?.email?.split("@")[0] ?? "You";
-  const coverImage  = post.images?.[0] ?? post.image;
-  const postAuthor  = post.author.name;
+  const userName = user?.email?.split("@")[0] ?? "You";
+  const coverImage = post.images?.[0] ?? post.image;
+  const postAuthor = post.author.name;
   const postContent = truncate(post.content.replace(/\[shared:[^\]]+\]/g, "").trim());
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px] p-0 overflow-hidden rounded-xl gap-0">
-
-        {/* ── Header ──────────────────────────────────────────────────── */}
         <DialogHeader className="px-4 pt-4 pb-3 border-b">
-          <DialogTitle className="text-center text-base font-semibold">Share</DialogTitle>
+          <DialogTitle className="text-center text-base font-semibold">Share to X</DialogTitle>
         </DialogHeader>
 
-        {/* ── Body ────────────────────────────────────────────────────── */}
         <div className="px-4 py-3 space-y-3 max-h-[70vh] overflow-y-auto">
-
-          {/* Author row */}
           <div className="flex items-center gap-2.5">
             <Avatar className="w-10 h-10 border-2 border-border flex-shrink-0">
               <AvatarImage src={(user as any)?.user_metadata?.avatar_url} />
@@ -120,56 +92,34 @@ export function SharePostDialog({ post, open, onOpenChange, onShared }: SharePos
             </Avatar>
             <div>
               <p className="font-semibold text-sm leading-tight">{userName}</p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">Shared to the public feed</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">Open an X share with a link back to this post</p>
             </div>
           </div>
 
-          {/* Message textarea */}
           <textarea
             ref={textareaRef}
             value={message}
-            onChange={(e) => { setMessage(e.target.value); handleInput(); }}
+            onChange={(event) => {
+              setMessage(event.target.value);
+              handleInput();
+            }}
             onInput={handleInput}
-            placeholder="Say something about this..."
+            placeholder="Add a caption for X..."
             rows={2}
             className="w-full resize-none bg-transparent text-sm leading-relaxed placeholder:text-muted-foreground/60 outline-none border-none focus:ring-0 min-h-[48px]"
           />
 
-          {/* Emoji row */}
-          <div className="flex items-center gap-1 relative">
-            <button
-              onClick={() => setShowEmoji((v) => !v)}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              title="Add emoji"
-            >
-              <Smile className="w-5 h-5" />
-            </button>
-            {showEmoji && (
-              <div className="absolute bottom-7 left-0 z-50 flex gap-1.5 bg-popover border rounded-full px-3 py-2 shadow-lg">
-                {QUICK_EMOJIS.map((e) => (
-                  <button
-                    key={e}
-                    onClick={() => insertEmoji(e)}
-                    className="text-xl hover:scale-125 transition-transform"
-                  >
-                    {e}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* ── Original post preview ────────────────────────────────── */}
           <div className="border rounded-xl overflow-hidden bg-muted/30">
-            {coverImage && (
+            {coverImage ? (
               <img
                 src={coverImage}
                 alt=""
                 className="w-full aspect-[2/1] object-cover"
-                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                onError={(event) => {
+                  (event.currentTarget as HTMLImageElement).style.display = "none";
+                }}
               />
-            )}
-            {!coverImage && (
+            ) : (
               <div className="w-full h-24 bg-muted/50 flex items-center justify-center">
                 <ImageIcon className="w-8 h-8 text-muted-foreground/30" />
               </div>
@@ -177,24 +127,19 @@ export function SharePostDialog({ post, open, onOpenChange, onShared }: SharePos
             <div className="px-3 py-2">
               <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide mb-0.5">
                 {postAuthor}
-                {post.projectName ? ` · ${post.projectName}` : ""}
+                {post.projectName ? ` - ${post.projectName}` : ""}
               </p>
               <p className="text-sm text-foreground leading-snug">{postContent}</p>
             </div>
           </div>
         </div>
 
-        {/* ── Footer ──────────────────────────────────────────────────── */}
         <div className="px-4 py-3 border-t">
-          <Button
-            onClick={handleShare}
-            disabled={loading}
-            className="w-full font-semibold"
-          >
-            {loading ? "Sharing…" : "Share now"}
+          <Button onClick={handleShare} disabled={loading} className="w-full font-semibold">
+            <Share2 className="w-4 h-4" />
+            {loading ? "Opening X..." : "Share to X"}
           </Button>
         </div>
-
       </DialogContent>
     </Dialog>
   );

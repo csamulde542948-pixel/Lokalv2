@@ -348,9 +348,7 @@ async function scrapeWithFirecrawlInner(
   const formats = options.includeBranding
     ? ["markdown", "branding", "screenshot"]
     : ["markdown", "screenshot"];
-  const fallbackFormats = options.includeBranding
-    ? ["markdown", "branding"]
-    : ["markdown"];
+  const fallbackFormats = ["markdown"];
   const scrapeEndpoint = options.includeBranding
     ? "https://api.firecrawl.dev/v2/scrape"
     : "https://api.firecrawl.dev/v1/scrape";
@@ -400,7 +398,13 @@ async function scrapeWithFirecrawlInner(
         signal: AbortSignal.timeout(fallbackTimeoutMs),
       }).catch(() => null);
       if (!attempt2 || !attempt2.ok) {
-        console.warn("[roast] Firecrawl markdown-only retry also failed — proceeding with URL-only context");
+        console.warn("[roast] Firecrawl markdown-only retry also failed");
+        if (options.includeBranding) {
+          throw new Error(
+            "Website crawl failed: Firecrawl could not extract this page. It may block automated access, require login, or be temporarily unavailable."
+          );
+        }
+        console.warn("[roast] proceeding with URL-only context");
         return { markdown: "", screenshotUrl: null, metadata: {}, branding: null };
       }
       const data2 = (await attempt2.json()) as {
@@ -483,7 +487,13 @@ async function scrapeWithFirecrawlInner(
 
     if (!attempt2 || !attempt2.ok) {
       // Both attempts failed — still produce a roast with minimal context
-      console.warn("[roast] Firecrawl attempt 2 also failed — proceeding with URL-only context");
+      console.warn("[roast] Firecrawl attempt 2 also failed");
+      if (options.includeBranding) {
+        throw new Error(
+          "Website crawl failed: Firecrawl could not extract this page. It may block automated access, require login, or be temporarily unavailable."
+        );
+      }
+      console.warn("[roast] proceeding with URL-only context");
       return { markdown: "", screenshotUrl: null, metadata: {}, branding: null };
     }
 
