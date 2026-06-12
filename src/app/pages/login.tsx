@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
-import { AlertTriangle, Github, ShieldAlert, Wallet } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Github, ShieldAlert, Wallet } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
@@ -38,6 +38,7 @@ export function Login() {
   const [lockoutMinutes, setLockoutMinutes] = useState(0);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaResetSignal, setCaptchaResetSignal] = useState(0);
+  const hasCaptchaToken = !!captchaToken;
 
   useEffect(() => {
     const err = searchParams.get("error");
@@ -136,26 +137,45 @@ export function Login() {
   };
 
   const handleGoogleLogin = async () => {
+    if (!captchaToken) {
+      toast.error("Please complete the security check first.");
+      return;
+    }
     saveOAuthRedirect();
-    const { error } = await signInWithGoogle();
+    const { error } = await signInWithGoogle(captchaToken);
+    if (error) {
+      resetCaptcha();
+    }
     if (error) {
       toast.error(error.message);
     }
   };
 
   const handleGithubLogin = async () => {
+    if (!captchaToken) {
+      toast.error("Please complete the security check first.");
+      return;
+    }
     saveOAuthRedirect();
-    const { error } = await signInWithGithub();
+    const { error } = await signInWithGithub(captchaToken);
+    if (error) {
+      resetCaptcha();
+    }
     if (error) {
       toast.error(error.message);
     }
   };
 
   const handleWeb3Login = async () => {
+    if (!captchaToken) {
+      toast.error("Please complete the security check first.");
+      return;
+    }
     saveOAuthRedirect();
     setWeb3Loading(true);
-    const { error } = await signInWithWeb3();
+    const { error } = await signInWithWeb3(captchaToken);
     setWeb3Loading(false);
+    resetCaptcha();
     if (error) {
       toast.error(error.message);
     }
@@ -235,6 +255,7 @@ export function Login() {
                 variant="outline"
                 className="w-full gap-2 h-11"
                 onClick={handleGoogleLogin}
+                disabled={!hasCaptchaToken}
               >
                 <svg className="w-5 h-5" viewBox="0 0 24 24">
                   <path
@@ -260,6 +281,7 @@ export function Login() {
                 variant="outline"
                 className="w-full gap-2 h-11"
                 onClick={handleGithubLogin}
+                disabled={!hasCaptchaToken}
               >
                 <Github className="w-5 h-5" strokeWidth={2} />
                 Continue with GitHub
@@ -268,7 +290,7 @@ export function Login() {
                 variant="outline"
                 className="w-full gap-2 h-11"
                 onClick={handleWeb3Login}
-                disabled={web3Loading}
+                disabled={web3Loading || !hasCaptchaToken}
               >
                 <Wallet className="w-5 h-5" strokeWidth={2} />
                 {web3Loading ? "Connecting wallet..." : "Continue with Web3 Wallet"}
@@ -325,8 +347,18 @@ export function Login() {
                 onVerify={setCaptchaToken}
                 resetSignal={captchaResetSignal}
               />
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                {hasCaptchaToken ? (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                    <span>Security check complete. You can continue.</span>
+                  </>
+                ) : (
+                  <span>Complete the security check to enable sign in.</span>
+                )}
+              </div>
 
-              <Button type="submit" className="w-full h-11" disabled={loading || isLocked}>
+              <Button type="submit" className="w-full h-11" disabled={loading || isLocked || !hasCaptchaToken}>
                 {loading ? "Logging in..." : isLocked ? "Account locked" : "Log in"}
               </Button>
             </form>

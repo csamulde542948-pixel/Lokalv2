@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
-import { Eye, EyeOff, Github, Wallet } from "lucide-react";
+import { CheckCircle2, Eye, EyeOff, Github, Wallet } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
 import { Checkbox } from "../components/ui/checkbox";
@@ -45,6 +45,7 @@ export function Signup() {
   const [web3Loading, setWeb3Loading] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaResetSignal, setCaptchaResetSignal] = useState(0);
+  const hasCaptchaToken = !!captchaToken;
 
   const resetCaptcha = () => {
     setCaptchaToken(null);
@@ -121,8 +122,15 @@ export function Signup() {
       toast.error("Please agree to the Terms of Service and Privacy Policy");
       return;
     }
+    if (!captchaToken) {
+      toast.error("Please complete the security check first.");
+      return;
+    }
     saveOAuthRedirect();
-    const { error } = await signInWithGoogle();
+    const { error } = await signInWithGoogle(captchaToken);
+    if (error) {
+      resetCaptcha();
+    }
     if (error) {
       toast.error(error.message);
     }
@@ -133,8 +141,15 @@ export function Signup() {
       toast.error("Please agree to the Terms of Service and Privacy Policy");
       return;
     }
+    if (!captchaToken) {
+      toast.error("Please complete the security check first.");
+      return;
+    }
     saveOAuthRedirect();
-    const { error } = await signInWithGithub();
+    const { error } = await signInWithGithub(captchaToken);
+    if (error) {
+      resetCaptcha();
+    }
     if (error) {
       toast.error(error.message);
     }
@@ -145,10 +160,15 @@ export function Signup() {
       toast.error("Please agree to the Terms of Service and Privacy Policy");
       return;
     }
+    if (!captchaToken) {
+      toast.error("Please complete the security check first.");
+      return;
+    }
     saveOAuthRedirect();
     setWeb3Loading(true);
-    const { error } = await signInWithWeb3();
+    const { error } = await signInWithWeb3(captchaToken);
     setWeb3Loading(false);
+    resetCaptcha();
     if (error) {
       toast.error(error.message);
     }
@@ -208,6 +228,7 @@ export function Signup() {
                 variant="outline"
                 className="w-full gap-2 h-11"
                 onClick={handleGoogleSignup}
+                disabled={!hasCaptchaToken || !agreeToTerms}
               >
                 <svg className="w-5 h-5" viewBox="0 0 24 24">
                   <path
@@ -233,6 +254,7 @@ export function Signup() {
                 variant="outline"
                 className="w-full gap-2 h-11"
                 onClick={handleGithubSignup}
+                disabled={!hasCaptchaToken || !agreeToTerms}
               >
                 <Github className="w-5 h-5" strokeWidth={2} />
                 Continue with GitHub
@@ -241,7 +263,7 @@ export function Signup() {
                 variant="outline"
                 className="w-full gap-2 h-11"
                 onClick={handleWeb3Signup}
-                disabled={web3Loading}
+                disabled={web3Loading || !hasCaptchaToken || !agreeToTerms}
               >
                 <Wallet className="w-5 h-5" strokeWidth={2} />
                 {web3Loading ? "Connecting wallet..." : "Continue with Web3 Wallet"}
@@ -390,8 +412,18 @@ export function Signup() {
                 onVerify={setCaptchaToken}
                 resetSignal={captchaResetSignal}
               />
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                {hasCaptchaToken ? (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                    <span>Security check complete. You can continue.</span>
+                  </>
+                ) : (
+                  <span>Complete the security check to enable sign up.</span>
+                )}
+              </div>
 
-              <Button type="submit" className="w-full h-11" disabled={loading}>
+              <Button type="submit" className="w-full h-11" disabled={loading || !hasCaptchaToken}>
                 {loading ? "Creating account..." : "Create account"}
               </Button>
             </form>

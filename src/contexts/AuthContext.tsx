@@ -27,9 +27,9 @@ interface AuthContextValue {
     metadata?: { full_name?: string; username?: string },
     captchaToken?: string
   ) => Promise<{ error: AuthError | null; session: Session | null }>;
-  signInWithGoogle: () => Promise<{ error: AuthError | null }>;
-  signInWithGithub: () => Promise<{ error: AuthError | null }>;
-  signInWithWeb3: () => Promise<{ error: Error | null }>;
+  signInWithGoogle: (captchaToken?: string) => Promise<{ error: AuthError | null }>;
+  signInWithGithub: (captchaToken?: string) => Promise<{ error: AuthError | null }>;
+  signInWithWeb3: (captchaToken?: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<{ error: AuthError | null }>;
 }
 
@@ -131,12 +131,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  const signInWithGoogle = useCallback(async () => {
+  const signInWithGoogle = useCallback(async (captchaToken?: string) => {
     console.log('[AUTH] Attempting Google sign-in, redirect URL:', `${window.location.origin}/auth/callback`);
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
+        ...(captchaToken ? { captchaToken } : {}),
         queryParams: {
           access_type: 'offline',
           prompt: 'select_account',
@@ -147,11 +148,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error };
   }, []);
 
-  const signInWithGithub = useCallback(async () => {
+  const signInWithGithub = useCallback(async (captchaToken?: string) => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "github",
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
+        ...(captchaToken ? { captchaToken } : {}),
         // Request GitHub username + primary email so we can auto-fill profile
         scopes: "read:user user:email",
       },
@@ -159,7 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error };
   }, []);
 
-  const signInWithWeb3 = useCallback(async (): Promise<{ error: Error | null }> => {
+  const signInWithWeb3 = useCallback(async (captchaToken?: string): Promise<{ error: Error | null }> => {
     try {
       // Check for window.ethereum (MetaMask or any EIP-1193 wallet)
       const ethereum = (window as any).ethereum;
@@ -187,6 +189,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         provider: "ethereum" as any,
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
+          ...(captchaToken ? { captchaToken } : {}),
         },
       });
       if (error) return { error };
