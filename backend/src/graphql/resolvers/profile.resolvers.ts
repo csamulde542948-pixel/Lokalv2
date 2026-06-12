@@ -12,6 +12,8 @@ import { awardXp, awardRole, ROLE_NAMES } from "../../services/xp";
 import { createNotification } from "../../lib/notifications";
 import { searchRateLimiter } from "../../lib/rateLimit";
 
+const LOKALHOST_VERIFIED_PROFILE_ID = "1efb2d7c-adf9-4c34-a292-72566f9271bc";
+
 export const profileResolvers = {
   Query: {
     /**
@@ -485,6 +487,10 @@ export const profileResolvers = {
    * multiple profiles are resolved in the same request (e.g. leaderboard, followers list).
    */
   Profile: {
+    isVerified: (parent: { id: string }) => {
+      return parent.id === LOKALHOST_VERIFIED_PROFILE_ID;
+    },
+
     followersCount: async (
       parent: { id: string },
       _: unknown,

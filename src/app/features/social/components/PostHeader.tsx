@@ -124,7 +124,7 @@ export function PostHeader({
             >
               {authorName}
             </Link>
-            {author.isVerified && <VerifiedBadge />}
+            <VerifiedBadge profileId={author.id} isVerified={author.isVerified} />
             <span className="text-muted-foreground text-xs flex-shrink-0">·</span>
             <span className="text-xs text-muted-foreground flex-shrink-0">{timestamp}</span>
 

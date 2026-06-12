@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Link } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useMutation } from "@apollo/client/react";
-import { BadgeCheck, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Flame, MessageSquare, MoreHorizontal, Repeat2, Trash2, UserCheck, UserPlus, X } from "lucide-react";
+import { Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Flame, MessageSquare, MoreHorizontal, Pin, PinOff, Repeat2, Trash2, UserCheck, UserPlus, X } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "../../../components/ui/avatar";
 import { Button } from "../../../components/ui/button";
 import {
@@ -15,6 +15,8 @@ import {
 import { useAuth } from "../../../../contexts/AuthContext";
 import { extractRoastProjectMeta } from "../roastMeta";
 import { timeAgo } from "../time";
+import { LinkPreviewCard, extractFirstUrl } from "./LinkPreviewCard";
+import { VerifiedBadge } from "./VerifiedBadge";
 
 const LIKE_POST = gql`
   mutation TimelineFirePost($postId: ID!, $reaction: String) {
@@ -41,6 +43,24 @@ const UNLIKE_POST = gql`
 const DELETE_POST = gql`
   mutation TimelineDeletePost($id: ID!) {
     deletePost(id: $id)
+  }
+`;
+
+const PIN_POST = gql`
+  mutation TimelinePinPost($postId: ID!) {
+    pinPost(postId: $postId) {
+      id
+      isPinnedToFeed
+    }
+  }
+`;
+
+const UNPIN_POST = gql`
+  mutation TimelineUnpinPost($postId: ID!) {
+    unpinPost(postId: $postId) {
+      id
+      isPinnedToFeed
+    }
   }
 `;
 
@@ -89,6 +109,7 @@ export interface TimelinePostData {
   likedByMe: boolean;
   myReaction: string | null;
   createdAt: string;
+  isPinnedToFeed?: boolean;
   author: TimelinePostAuthor;
 }
 
@@ -98,6 +119,7 @@ interface TimelinePostProps {
   onOpenPost?: (post: TimelinePostData) => void;
   onOpenComments?: (post: TimelinePostData) => void;
   onDeleted?: (postId: string) => void;
+  onPinStateChange?: () => void;
   detail?: boolean;
 }
 
@@ -297,7 +319,17 @@ function TimelineMedia({
   );
 }
 
-export function TimelinePost({ post, className = "", onOpenPost, onOpenComments, onDeleted, detail = false }: TimelinePostProps) {
+const LOKALHOST_ADMIN_EMAIL = "hello@lokalhost.club";
+
+export function TimelinePost({
+  post,
+  className = "",
+  onOpenPost,
+  onOpenComments,
+  onDeleted,
+  onPinStateChange,
+  detail = false,
+}: TimelinePostProps) {
   const { user } = useAuth();
   const [fireCount, setFireCount] = useState(post.likesCount);
   const [sharedCount, setSharedCount] = useState(post.sharesCount);
@@ -305,12 +337,15 @@ export function TimelinePost({ post, className = "", onOpenPost, onOpenComments,
   const [fired, setFired] = useState(post.likedByMe && post.myReaction === "Fire");
   const [bookmarked, setBookmarked] = useState(false);
   const [following, setFollowing] = useState(!!post.author.isFollowedByMe);
+  const [pinnedToFeed, setPinnedToFeed] = useState(!!post.isPinnedToFeed);
   const [expanded, setExpanded] = useState(false);
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
 
   const [firePost] = useMutation(LIKE_POST);
   const [unfirePost] = useMutation(UNLIKE_POST);
   const [deletePost] = useMutation(DELETE_POST);
+  const [pinPost] = useMutation(PIN_POST);
+  const [unpinPost] = useMutation(UNPIN_POST);
   const [followUser] = useMutation(FOLLOW_USER);
   const [unfollowUser] = useMutation(UNFOLLOW_USER);
 
@@ -320,6 +355,7 @@ export function TimelinePost({ post, className = "", onOpenPost, onOpenComments,
     setCommentCount(post.commentsCount);
     setFired(post.likedByMe && post.myReaction === "Fire");
     setFollowing(!!post.author.isFollowedByMe);
+    setPinnedToFeed(!!post.isPinnedToFeed);
     setExpanded(false);
     setFailedImages(new Set());
   }, [post]);
@@ -367,13 +403,32 @@ export function TimelinePost({ post, className = "", onOpenPost, onOpenComments,
     }
   }
 
+  async function handlePinToggle() {
+    const next = !pinnedToFeed;
+    setPinnedToFeed(next);
+    try {
+      if (next) {
+        await pinPost({ variables: { postId: post.id } });
+      } else {
+        await unpinPost({ variables: { postId: post.id } });
+      }
+      onPinStateChange?.();
+    } catch (error) {
+      setPinnedToFeed(!next);
+      console.error(error);
+    }
+  }
+
   const displayName = post.author.displayName ?? post.author.name ?? post.author.username;
   const isOwnPost = !!user?.id && user.id === post.author.id;
+  const isLokalhostAdmin = user?.email?.toLowerCase() === LOKALHOST_ADMIN_EMAIL;
+  const canPinPost = isLokalhostAdmin && isOwnPost;
   const isRoastPost = post.postType === "roast" || post.tags?.some((tag) => tag.name === "roast");
   const roastMeta = isRoastPost ? extractRoastProjectMeta(post.content) : null;
   const images = (post.imageUrls?.length ? post.imageUrls : post.imageUrl ? [post.imageUrl] : []).filter(
     (image) => image && !failedImages.has(image),
   );
+  const linkUrl = extractFirstUrl(post.content);
   const contentLimit = 150;
   const maxLines = 10;
   const shouldTruncate =
@@ -389,6 +444,13 @@ export function TimelinePost({ post, className = "", onOpenPost, onOpenComments,
       className={`relative border-b px-4 py-4 transition-colors ${onOpenPost ? "cursor-pointer" : ""} ${postSurfaceClass} ${className}`}
       onClick={() => onOpenPost?.(post)}
     >
+      {pinnedToFeed && (
+        <div className="mb-3 flex items-center gap-1.5 text-xs font-medium text-primary">
+          <Pin className="h-3.5 w-3.5" strokeWidth={2.4} />
+          <span>Pinned by Lokalhost</span>
+        </div>
+      )}
+
       <div className="flex items-start gap-3">
         <Link
           to={`/profile/${post.author.username}`}
@@ -411,12 +473,7 @@ export function TimelinePost({ post, className = "", onOpenPost, onOpenComments,
               >
                 {displayName}
               </Link>
-              {post.author.isVerified && (
-                <BadgeCheck
-                  aria-label="Verified"
-                  className="h-4 w-4 shrink-0 fill-amber-400 text-amber-700"
-                />
-              )}
+              <VerifiedBadge profileId={post.author.id} isVerified={post.author.isVerified} />
               <span className="text-muted-foreground">{"\u00B7"}</span>
               <span className="shrink-0 text-muted-foreground">{timeAgo(post.createdAt)}</span>
             </div>
@@ -462,6 +519,18 @@ export function TimelinePost({ post, className = "", onOpenPost, onOpenComments,
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-44">
+                  {canPinPost && (
+                    <DropdownMenuItem
+                      className="gap-2"
+                      onSelect={(event) => {
+                        event.stopPropagation();
+                        handlePinToggle();
+                      }}
+                    >
+                      {pinnedToFeed ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+                      {pinnedToFeed ? "Unpin from feed" : "Pin to top of feed"}
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem
                     className="gap-2 text-destructive focus:text-destructive"
                     onSelect={(event) => {
@@ -495,6 +564,15 @@ export function TimelinePost({ post, className = "", onOpenPost, onOpenComments,
                 </button>
               )}
             </div>
+          )}
+
+          {linkUrl && (
+            <LinkPreviewCard
+              url={linkUrl}
+              withOuterSpacing={false}
+              className="mt-3"
+              stopPropagation
+            />
           )}
 
           <TimelineMedia

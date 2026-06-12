@@ -20,6 +20,7 @@ const GET_POST_PAGE = gql`
       videoUrl
       projectName
       postType
+      isPinnedToFeed
       tags {
         id
         name
@@ -118,6 +119,7 @@ export function PostPage() {
                 post={{ ...post, commentsCount: commentCount }}
                 detail
                 onOpenComments={() => setCommentModalOpen(true)}
+                onPinStateChange={() => refetch()}
               />
 
               <CommentSection

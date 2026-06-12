@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { BACKEND_URL } from "../../../../lib/env";
 
-const OG_BASE = import.meta.env.VITE_BACKEND_URL ?? "http://localhost:4000";
+const OG_BASE = BACKEND_URL;
 const URL_REGEX = /https?:\/\/[^\s\)\]>"']+/gi;
 
 interface OgData {
@@ -17,10 +18,21 @@ export function extractFirstUrl(text: string): string | null {
   return match ? match[0] : null;
 }
 
-export function LinkPreviewCard({ url }: { url: string }) {
+export function LinkPreviewCard({
+  url,
+  className = "",
+  withOuterSpacing = true,
+  stopPropagation = false,
+}: {
+  url: string;
+  className?: string;
+  withOuterSpacing?: boolean;
+  stopPropagation?: boolean;
+}) {
   const [og, setOg] = useState<OgData | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  const spacingClass = withOuterSpacing ? "mx-4 mb-3" : "";
 
   useEffect(() => {
     setLoading(true);
@@ -46,7 +58,7 @@ export function LinkPreviewCard({ url }: { url: string }) {
   if (failed) return null;
 
   if (loading) {
-    return <div className="mx-4 mb-3 rounded-xl border bg-muted/40 h-24 animate-pulse" />;
+    return <div className={`${spacingClass} ${className} h-24 rounded-2xl border bg-muted/40 animate-pulse`.trim()} />;
   }
 
   if (!og) return null;
@@ -56,7 +68,10 @@ export function LinkPreviewCard({ url }: { url: string }) {
       href={og.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="mx-4 mb-3 flex overflow-hidden rounded-xl border bg-card hover:bg-muted/50 transition-colors group"
+      onClick={(event) => {
+        if (stopPropagation) event.stopPropagation();
+      }}
+      className={`${spacingClass} ${className} group flex overflow-hidden rounded-2xl border bg-card hover:bg-muted/50 transition-colors`.trim()}
     >
       {og.image && (
         <div className="w-28 flex-shrink-0 bg-muted">

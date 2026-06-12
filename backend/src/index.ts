@@ -21,6 +21,7 @@ import { startLeaderboardRefreshers } from "./services/leaderboardRefreshers";
 import {
   generalRateLimiter,
   authRateLimiter,
+  sessionCookieRateLimiter,
   mutationRateLimiter,
   preLoginCheck,
   recordFailedLogin,
@@ -415,6 +416,12 @@ async function startServer() {
   app.use(compression());
 
   // ── Rate limiting ────────────────────────────────────────────────────────
+  // Health checks must stay outside shared request throttles so Railway
+  // can probe the service reliably even during traffic spikes.
+  app.get("/health", (_req: any, res: any) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
   app.use(generalRateLimiter);
   app.use("/graphql", mutationRateLimiter);
 
@@ -490,7 +497,7 @@ async function startServer() {
    * then sends the resulting session here once so the backend can authenticate
    * subsequent credentialed API requests without exposing cookies to JS.
    */
-  app.post("/auth/session-cookie", authRateLimiter, requireSameOrigin, async (req: any, res: any) => {
+  app.post("/auth/session-cookie", sessionCookieRateLimiter, requireSameOrigin, async (req: any, res: any) => {
     try {
       const { accessToken, refreshToken } = req.body ?? {};
       if (!accessToken || !refreshToken) {
@@ -513,7 +520,7 @@ async function startServer() {
     }
   });
 
-  app.delete("/auth/session-cookie", authRateLimiter, requireSameOrigin, (_req: any, res: any) => {
+  app.delete("/auth/session-cookie", sessionCookieRateLimiter, requireSameOrigin, (_req: any, res: any) => {
     clearSessionCookies(res);
     return res.json({ ok: true });
   });
@@ -778,10 +785,6 @@ async function startServer() {
     })
   );
 
-  // Health check
-  app.get("/health", (_req: any, res: any) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
-  });
 
   // ── Open Graph proxy (/og?url=https://...) ────────────────────────────────
   // Low #22: Bounded LRU cache — max 500 entries to prevent unbounded memory growth.

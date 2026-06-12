@@ -26,8 +26,9 @@ import { Textarea } from "./ui/textarea";
 import { useAuth } from "../../contexts/AuthContext";
 import { supabase } from "../../lib/supabase";
 import { avatarSrc } from "../../lib/defaults";
+import { BACKEND_URL } from "../../lib/env";
 
-const MAX_POST_CHARS = 250;
+const MAX_POST_CHARS = 2500;
 const MAX_IMAGES = 4;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 25 * 1024 * 1024;
@@ -184,8 +185,7 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
     if (!previewUrl || previewUrl === dismissedUrl) return;
     const ctrl = new AbortController();
     setOgLoading(true);
-    const base = import.meta.env.VITE_BACKEND_URL ?? "http://localhost:4000";
-    fetch(`${base}/og?url=${encodeURIComponent(previewUrl)}`, { signal: ctrl.signal })
+    fetch(`${BACKEND_URL}/og?url=${encodeURIComponent(previewUrl)}`, { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => {
         if (d.title || d.image) setOgData(d);
@@ -357,7 +357,7 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
               <Textarea
                 aria-label="Create post"
                 value={content}
-                maxLength={MAX_POST_CHARS + 20}
+                maxLength={MAX_POST_CHARS}
                 onChange={(e) => setContent(e.target.value)}
                 className="min-h-[48px] resize-none border-0 bg-transparent p-0 text-lg leading-6 shadow-none outline-none focus-visible:ring-0 sm:min-h-[72px] sm:text-xl sm:leading-7"
               />

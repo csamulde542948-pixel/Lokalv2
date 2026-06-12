@@ -13,6 +13,35 @@ import { TimelinePost, type TimelinePostData } from "../features/social/componen
 
 const GET_SOCIAL_FEED = gql`
   query GetSocialFeed($tab: SocialFeedTab!, $limit: Int, $cursor: String, $recommId: String) {
+    pinnedPost {
+      id
+      content
+      imageUrl
+      imageUrls
+      videoUrl
+      projectName
+      postType
+      isPinnedToFeed
+      tags {
+        id
+        name
+      }
+      likesCount
+      commentsCount
+      sharesCount
+      likedByMe
+      myReaction
+      createdAt
+      author {
+        id
+        name
+        displayName
+        username
+        avatarUrl
+        isVerified
+        isFollowedByMe
+      }
+    }
     socialFeed(tab: $tab, limit: $limit, cursor: $cursor, recommId: $recommId) {
       posts {
         id
@@ -22,6 +51,7 @@ const GET_SOCIAL_FEED = gql`
         videoUrl
         projectName
         postType
+        isPinnedToFeed
         tags {
           id
           name
@@ -60,6 +90,7 @@ const CREATE_POST_MUTATION = gql`
 type FeedTab = "FOR_YOU" | "FOLLOWING";
 
 interface SocialFeedData {
+  pinnedPost: TimelinePostData | null;
   socialFeed: {
     posts: TimelinePostData[];
     hasMore: boolean;
@@ -121,6 +152,7 @@ function FeedSkeletonPost() {
 export function Feed() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<FeedTab>("FOR_YOU");
+  const [pinnedPost, setPinnedPost] = useState<TimelinePostData | null>(null);
   const [posts, setPosts] = useState<TimelinePostData[]>([]);
   const [recommId, setRecommId] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -136,6 +168,7 @@ export function Feed() {
   const [createPostMutation] = useMutation(CREATE_POST_MUTATION);
 
   useEffect(() => {
+    setPinnedPost(null);
     setPosts([]);
     setRecommId(null);
     setNextCursor(null);
@@ -145,7 +178,9 @@ export function Feed() {
   useEffect(() => {
     const page = data?.socialFeed;
     if (!page) return;
-    setPosts(page.posts);
+    const nextPinnedPost = data?.pinnedPost ?? null;
+    setPinnedPost(nextPinnedPost);
+    setPosts(page.posts.filter((post) => post.id !== nextPinnedPost?.id));
     setRecommId(page.recommId ?? null);
     setNextCursor(page.nextCursor ?? null);
     setHasMore(page.hasMore);
@@ -181,12 +216,18 @@ export function Feed() {
 
     setPosts((current) => {
       const known = new Set(current.map((post) => post.id));
-      return [...current, ...nextPage.posts.filter((post) => !known.has(post.id))];
+      return [
+        ...current,
+        ...nextPage.posts.filter((post) => !known.has(post.id) && post.id !== pinnedPost?.id),
+      ];
     });
     setRecommId(nextPage.recommId ?? null);
     setNextCursor(nextPage.nextCursor ?? null);
     setHasMore(nextPage.hasMore);
   }
+
+  const visiblePosts = pinnedPost ? posts.filter((post) => post.id !== pinnedPost.id) : posts;
+  const totalVisiblePosts = visiblePosts.length + (pinnedPost ? 1 : 0);
 
   return (
     <div className="min-h-screen bg-background">
@@ -221,7 +262,7 @@ export function Feed() {
             </div>
           )}
 
-          {!loading && posts.length === 0 && !error && (
+          {!loading && totalVisiblePosts === 0 && !error && (
             <div className="px-8 py-14 text-center">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <ImageIcon className="h-5 w-5" />
@@ -235,17 +276,32 @@ export function Feed() {
             </div>
           )}
 
-          {posts.map((post) => (
+          {pinnedPost && (
+            <TimelinePost
+              key={`pinned-${pinnedPost.id}`}
+              post={pinnedPost}
+              onOpenPost={(nextPost) => navigate(`/post/${nextPost.id}`)}
+              onOpenComments={setCommentPost}
+              onDeleted={(postId) => {
+                setPinnedPost((current) => (current?.id === postId ? null : current));
+                setPosts((current) => current.filter((item) => item.id !== postId));
+              }}
+              onPinStateChange={() => refetch({ tab, limit: 10, cursor: null, recommId: null })}
+            />
+          )}
+
+          {visiblePosts.map((post) => (
             <TimelinePost
               key={post.id}
               post={post}
               onOpenPost={(nextPost) => navigate(`/post/${nextPost.id}`)}
               onOpenComments={setCommentPost}
               onDeleted={(postId) => setPosts((current) => current.filter((item) => item.id !== postId))}
+              onPinStateChange={() => refetch({ tab, limit: 10, cursor: null, recommId: null })}
             />
           ))}
 
-          {hasMore && posts.length > 0 && (
+          {hasMore && totalVisiblePosts > 0 && (
             <div className="flex justify-center px-4 py-5">
               <Button variant="outline" className="rounded-full px-6" onClick={handleLoadMore}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

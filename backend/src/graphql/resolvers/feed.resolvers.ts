@@ -1015,7 +1015,7 @@ export const feedResolvers = {
           ? [input.imageUrl]
           : [];
       if (!input.content?.trim() && incomingImages.length === 0 && !input.videoUrl) throw new Error("Post content cannot be empty");
-      if (input.content.length > 250) throw new Error("Post content must be 250 characters or fewer");
+      if (input.content.length > 2500) throw new Error("Post content must be 2500 characters or fewer");
       if (input.projectName && input.projectName.length > 120) throw new Error("Project name must be 120 characters or fewer");
       if (Array.isArray(input.tags) && input.tags.length > 10) throw new Error("A post can have at most 10 tags");
       if (incomingImages.length > 4) throw new Error("A post can have at most 4 images");

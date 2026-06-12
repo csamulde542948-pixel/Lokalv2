@@ -14,19 +14,26 @@ import { prisma } from "../lib/prisma";
 
 // ─── Rate Limiters ───────────────────────────────────────────────────────────
 
-/** General API rate limiter: 200 requests per 15-minute window */
+/** General API rate limiter: relaxed for app bootstrap, polling, and feed usage */
 export const generalRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200,
+  max: 2000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests. Please try again later." },
+  // Keep health, GraphQL traffic, and session-cookie sync out of the shared
+  // generic bucket. GraphQL mutations and auth endpoints have dedicated
+  // throttles below, and GraphQL reads are the noisiest part of normal app use.
+  skip: (req) =>
+    req.path === "/health" ||
+    req.path === "/graphql" ||
+    req.path === "/auth/session-cookie",
 });
 
-/** Auth endpoints: stricter limit — 20 requests per 15 min */
+/** Auth endpoints: still protected, but less likely to block normal login flows */
 export const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: 120,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -34,10 +41,21 @@ export const authRateLimiter = rateLimit({
   },
 });
 
-/** GraphQL mutations: 60 per 15 min */
+/** Session cookie sync: allow repeated app/session refreshes without locking the UI */
+export const sessionCookieRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: "Too many session sync requests. Please try again shortly.",
+  },
+});
+
+/** GraphQL mutations: enough headroom for normal product usage while retaining abuse protection */
 export const mutationRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 60,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many mutations. Please slow down." },

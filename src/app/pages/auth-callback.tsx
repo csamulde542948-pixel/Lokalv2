@@ -2,7 +2,6 @@ import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { supabase } from "../../lib/supabase";
 import { recordLoginAttempt } from "../../lib/auth-security";
-import { syncSessionCookie } from "../../lib/auth-session-cookie";
 
 /**
  * Handles Supabase Auth redirects using PKCE only.
@@ -68,8 +67,6 @@ export function AuthCallback() {
         );
         return;
       }
-
-      await syncSessionCookie(data.session).catch(() => {});
 
       if (data.session.user?.email) {
         const provider = data.session.user.app_metadata?.provider || "oauth";

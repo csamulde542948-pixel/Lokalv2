@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { ArrowLeft, BadgeCheck, Flame, Loader2, MessageSquare } from "lucide-react";
+import { ArrowLeft, Flame, Loader2, MessageSquare } from "lucide-react";
 import { LeftSidebar } from "../components/left-sidebar";
 import { RightSidebar } from "../components/right-sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
@@ -10,6 +10,7 @@ import { Button } from "../components/ui/button";
 import { CommentInput } from "../features/social/components/CommentInput";
 import { CommentItem } from "../features/social/components/CommentItem";
 import { TimelinePost, type TimelinePostData } from "../features/social/components/TimelinePost";
+import { VerifiedBadge } from "../features/social/components/VerifiedBadge";
 import { adaptComment, makeOptimisticComment } from "../features/social/adapters";
 import { LIKE_COMMENT, REPLY_TO_COMMENT, UNLIKE_COMMENT } from "../features/social/graphql";
 import { useAuth } from "../../contexts/AuthContext";
@@ -173,10 +174,8 @@ function FocusedCommentCard({
             <Link to={`/profile/${comment.author.username}`} className="truncate font-semibold hover:underline">
               {displayName}
             </Link>
-            {comment.author.isVerified && (
-              <BadgeCheck className="h-4 w-4 shrink-0 fill-amber-400 text-amber-700" aria-label="Verified" />
-            )}
-            <span className="text-muted-foreground">.</span>
+            <VerifiedBadge profileId={comment.author.id} isVerified={comment.author.isVerified} />
+            <span className="text-muted-foreground">{"\u00B7"}</span>
             <span className="shrink-0 text-muted-foreground">{shortTime(comment.createdAt)}</span>
           </div>
           <Link
