@@ -9,7 +9,7 @@
  * 5. Request validation
  */
 
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { analyzeGraphqlRequest } from "../lib/graphqlRequest";
 import { prisma } from "../lib/prisma";
 
@@ -60,7 +60,8 @@ export const mutationRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many mutations. Please slow down." },
-  keyGenerator: (req: any) => req.user?.id ? `user:${req.user.id}` : `ip:${req.ip}`,
+  keyGenerator: (req: any) =>
+    req.user?.id ? `user:${req.user.id}` : `ip:${ipKeyGenerator(req.ip)}`,
   skip: (req) => {
     // Only rate-limit mutations, not queries
     return !analyzeGraphqlRequest(
