@@ -23,7 +23,7 @@ import {
   Plus,
   AlertCircle,
   Search, Filter, Loader2, Check, ArrowUpDown,
-  X, BadgeCheck, Clock, Flame,
+  X, BadgeCheck, Clock, Flame, Coins, Gauge, History,
 } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { useAuth } from "../../contexts/AuthContext";
@@ -44,6 +44,17 @@ const GET_LAUNCHPAD_EVENTS = gql`
       id projectName iconUrl screenshotUrl projectTagline projectCategory projectStatus eventType title description deadline link
       spotsTotal interestedCount interestedByMe tags { name } createdAt
       author { id name username avatarUrl isVerified }
+    }
+  }
+`;
+
+const GET_MY_CREDITS = gql`
+  query GetLaunchpadCreditBalance {
+    myCredits {
+      balance
+      lifetimeCredits
+      lifetimeSpent
+      starterCredits
     }
   }
 `;
@@ -293,6 +304,10 @@ export function Launchpad() {
     variables: { limit: 30 },
     fetchPolicy: "cache-and-network",
   });
+  const creditsQuery = useQuery(GET_MY_CREDITS, {
+    skip: !user,
+    fetchPolicy: "cache-and-network",
+  });
 
   const [markInterested] = useMutation(MARK_INTERESTED);
   const [markNotInterested] = useMutation(MARK_NOT_INTERESTED);
@@ -342,6 +357,7 @@ export function Launchpad() {
 
   const hostingCount = user ? events.filter((e: any) => e.author?.id === user.id).length : 0;
   const joinedCount = user ? events.filter((e: any) => e.interestedByMe).length : 0;
+  const credits = creditsQuery.data?.myCredits;
 
   const handleJoin = useCallback(async (eventId: string, email: string, note: string) => {
     if (!user) return;
@@ -411,49 +427,97 @@ export function Launchpad() {
 
       <div className="relative z-10 container mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 max-w-7xl">
         {/* ── Header ── */}
-        <div className="border border-border/60 bg-background/70 backdrop-blur-sm rounded-lg p-4 sm:p-5 mb-5">
-          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-md bg-orange-500/10 border border-orange-500/30 flex items-center justify-center flex-shrink-0">
-                <Rocket className="w-5 h-5 sm:w-6 sm:h-6 text-primary" strokeWidth={2} />
+        <section className="mb-6 border-y border-border/60 bg-background/68 backdrop-blur-sm">
+          <div className="grid lg:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="p-5 sm:p-7 lg:border-r border-border/60">
+              <div className="flex items-start gap-4">
+                <div className="w-11 h-11 rounded-md bg-orange-500/10 border border-orange-500/30 flex items-center justify-center flex-shrink-0">
+                  <Rocket className="w-5 h-5 text-orange-500" strokeWidth={2} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-mono uppercase tracking-[0.28em] text-orange-500/80 mb-1">// launch operations</p>
+                  <h1 className="text-2xl sm:text-3xl font-bold leading-tight tracking-tight">Launchpad</h1>
+                  <p className="text-sm text-muted-foreground max-w-2xl mt-2 leading-relaxed">
+                    Find contributors, organize joiners, publish updates, and keep every launch conversation in one place.
+                  </p>
+                </div>
               </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-mono uppercase tracking-[0.28em] text-orange-500/80 mb-1">// launchpad control grid</p>
-                <h1 className="text-xl sm:text-2xl font-bold leading-tight tracking-tight">Launchpad</h1>
-                <p className="text-xs sm:text-sm text-muted-foreground max-w-2xl">
-                  Manage launches, joiner queues, updates, and event chat from one operational surface.
-                </p>
+
+              <div className="grid grid-cols-3 gap-px bg-border/60 mt-6 border border-border/60 rounded-md overflow-hidden max-w-xl">
+                {[
+                  ["Live events", events.length],
+                  ["You host", hostingCount],
+                  ["You joined", joinedCount],
+                ].map(([label, value]) => (
+                  <div key={label} className="bg-background/85 px-3 sm:px-4 py-3">
+                    <div className="text-[9px] sm:text-[10px] font-mono uppercase tracking-wider text-muted-foreground truncate">{label}</div>
+                    <div className="text-xl font-semibold tabular-nums mt-1">{value}</div>
+                  </div>
+                ))}
               </div>
             </div>
-            {user && (
-              <Button
-                onClick={() => setShowWizard(true)}
-                className="gap-1.5 rounded-md font-mono"
-              >
-                <Plus className="w-4 h-4" />
-                Create Event
-              </Button>
-            )}
+
+            <div className="p-5 sm:p-6 bg-background/45">
+              {user ? (
+                <div className="h-full flex flex-col">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground">AI tool credits</p>
+                      <p className="text-xs text-muted-foreground mt-1">Shared by Roast and Brand Analysis</p>
+                    </div>
+                    <Coins className="w-5 h-5 text-orange-500" />
+                  </div>
+
+                  <div className="mt-5 flex items-end justify-between gap-4">
+                    <div>
+                      <div className="text-4xl font-semibold tabular-nums leading-none">
+                        {creditsQuery.error || (creditsQuery.loading && !credits) ? "—" : credits?.balance ?? 0}
+                      </div>
+                      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mt-2">available balance</p>
+                    </div>
+                    <Button onClick={() => setShowWizard(true)} className="gap-1.5 rounded-md font-mono">
+                      <Plus className="w-4 h-4" />
+                      Create Event
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 mt-5">
+                    <div className="border border-border/60 bg-background/70 rounded-md p-2.5">
+                      <div className="flex items-center gap-1.5 text-[9px] font-mono uppercase text-muted-foreground">
+                        <Gauge className="w-3 h-3" /> granted
+                      </div>
+                      <div className="font-semibold tabular-nums mt-1">{creditsQuery.error ? "—" : credits?.lifetimeCredits ?? "—"}</div>
+                    </div>
+                    <div className="border border-border/60 bg-background/70 rounded-md p-2.5">
+                      <div className="flex items-center gap-1.5 text-[9px] font-mono uppercase text-muted-foreground">
+                        <History className="w-3 h-3" /> spent
+                      </div>
+                      <div className="font-semibold tabular-nums mt-1">{creditsQuery.error ? "—" : credits?.lifetimeSpent ?? "—"}</div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="h-full flex flex-col justify-between gap-6">
+                  <div>
+                    <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground">Your launch workspace</p>
+                    <h2 className="font-semibold mt-2">Host and join events</h2>
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">Sign in to create events, access group chat, and manage your joiner list.</p>
+                  </div>
+                  <Button onClick={() => navigate("/login")} className="rounded-md font-mono">Sign in</Button>
+                </div>
+              )}
+            </div>
           </div>
-          <div className="grid grid-cols-3 gap-px bg-border/60 mt-5 border border-border/60 rounded-md overflow-hidden">
-            {[
-              ["events", events.length],
-              ["hosting", hostingCount],
-              ["joined", joinedCount],
-            ].map(([label, value]) => (
-              <div key={label} className="bg-background/80 px-3 py-2">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">[{label}]</div>
-                <div className="text-lg font-semibold tabular-nums">{value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
+        </section>
 
         {/* ── Scope tabs + count ── */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-          <div className="inline-flex p-1 bg-background/70 border border-border/60 rounded-lg w-fit">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
+          <div className={cn(
+            "grid gap-px bg-border/60 border border-border/60 rounded-md overflow-hidden",
+            user ? "grid-cols-3" : "grid-cols-1"
+          )}>
             {([
-              { id: "all",     label: "All",     count: events.length },
+              { id: "all",     label: "Discover", count: events.length },
               ...(user ? [
                 { id: "hosting", label: "Hosting", count: hostingCount },
                 { id: "joined",  label: "Joined",  count: joinedCount },
@@ -463,10 +527,10 @@ export function Launchpad() {
                 key={s.id}
                 onClick={() => setScope(s.id)}
                 className={cn(
-                  "px-3 h-8 text-xs font-mono font-semibold rounded-md transition-colors flex items-center gap-1.5",
+                  "px-4 sm:px-5 h-11 text-xs font-mono font-semibold transition-colors flex items-center justify-center gap-2 bg-background/80",
                   scope === s.id
-                    ? "bg-foreground text-background shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
                 )}
               >
                 {s.label}
@@ -481,7 +545,7 @@ export function Launchpad() {
           </div>
 
           {/* Sort dropdown */}
-          <div className="flex items-center gap-1.5 text-xs">
+          <div className="flex items-center gap-1.5 text-xs self-end lg:self-auto">
             <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground" />
             <div className="inline-flex p-0.5 bg-background/70 border border-border/60 rounded-lg">
               {SORT_OPTIONS.map(o => {
@@ -508,7 +572,7 @@ export function Launchpad() {
         </div>
 
         {/* ── Filters + search ── */}
-        <div className="flex flex-col sm:flex-row gap-3 mb-6 border border-border/60 bg-background/60 backdrop-blur-sm rounded-lg p-3">
+        <div className="flex flex-col sm:flex-row gap-3 mb-3 border border-border/60 bg-background/60 backdrop-blur-sm rounded-lg p-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
             <Input
@@ -543,6 +607,18 @@ export function Launchpad() {
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="flex items-end justify-between gap-4 mb-5">
+          <div>
+            <p className="text-[9px] font-mono uppercase tracking-[0.22em] text-muted-foreground">
+              {scope === "hosting" ? "your event operations" : scope === "joined" ? "your active communities" : "public launch directory"}
+            </p>
+            <h2 className="text-base font-semibold mt-1">
+              {scope === "hosting" ? "Events you manage" : scope === "joined" ? "Events you joined" : "Explore launch events"}
+            </h2>
+          </div>
+          <span className="text-[10px] font-mono text-muted-foreground">{sorted.length} result{sorted.length === 1 ? "" : "s"}</span>
         </div>
 
         {error && (

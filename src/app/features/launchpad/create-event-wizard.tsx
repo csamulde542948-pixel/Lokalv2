@@ -92,7 +92,7 @@ const STEP_DESCRIPTIONS: Record<number, { title: string; sub: string }> = {
 };
 
 // Uniform content height — every step must fit inside this.
-const CONTENT_HEIGHT = "min-h-[420px]";
+const CONTENT_HEIGHT = "min-h-[360px] sm:min-h-[520px]";
 const TITLE_LIMIT = 120;
 const DESCRIPTION_LIMIT = 1200;
 
@@ -235,7 +235,7 @@ export function CreateEventWizard({ open, onClose, onCreated }: CreateEventWizar
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
       <DialogContent
         showCloseButton={false}
-        className="max-w-3xl max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-3rem)] gap-0 p-0 overflow-hidden rounded-lg border-border/70 bg-background shadow-2xl"
+        className="max-w-5xl max-h-[calc(100dvh-0.75rem)] sm:max-h-[calc(100dvh-2rem)] gap-0 p-0 overflow-hidden rounded-lg border-border/70 bg-background shadow-2xl"
       >
         <div
           className="pointer-events-none absolute inset-0 opacity-50"
@@ -246,7 +246,7 @@ export function CreateEventWizard({ open, onClose, onCreated }: CreateEventWizar
           }}
         />
         {/* ── Header ── */}
-        <DialogHeader className="relative px-4 sm:px-6 pt-4 pb-4 border-b border-border/70 space-y-4 bg-background/92 backdrop-blur">
+        <DialogHeader className="relative px-4 sm:px-7 lg:px-8 pt-5 pb-5 border-b border-border/70 space-y-5 bg-background/92 backdrop-blur">
           <div className="flex items-center justify-between">
             <DialogTitle className="flex items-center gap-2 text-base font-semibold">
               <div className="w-8 h-8 rounded-md bg-orange-500/10 border border-orange-500/30 flex items-center justify-center">
@@ -302,13 +302,13 @@ export function CreateEventWizard({ open, onClose, onCreated }: CreateEventWizar
         </DialogHeader>
 
         {/* ── Step content (uniform height) ── */}
-        <div className={cn("relative px-4 sm:px-6 py-5 overflow-y-auto", CONTENT_HEIGHT, "max-h-[calc(100dvh-230px)]")}>
+        <div className={cn("relative px-4 sm:px-7 lg:px-8 py-6 overflow-y-auto", CONTENT_HEIGHT, "max-h-[calc(100dvh-238px)]")}>
           {/* Step description */}
-          <div className="mb-5 flex items-start justify-between gap-4">
+          <div className="mb-6 flex items-start justify-between gap-4">
             <div>
               <p className="text-[9px] font-mono uppercase tracking-[0.22em] text-muted-foreground mb-1">step_0{step}</p>
-              <h3 className="text-base font-semibold text-foreground">{stepDesc.title}</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">{stepDesc.sub}</p>
+              <h3 className="text-lg font-semibold text-foreground">{stepDesc.title}</h3>
+              <p className="text-sm text-muted-foreground mt-1">{stepDesc.sub}</p>
             </div>
             {selectedProject && step > 1 && (
               <div className="hidden sm:flex items-center gap-2 border border-border/60 bg-background/80 rounded-md px-2.5 py-2 min-w-0 max-w-[220px]">
@@ -379,7 +379,7 @@ export function CreateEventWizard({ open, onClose, onCreated }: CreateEventWizar
         </div>
 
         {/* ── Footer / nav ── */}
-        <div className="relative flex items-center justify-between gap-2 px-4 sm:px-6 py-3.5 border-t border-border/70 bg-background/95 backdrop-blur">
+        <div className="relative flex items-center justify-between gap-2 px-4 sm:px-7 lg:px-8 py-4 border-t border-border/70 bg-background/95 backdrop-blur">
           <Button
             variant="ghost"
             onClick={() => step > 1 ? setStep(step - 1) : onClose()}
@@ -461,7 +461,7 @@ function StepProject({ loading, projects, selected, onSelect }: {
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[330px] overflow-y-auto pr-1">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[430px] overflow-y-auto pr-1">
       {projects.map((p: any) => {
         const isSelected = selected?.id === p.id;
         return (
@@ -470,13 +470,13 @@ function StepProject({ loading, projects, selected, onSelect }: {
             type="button"
             onClick={() => onSelect(p)}
             className={cn(
-              "flex items-center gap-3 p-3 rounded-md border text-left transition-all min-h-[72px] bg-background/75",
+              "flex items-center gap-4 p-4 rounded-md border text-left transition-all min-h-[88px] bg-background/75",
               isSelected
                 ? "border-orange-500/70 bg-orange-500/5 ring-1 ring-orange-500/30"
                 : "border-border/70 hover:border-orange-500/40 hover:bg-muted/30"
             )}
           >
-            <div className="w-10 h-10 rounded-md overflow-hidden bg-muted flex-shrink-0 flex items-center justify-center border border-border/50">
+            <div className="w-12 h-12 rounded-md overflow-hidden bg-muted flex-shrink-0 flex items-center justify-center border border-border/50">
               {p.iconUrl
                 ? <img src={p.iconUrl} alt="" className="w-full h-full object-cover" />
                 : <FolderGit2 className="w-4 h-4 text-muted-foreground" />}
@@ -509,7 +509,7 @@ function StepType({ value, onChange }: {
   onChange: (v: LaunchpadEventType) => void;
 }) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[330px] overflow-y-auto pr-1">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[430px] overflow-y-auto pr-1">
       {FORM_EVENT_TYPES.map((key) => {
         const c = eventTypeConfig[key];
         const Icon = c.icon;
@@ -520,14 +520,14 @@ function StepType({ value, onChange }: {
             type="button"
             onClick={() => onChange(key)}
             className={cn(
-              "relative flex items-start gap-3 p-3 rounded-md border text-left transition-all min-h-[112px] bg-background/75",
+              "relative flex items-start gap-4 p-4 rounded-md border text-left transition-all min-h-[142px] bg-background/75",
               isSelected
                 ? cn("border-current", c.bg, c.accent, "ring-1", c.ring)
                 : "border-border/70 hover:border-orange-500/40 hover:bg-muted/30"
             )}
           >
             <div className={cn(
-              "w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0",
+              "w-11 h-11 rounded-md flex items-center justify-center flex-shrink-0",
               isSelected ? c.bg : "bg-muted",
               "border", c.border
             )}>
@@ -585,7 +585,7 @@ function StepDetails({ eventType, cfg, title, setTitle, description, setDescript
   const deadlineError = !!deadline && deadline < todayInputValue();
 
   return (
-    <div className="space-y-3 max-h-[330px] overflow-y-auto pr-1">
+    <div className="space-y-5 max-h-[430px] overflow-y-auto pr-2">
       <Field
         label="Event name"
         required
@@ -620,7 +620,7 @@ function StepDetails({ eventType, cfg, title, setTitle, description, setDescript
           placeholder="Describe what you're looking for…"
           value={description}
           onChange={e => setDescription(e.target.value)}
-          className="min-h-[96px] resize-none text-sm rounded-md bg-background/80"
+          className="min-h-[130px] resize-none text-sm rounded-md bg-background/80"
           maxLength={DESCRIPTION_LIMIT}
         />
         <div className="flex items-center justify-between text-[10px] text-muted-foreground">
@@ -748,7 +748,7 @@ function StepReview({ project, eventType, title, description, spotsTotal, deadli
   if (link)       optionals.push({ label: "Link",         value: link, icon: Link2 });
 
   return (
-    <div className="space-y-3 max-h-[330px] overflow-y-auto pr-1">
+    <div className="space-y-4 max-h-[430px] overflow-y-auto pr-2">
       <div className="rounded-md border border-border/60 bg-background/75 overflow-hidden">
         {project?.screenshotUrl && (
           <div className="h-24 border-b border-border/60 overflow-hidden bg-muted">
