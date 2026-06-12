@@ -26,7 +26,11 @@ function startOfUtcDay(): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
-export async function assertPostDailyLimit(profileId: string, prisma: PrismaClient): Promise<void> {
+export async function assertPostDailyLimit(
+  profileId: string,
+  prisma: PrismaClient,
+  requestedCreates: number = 1
+): Promise<void> {
   const count = await prisma.post.count({
     where: {
       authorId: profileId,
@@ -34,7 +38,7 @@ export async function assertPostDailyLimit(profileId: string, prisma: PrismaClie
     },
   });
 
-  if (count >= POST_DAILY_LIMIT) {
+  if (count + Math.max(requestedCreates, 1) > POST_DAILY_LIMIT) {
     throw rateLimitError(`You can post up to ${POST_DAILY_LIMIT} times per day.`);
   }
 }

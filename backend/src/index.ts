@@ -2,6 +2,7 @@ import "./env"; // MUST be first — loads dotenv before any other module reads 
 import express from "express";
 import http from "http";
 import dns from "dns/promises";
+import { randomBytes, randomUUID } from "crypto";
 import cors from "cors";
 import compression from "compression";
 import helmet from "helmet";
@@ -11,6 +12,7 @@ import { ApolloServerPluginDrainHttpServer } from "@apollo/server/plugin/drainHt
 import DataLoader from "dataloader";
 
 import depthLimit from "graphql-depth-limit";
+import { Kind, parse } from "graphql";
 import { typeDefs } from "./graphql/typedefs";
 import { resolvers } from "./graphql/resolvers";
 import { prisma } from "./lib/prisma";
@@ -41,6 +43,7 @@ const IS_STAGING = NODE_ENV === "staging";
 const IS_DEPLOYED = IS_PRODUCTION || IS_STAGING;
 const AUTH_ACCESS_COOKIE = "lokal_access_token";
 const AUTH_REFRESH_COOKIE = "lokal_refresh_token";
+const AUTH_CSRF_COOKIE = "lokal_csrf_token";
 
 // ─── DataLoader factories ────────────────────────────────────────────────────
 
@@ -265,6 +268,30 @@ function createCommentMyReactionLoader(userId: string | null) {
   });
 }
 
+function getMutationFieldCounts(query: unknown): Record<string, number> {
+  if (typeof query !== "string" || !query.trim()) return {};
+  try {
+    const document = parse(query);
+    const counts: Record<string, number> = {};
+    for (const definition of document.definitions) {
+      if (definition.kind !== Kind.OPERATION_DEFINITION || definition.operation !== "mutation") {
+        continue;
+      }
+      for (const selection of definition.selectionSet.selections) {
+        if (selection.kind !== Kind.FIELD) continue;
+        counts[selection.name.value] = (counts[selection.name.value] ?? 0) + 1;
+      }
+    }
+    return counts;
+  } catch {
+    return {};
+  }
+}
+
+function isMutationOperation(query: unknown): boolean {
+  return Object.keys(getMutationFieldCounts(query)).length > 0;
+}
+
 // ─── Apollo Server ───────────────────────────────────────────────────────────
 
 async function startServer() {
@@ -279,7 +306,8 @@ async function startServer() {
     validationRules: [depthLimit(7)], // Prevent deeply nested query DoS attacks
     plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
     formatError: (formattedError: any, error: unknown) => {
-      console.error("[GraphQL Error]", error);
+      const errorId = randomUUID();
+      console.error(`[GraphQL Error ${errorId}]`, error);
       // In production & staging, mask internal errors to avoid leaking stack traces / DB details
       if (IS_DEPLOYED) {
         const msg = formattedError.message ?? "";
@@ -347,7 +375,12 @@ async function startServer() {
           safePrefixes.some((prefix) => msg.startsWith(prefix));
 
         const message = isAllowed ? msg : "Internal server error";
-        return { message, locations: formattedError.locations, path: formattedError.path };
+        return {
+          message,
+          locations: formattedError.locations,
+          path: formattedError.path,
+          extensions: isAllowed ? undefined : { errorId },
+        };
       }
       return formattedError;
     },
@@ -422,11 +455,10 @@ async function startServer() {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
-  app.use(generalRateLimiter);
-  app.use("/graphql", mutationRateLimiter);
-
   app.use(express.json({ limit: "1mb" })); // Limit body size to prevent abuse
   app.use(authMiddleware);
+  app.use(generalRateLimiter);
+  app.use("/graphql", mutationRateLimiter);
 
   // ── Security REST Endpoints ──────────────────────────────────────────────
 
@@ -480,14 +512,57 @@ async function startServer() {
     };
   }
 
+  function csrfCookieOptions(maxAge?: number) {
+    return {
+      httpOnly: false,
+      secure: IS_DEPLOYED,
+      sameSite: IS_DEPLOYED ? "none" as const : "lax" as const,
+      path: "/",
+      ...(maxAge ? { maxAge } : {}),
+    };
+  }
+
+  function issueCsrfToken(res: any, maxAge: number) {
+    const token = randomBytes(24).toString("hex");
+    res.cookie(AUTH_CSRF_COOKIE, token, csrfCookieOptions(maxAge));
+    return token;
+  }
+
   function setSessionCookies(res: any, accessToken: string, refreshToken: string) {
     res.cookie(AUTH_ACCESS_COOKIE, accessToken, sessionCookieOptions(60 * 60 * 1000));
     res.cookie(AUTH_REFRESH_COOKIE, refreshToken, sessionCookieOptions(30 * 24 * 60 * 60 * 1000));
+    issueCsrfToken(res, 30 * 24 * 60 * 60 * 1000);
   }
 
   function clearSessionCookies(res: any) {
     res.clearCookie(AUTH_ACCESS_COOKIE, sessionCookieOptions());
     res.clearCookie(AUTH_REFRESH_COOKIE, sessionCookieOptions());
+    res.clearCookie(AUTH_CSRF_COOKIE, csrfCookieOptions());
+  }
+
+  function requireGraphqlMutationCsrf(req: any, res: any, next: any) {
+    if (!isMutationOperation(req.body?.query)) return next();
+
+    const authHeader = String(req.headers.authorization ?? "");
+    const usingCookieAuth = !authHeader.startsWith("Bearer ") && !!readCookie(req, AUTH_ACCESS_COOKIE);
+    if (!usingCookieAuth) return next();
+
+    const headerToken = req.headers["x-csrf-token"];
+    const cookieToken = readCookie(req, AUTH_CSRF_COOKIE);
+    if (!headerToken || typeof headerToken !== "string" || !cookieToken || headerToken !== cookieToken) {
+      return res.status(403).json({ error: "CSRF token mismatch" });
+    }
+
+    if (IS_DEPLOYED) {
+      const origin = req.headers["origin"] as string | undefined;
+      const referer = req.headers["referer"] as string | undefined;
+      const source = origin ?? (referer ? new URL(referer).origin : null);
+      if (!source || !allowedOrigins.includes(source)) {
+        return res.status(403).json({ error: "Forbidden: cross-origin request" });
+      }
+    }
+
+    next();
   }
 
   /**
@@ -533,6 +608,9 @@ async function startServer() {
       if (accessToken) {
         const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
         if (!error && user) {
+          if (refreshToken && !readCookie(req, AUTH_CSRF_COOKIE)) {
+            setSessionCookies(res, accessToken, refreshToken);
+          }
           return res.json({ authenticated: true, user: { id: user.id, email: user.email } });
         }
       }
@@ -734,10 +812,12 @@ async function startServer() {
 
   app.use(
     "/graphql",
+    requireGraphqlMutationCsrf,
     expressMiddleware(server, {
       context: async ({ req }: { req: any }): Promise<GraphQLContext> => {
         const authReq = req as AuthenticatedRequest;
         const userId = authReq.user?.id ?? null;
+        const mutationFieldCounts = getMutationFieldCounts(req.body?.query);
         // Resolve real client IP — respects X-Forwarded-For behind a proxy/load balancer
         const clientIp: string =
           (req.headers["x-forwarded-for"] as string)?.split(",")[0].trim() ??
@@ -760,6 +840,12 @@ async function startServer() {
           prisma,
           clientIp,
           userCountry,
+          requestMeta: {
+            mutationFieldCounts,
+            usingCookieAuth:
+              !String(req.headers.authorization ?? "").startsWith("Bearer ") &&
+              Boolean(readCookie(req, AUTH_ACCESS_COOKIE)),
+          },
           loaders: {
             profileLoader: createProfileLoader(),
             postLoader: createPostLoader(),
@@ -875,7 +961,7 @@ async function startServer() {
 
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
+      const timeout = setTimeout(() => controller.abort(), 5000);
 
       const response = await fetch(url, {
         signal: controller.signal,
@@ -884,11 +970,41 @@ async function startServer() {
             "Mozilla/5.0 (compatible; LokalBot/1.0; +https://lokal.dev)",
           Accept: "text/html,application/xhtml+xml",
         },
-        redirect: "follow",
+        redirect: "manual",
       });
       clearTimeout(timeout);
 
-      const html = await response.text();
+      if (response.status >= 300 && response.status < 400) {
+        return res.status(400).json({ error: "redirects not allowed" });
+      }
+
+      const contentLength = Number(response.headers.get("content-length") ?? 0);
+      if (Number.isFinite(contentLength) && contentLength > 1_000_000) {
+        return res.status(413).json({ error: "response too large" });
+      }
+
+      const chunks: Uint8Array[] = [];
+      let totalBytes = 0;
+      const reader = response.body?.getReader();
+      if (!reader) {
+        return res.status(502).json({ error: "failed to read response body" });
+      }
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        totalBytes += value.byteLength;
+        if (totalBytes > 1_000_000) {
+          controller.abort();
+          return res.status(413).json({ error: "response too large" });
+        }
+        chunks.push(value);
+      }
+
+      const html = new TextDecoder("utf-8").decode(
+        Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)))
+      );
 
       function getMeta(property: string): string | null {
         // Match both og: and twitter: tags, property or name attr

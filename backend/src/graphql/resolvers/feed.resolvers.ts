@@ -30,6 +30,7 @@ import {
   DEFAULT_WEIGHTS,
 } from "../../services/feedRanking";
 import { awardXp, checkAndAwardRoles } from "../../services/xp";
+import { assertAdminPermission } from "../../lib/permissions";
 
 // ─────────────────────────────────────────────────────────────
 // Cursor Helpers — Relay-style opaque cursor encoding
@@ -1004,7 +1005,7 @@ export const feedResolvers = {
     createPost: async (
       _: unknown,
       { input }: { input: any },
-      { user, prisma, clientIp }: GraphQLContext
+      { user, prisma, clientIp, requestMeta }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
 
@@ -1020,7 +1021,11 @@ export const feedResolvers = {
       if (Array.isArray(input.tags) && input.tags.length > 10) throw new Error("A post can have at most 10 tags");
       if (incomingImages.length > 4) throw new Error("A post can have at most 4 images");
       if (input.videoUrl && incomingImages.length > 0) throw new Error("A post can have images or one video, not both");
-      await assertPostDailyLimit(user.id, prisma);
+      await assertPostDailyLimit(
+        user.id,
+        prisma,
+        Math.max(1, requestMeta.mutationFieldCounts.createPost ?? 1)
+      );
 
       // Medium #21: Strip HTML tags from user-provided text fields
       const safeContent = sanitizeInput(input.content);
@@ -1072,8 +1077,19 @@ export const feedResolvers = {
 
       schedulePostIntelligence(prisma, post.id);
 
-      // Award XP
-      await awardXp(user.id, "CREATE_POST", undefined, clientIp).catch(console.error);
+      const duplicateContentCount = safeContent
+        ? await prisma.post.count({
+            where: {
+              authorId: user.id,
+              content: safeContent,
+              createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+            },
+          })
+        : 0;
+
+      if (duplicateContentCount <= 1) {
+        await awardXp(user.id, "CREATE_POST", undefined, clientIp).catch(console.error);
+      }
 
       // Update tag affinity scores
       updateTagAffinities(user.id, input.tags ?? [], prisma).catch(
@@ -2858,15 +2874,7 @@ async function updateAuthorAffinity(
  * Throws a Forbidden error if not.
  */
 async function assertAdminRole(prisma: any, userId: string): Promise<void> {
-  const adminRole = await prisma.userRole.findFirst({
-    where: {
-      profileId: userId,
-      role: { name: { in: ["admin", "Admin", "ADMIN"] } },
-    },
-  });
-  if (!adminRole) {
-    throw new Error("Forbidden: admin role required");
-  }
+  await assertAdminPermission(prisma, userId);
 }
 
 /**

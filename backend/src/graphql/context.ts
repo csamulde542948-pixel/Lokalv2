@@ -20,6 +20,10 @@ export interface GraphQLContext {
    * Taglish roast engine behaviour for unidentified users).
    */
   userCountry: string;
+  requestMeta: {
+    mutationFieldCounts: Record<string, number>;
+    usingCookieAuth: boolean;
+  };
   /** DataLoaders for batching DB queries (prevents N+1) */
   loaders: {
     profileLoader: DataLoader<string, any>;

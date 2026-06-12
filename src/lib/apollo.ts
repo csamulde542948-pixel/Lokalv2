@@ -12,6 +12,15 @@ const httpLink = createHttpLink({
   credentials: "include",
 });
 
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`));
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
+}
+
 // ── S3 #9: Cache Supabase JWT in memory to avoid localStorage read per request ──
 let cachedToken: string | null = null;
 supabase.auth.onAuthStateChange((_event, session) => {
@@ -28,6 +37,7 @@ const authLink = setContext(async (_, { headers }) => {
   // This prevents the race where cachedToken is still null on first load.
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token ?? cachedToken ?? null;
+  const csrfToken = readCookie("lokal_csrf_token");
   // Keep cache in sync
   cachedToken = token;
 
@@ -35,6 +45,7 @@ const authLink = setContext(async (_, { headers }) => {
     headers: {
       ...headers,
       ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
     },
   };
 });

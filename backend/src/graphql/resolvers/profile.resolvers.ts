@@ -11,6 +11,9 @@ import { sendWelcomeEmail } from "../../services/email";
 import { awardXp, awardRole, ROLE_NAMES } from "../../services/xp";
 import { createNotification } from "../../lib/notifications";
 import { searchRateLimiter } from "../../lib/rateLimit";
+import { recordActionEvent } from "../../lib/mutationLimits";
+import { logSecurityEvent } from "../../middleware/security";
+import { canManuallyAwardRole, getPermissionLevel } from "../../lib/permissions";
 
 const LOKALHOST_VERIFIED_PROFILE_ID = "1efb2d7c-adf9-4c34-a292-72566f9271bc";
 
@@ -357,22 +360,43 @@ export const profileResolvers = {
       if (!user) throw new Error("Unauthorized");
       if (user.id === userId) throw new Error("Cannot follow yourself");
 
-      await prisma.follow.upsert({
+      const existingFollow = await prisma.follow.findUnique({
         where: {
           followerId_followingId: {
             followerId: user.id,
             followingId: userId,
           },
         },
-        create: { followerId: user.id, followingId: userId },
-        update: {},
       });
+      const wasRecentlyFollowed = await (prisma as any).userActionEvent.findFirst({
+        where: {
+          profileId: user.id,
+          action: "FOLLOW_USER",
+          targetId: userId,
+          createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+        },
+        select: { id: true },
+      }).catch(() => null);
 
-      // Sync to GetStream so their posts appear in current user's timeline
-      await streamFollowUser(user.id, userId);
+      if (!existingFollow) {
+        await prisma.follow.create({
+          data: { followerId: user.id, followingId: userId },
+        });
 
-      // Award XP to follower
-      await awardXp(user.id, "MAKE_CONNECTION", undefined, clientIp);
+        // Sync to GetStream so their posts appear in current user's timeline
+        await streamFollowUser(user.id, userId);
+        await recordActionEvent({
+          profileId: user.id,
+          action: "FOLLOW_USER",
+          targetId: userId,
+          metadata: { operation: "follow" },
+          prisma,
+        }).catch(() => {});
+
+        if (!wasRecentlyFollowed) {
+          await awardXp(user.id, "MAKE_CONNECTION", undefined, clientIp);
+        }
+      }
 
       // Check if the target user already follows the current user back (mutual follow)
       const alreadyFollowsBack = await prisma.follow.findUnique({
@@ -385,14 +409,16 @@ export const profileResolvers = {
       });
 
       // Create notification — "followed you back" if they already follow us, else plain "followed you"
-      await createNotification(prisma, {
-        recipientId: userId,
-        actorId: user.id,
-        type: "FOLLOW",
-        message: alreadyFollowsBack
-          ? "followed you back"
-          : "started following you",
-      });
+      if (!existingFollow) {
+        await createNotification(prisma, {
+          recipientId: userId,
+          actorId: user.id,
+          type: "FOLLOW",
+          message: alreadyFollowsBack
+            ? "followed you back"
+            : "started following you",
+        });
+      }
 
       return prisma.profile.findUnique({
         where: { id: userId },
@@ -410,11 +436,20 @@ export const profileResolvers = {
     ) => {
       if (!user) throw new Error("Unauthorized");
 
-      await prisma.follow.deleteMany({
+      const deleted = await prisma.follow.deleteMany({
         where: { followerId: user.id, followingId: userId },
       });
 
-      await streamUnfollowUser(user.id, userId);
+      if (deleted.count > 0) {
+        await streamUnfollowUser(user.id, userId);
+        await recordActionEvent({
+          profileId: user.id,
+          action: "UNFOLLOW_USER",
+          targetId: userId,
+          metadata: { operation: "unfollow" },
+          prisma,
+        }).catch(() => {});
+      }
 
       return prisma.profile.findUnique({
         where: { id: userId },
@@ -453,24 +488,34 @@ export const profileResolvers = {
     ) => {
       if (!user) throw new Error("Unauthorized");
 
-      // Only admins can award roles manually
-      const isAdmin = !!(await prisma.userRole.findFirst({
-        where: { profileId: user.id, role: { name: "Top Contributor" } },
-      }));
-      // Simple guard — extend to a proper admin check if needed
-      if (user.id !== profileId && !isAdmin) {
-        throw new Error("Only admins can award roles to other users");
-      }
-
       const validRoleNames = Object.values(ROLE_NAMES) as string[];
       if (!validRoleNames.includes(roleName)) {
         throw new Error(`Unknown role: ${roleName}`);
+      }
+
+      const actorLevel = await getPermissionLevel(prisma, user.id);
+      if (!canManuallyAwardRole({
+        actorId: user.id,
+        targetId: profileId,
+        actorLevel,
+        roleName,
+      })) {
+        await logSecurityEvent(user.id, "manual_role_award_denied", {
+          targetProfileId: profileId,
+          roleName,
+        }, "graphql");
+        throw new Error("Forbidden");
       }
 
       const result = await awardRole(profileId, roleName as any);
       if (!result.awarded) {
         throw new Error(`User already has the role: ${roleName}`);
       }
+
+      await logSecurityEvent(user.id, "manual_role_award", {
+        targetProfileId: profileId,
+        roleName,
+      }, "graphql");
 
       // Return the new UserRole record
       const role = await prisma.role.findUnique({ where: { name: roleName } });
@@ -489,6 +534,27 @@ export const profileResolvers = {
   Profile: {
     isVerified: (parent: { id: string }) => {
       return parent.id === LOKALHOST_VERIFIED_PROFILE_ID;
+    },
+    rank: async (
+      parent: { id: string; rank?: any | null; rankId?: number | null; xp?: number },
+      _: unknown,
+      { prisma }: GraphQLContext
+    ) => {
+      if (parent.rank) return parent.rank;
+      if (typeof parent.rankId === "number") {
+        const assignedRank = await prisma.rank.findUnique({ where: { id: parent.rankId } });
+        if (assignedRank) return assignedRank;
+      }
+
+      const xp = typeof parent.xp === "number" ? parent.xp : 0;
+      const fallbackRank = await prisma.rank.findFirst({
+        where: { minXp: { lte: xp } },
+        orderBy: { minXp: "desc" },
+      });
+      if (!fallbackRank) {
+        console.warn("[profile] missing rank relation and fallback", { profileId: parent.id, xp });
+      }
+      return fallbackRank ?? null;
     },
 
     followersCount: async (

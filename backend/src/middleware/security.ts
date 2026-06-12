@@ -10,7 +10,22 @@
  */
 
 import rateLimit from "express-rate-limit";
+import { Kind, parse } from "graphql";
 import { prisma } from "../lib/prisma";
+
+function isGraphqlMutationRequest(query: unknown): boolean {
+  if (typeof query !== "string" || !query.trim()) return false;
+  try {
+    const document = parse(query);
+    return document.definitions.some(
+      (definition) =>
+        definition.kind === Kind.OPERATION_DEFINITION &&
+        definition.operation === "mutation"
+    );
+  } catch {
+    return false;
+  }
+}
 
 // ─── Rate Limiters ───────────────────────────────────────────────────────────
 
@@ -54,16 +69,15 @@ export const sessionCookieRateLimiter = rateLimit({
 
 /** GraphQL mutations: enough headroom for normal product usage while retaining abuse protection */
 export const mutationRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 300,
+  windowMs: 10 * 1000,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many mutations. Please slow down." },
+  keyGenerator: (req: any) => req.user?.id ? `user:${req.user.id}` : `ip:${req.ip}`,
   skip: (req) => {
     // Only rate-limit mutations, not queries
-    const body = req.body;
-    if (!body?.query) return true;
-    return !body.query.trimStart().startsWith("mutation");
+    return !isGraphqlMutationRequest(req.body?.query);
   },
 });
 
