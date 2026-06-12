@@ -18,7 +18,7 @@ function requireEnv(key: string): string {
       `Make sure it is set in .env.local (local), .env.staging (staging), or .env.production (prod).`
     );
   }
-  return value;
+  return value.trim();
 }
 
 // ─── App Environment ──────────────────────────────────────────────────────────
@@ -34,3 +34,5 @@ export const SUPABASE_ANON_KEY    = requireEnv("VITE_SUPABASE_PUBLISHABLE_KEY");
 export const GRAPHQL_URL          = requireEnv("VITE_GRAPHQL_URL");
 export const BACKEND_URL          = requireEnv("VITE_BACKEND_URL");
 export const GETSTREAM_API_KEY    = requireEnv("VITE_GETSTREAM_API_KEY");
+export const TURNSTILE_SITE_KEY   =
+  env["VITE_TURNSTILE_SITE_KEY"]?.trim() || "0x4AAAAAADjZ4hySnmu1zEUk";

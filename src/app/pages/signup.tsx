@@ -1,21 +1,18 @@
 import { useState } from "react";
-import { Link, useNavigate, useLocation } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
+import { Eye, EyeOff, Github, Wallet } from "lucide-react";
 import { Button } from "../components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
+import { Checkbox } from "../components/ui/checkbox";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Separator } from "../components/ui/separator";
-import { Checkbox } from "../components/ui/checkbox";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
-import { Github, Eye, EyeOff, Wallet } from "lucide-react";
 import { BrandLogo } from "../components/brand-logo";
-import { useAuth } from "../../contexts/AuthContext";
 import { PasswordStrength } from "../components/password-strength";
-import {
-  validatePassword,
-  isValidEmail,
-  isValidUsername,
-} from "../../lib/auth-security";
+import { TurnstileCaptcha } from "../components/turnstile-captcha";
+import { useAuth } from "../../contexts/AuthContext";
+import { isValidEmail, isValidUsername, validatePassword } from "../../lib/auth-security";
 
 export function Signup() {
   const { signUpWithEmail, signInWithGoogle, signInWithGithub, signInWithWeb3 } = useAuth();
@@ -28,10 +25,12 @@ export function Signup() {
     ? `${fromLocation.pathname ?? "/"}${fromLocation.search ?? ""}${fromLocation.hash ?? ""}`
     : undefined;
 
-  // Save redirect target for OAuth flows (they break the state chain via /auth/callback)
   const saveOAuthRedirect = () => {
-    if (fromPath) sessionStorage.setItem("lokal:auth_redirect", fromPath);
+    if (fromPath) {
+      sessionStorage.setItem("lokal:auth_redirect", fromPath);
+    }
   };
+
   const [formData, setFormData] = useState({
     fullName: "",
     username: "",
@@ -44,18 +43,24 @@ export function Signup() {
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [web3Loading, setWeb3Loading] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaResetSignal, setCaptchaResetSignal] = useState(0);
+
+  const resetCaptcha = () => {
+    setCaptchaToken(null);
+    setCaptchaResetSignal((current) => current + 1);
+  };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // ── Client-side validation ──
     if (!isValidEmail(formData.email)) {
       toast.error("Please enter a valid email address.");
       return;
     }
 
     if (!isValidUsername(formData.username)) {
-      toast.error("Username must be 3–30 characters, letters, numbers, and underscores only.");
+      toast.error("Username must be 3-30 characters, letters, numbers, and underscores only.");
       return;
     }
 
@@ -71,21 +76,34 @@ export function Signup() {
     }
 
     if (formData.password !== formData.confirmPassword) {
-      toast.error("Passwords do not match!");
+      toast.error("Passwords do not match.");
       return;
     }
+
     if (!agreeToTerms) {
       toast.error("Please agree to the Terms of Service and Privacy Policy");
       return;
     }
+
+    if (!captchaToken) {
+      toast.error("Please complete the security check first.");
+      return;
+    }
+
     setLoading(true);
-    const { error } = await signUpWithEmail(formData.email, formData.password, {
-      full_name: formData.fullName.trim(),
-      username: formData.username.trim().toLowerCase(),
-    });
+    const { error } = await signUpWithEmail(
+      formData.email,
+      formData.password,
+      {
+        full_name: formData.fullName.trim(),
+        username: formData.username.trim().toLowerCase(),
+      },
+      captchaToken
+    );
+    resetCaptcha();
     setLoading(false);
+
     if (error) {
-      // Handle common Supabase errors with friendly messages
       if (error.message.includes("already registered")) {
         toast.error("An account with this email already exists. Try logging in instead.");
       } else {
@@ -93,9 +111,8 @@ export function Signup() {
       }
       return;
     }
-    toast.success(
-      "Account created! Check your email to confirm your address before logging in."
-    );
+
+    toast.success("Account created! Check your email to confirm your address before logging in.");
     navigate("/login", { state: fromLocation ? { from: fromLocation } : undefined });
   };
 
@@ -106,7 +123,9 @@ export function Signup() {
     }
     saveOAuthRedirect();
     const { error } = await signInWithGoogle();
-    if (error) toast.error(error.message);
+    if (error) {
+      toast.error(error.message);
+    }
   };
 
   const handleGithubSignup = async () => {
@@ -116,7 +135,9 @@ export function Signup() {
     }
     saveOAuthRedirect();
     const { error } = await signInWithGithub();
-    if (error) toast.error(error.message);
+    if (error) {
+      toast.error(error.message);
+    }
   };
 
   const handleWeb3Signup = async () => {
@@ -128,61 +149,60 @@ export function Signup() {
     setWeb3Loading(true);
     const { error } = await signInWithWeb3();
     setWeb3Loading(false);
-    if (error) toast.error(error.message);
+    if (error) {
+      toast.error(error.message);
+    }
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-background via-muted/30 to-primary/5">
       <div className="w-full max-w-6xl grid md:grid-cols-2 gap-8 items-center">
-        {/* Left Side - Branding */}
         <div className="hidden md:block space-y-6">
           <div className="flex items-center gap-3">
             <BrandLogo size="lg" />
           </div>
           <p className="text-base font-semibold tracking-widest uppercase mt-1">
             <span className="text-primary">Connect.</span>
-            {" "}<span className="text-foreground">Build.</span>
-            {" "}<span style={{ color: "#ff6600" }}>Ship.</span>
+            {" "}
+            <span className="text-foreground">Build.</span>
+            {" "}
+            <span style={{ color: "#ff6600" }}>Ship.</span>
           </p>
           <div className="space-y-4">
             <p className="text-lg text-muted-foreground leading-relaxed">
-              Join the fastest-growing community of indie developers in the Philippines. 
+              Join the fastest-growing community of indie developers in the Philippines.
               Start building, collaborating, and shipping amazing projects today.
             </p>
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-primary"></div>
+                <div className="w-2 h-2 rounded-full bg-primary" />
                 <p className="text-sm text-muted-foreground">100% free to join</p>
               </div>
               <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-primary"></div>
+                <div className="w-2 h-2 rounded-full bg-primary" />
                 <p className="text-sm text-muted-foreground">Showcase unlimited projects</p>
               </div>
               <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-primary"></div>
+                <div className="w-2 h-2 rounded-full bg-primary" />
                 <p className="text-sm text-muted-foreground">Get feedback from the community</p>
               </div>
               <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-primary"></div>
+                <div className="w-2 h-2 rounded-full bg-primary" />
                 <p className="text-sm text-muted-foreground">Access exclusive events</p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Right Side - Signup Form */}
         <Card className="border shadow-xl">
           <CardHeader className="space-y-1">
             <div className="md:hidden flex items-center justify-center gap-2 mb-4">
               <BrandLogo />
             </div>
             <CardTitle className="text-2xl">Create an account</CardTitle>
-            <CardDescription>
-              Join the community and start building
-            </CardDescription>
+            <CardDescription>Join the community and start building</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Social Signup Buttons */}
             <div className="space-y-2">
               <Button
                 variant="outline"
@@ -224,7 +244,7 @@ export function Signup() {
                 disabled={web3Loading}
               >
                 <Wallet className="w-5 h-5" strokeWidth={2} />
-                {web3Loading ? "Connecting wallet…" : "Continue with Web3 Wallet"}
+                {web3Loading ? "Connecting wallet..." : "Continue with Web3 Wallet"}
               </Button>
             </div>
 
@@ -239,7 +259,6 @@ export function Signup() {
               </div>
             </div>
 
-            {/* Signup Form */}
             <form onSubmit={handleSignup} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="fullName">Full Name</Label>
@@ -260,14 +279,21 @@ export function Signup() {
                   type="text"
                   placeholder="juandc"
                   value={formData.username}
-                  onChange={(e) => setFormData({ ...formData, username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') })}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""),
+                    })
+                  }
                   required
                   maxLength={30}
                   className="h-11"
                 />
-                {formData.username && !isValidUsername(formData.username) && (
-                  <p className="text-xs text-destructive">3–30 characters, letters, numbers, and underscores only.</p>
-                )}
+                {formData.username && !isValidUsername(formData.username) ? (
+                  <p className="text-xs text-destructive">
+                    3-30 characters, letters, numbers, and underscores only.
+                  </p>
+                ) : null}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
@@ -287,7 +313,7 @@ export function Signup() {
                   <Input
                     id="password"
                     type={showPassword ? "text" : "password"}
-                    placeholder="••••••••"
+                    placeholder="........"
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     required
@@ -298,7 +324,7 @@ export function Signup() {
                     variant="ghost"
                     size="icon"
                     className="absolute right-0 top-0 h-11 w-10"
-                    onClick={() => setShowPassword(!showPassword)}
+                    onClick={() => setShowPassword((current) => !current)}
                   >
                     {showPassword ? (
                       <EyeOff className="w-4 h-4" strokeWidth={2} />
@@ -315,9 +341,11 @@ export function Signup() {
                   <Input
                     id="confirmPassword"
                     type={showConfirmPassword ? "text" : "password"}
-                    placeholder="••••••••"
+                    placeholder="........"
                     value={formData.confirmPassword}
-                    onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, confirmPassword: e.target.value })
+                    }
                     required
                     className="h-11 pr-10"
                   />
@@ -326,7 +354,7 @@ export function Signup() {
                     variant="ghost"
                     size="icon"
                     className="absolute right-0 top-0 h-11 w-10"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    onClick={() => setShowConfirmPassword((current) => !current)}
                   >
                     {showConfirmPassword ? (
                       <EyeOff className="w-4 h-4" strokeWidth={2} />
@@ -358,8 +386,13 @@ export function Signup() {
                 </label>
               </div>
 
+              <TurnstileCaptcha
+                onVerify={setCaptchaToken}
+                resetSignal={captchaResetSignal}
+              />
+
               <Button type="submit" className="w-full h-11" disabled={loading}>
-                {loading ? "Creating account…" : "Create account"}
+                {loading ? "Creating account..." : "Create account"}
               </Button>
             </form>
           </CardContent>

@@ -18,13 +18,15 @@ interface AuthContextValue {
   loading: boolean;
   signInWithEmail: (
     email: string,
-    password: string
-  ) => Promise<{ error: AuthError | null }>;
+    password: string,
+    captchaToken?: string
+  ) => Promise<{ error: AuthError | null; session: Session | null }>;
   signUpWithEmail: (
     email: string,
     password: string,
-    metadata?: { full_name?: string; username?: string }
-  ) => Promise<{ error: AuthError | null }>;
+    metadata?: { full_name?: string; username?: string },
+    captchaToken?: string
+  ) => Promise<{ error: AuthError | null; session: Session | null }>;
   signInWithGoogle: () => Promise<{ error: AuthError | null }>;
   signInWithGithub: () => Promise<{ error: AuthError | null }>;
   signInWithWeb3: () => Promise<{ error: Error | null }>;
@@ -69,7 +71,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(newSession?.user ?? null);
       setLoading(false);
 
-      if (newSession) {
+      const shouldSyncSession =
+        event === "SIGNED_IN" ||
+        event === "TOKEN_REFRESHED" ||
+        event === "USER_UPDATED";
+
+      if (newSession && shouldSyncSession) {
         syncSessionCookie(newSession).catch(() => {});
       }
 
@@ -92,12 +99,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signInWithEmail = useCallback(
-    async (email: string, password: string) => {
-      const { error } = await supabase.auth.signInWithPassword({
+    async (email: string, password: string, captchaToken?: string) => {
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
+        options: captchaToken ? { captchaToken } : undefined,
       });
-      return { error };
+      return { error, session: data.session ?? null };
     },
     []
   );
@@ -106,17 +114,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (
       email: string,
       password: string,
-      metadata?: { full_name?: string; username?: string }
+      metadata?: { full_name?: string; username?: string },
+      captchaToken?: string
     ) => {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: metadata,
           emailRedirectTo: `${window.location.origin}/auth/callback`,
+          ...(captchaToken ? { captchaToken } : {}),
         },
       });
-      return { error };
+      return { error, session: data.session ?? null };
     },
     []
   );

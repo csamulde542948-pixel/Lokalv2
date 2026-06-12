@@ -1,24 +1,20 @@
-import { useState, useEffect } from "react";
-import { Link, useNavigate, useSearchParams, useLocation } from "react-router";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
+import { AlertTriangle, Github, ShieldAlert, Wallet } from "lucide-react";
 import { Button } from "../components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Separator } from "../components/ui/separator";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
-import { Github, Wallet, ShieldAlert, AlertTriangle } from "lucide-react";
 import { BrandLogo } from "../components/brand-logo";
+import { TurnstileCaptcha } from "../components/turnstile-captcha";
 import { useAuth } from "../../contexts/AuthContext";
 import { supabase } from "../../lib/supabase";
-import { syncSessionCookie } from "../../lib/auth-session-cookie";
-import {
-  preLoginCheck,
-  recordLoginAttempt,
-  isValidEmail,
-} from "../../lib/auth-security";
+import { isValidEmail, preLoginCheck, recordLoginAttempt } from "../../lib/auth-security";
 
 export function Login() {
-  const { signInWithGoogle, signInWithGithub, signInWithWeb3 } = useAuth();
+  const { signInWithEmail, signInWithGoogle, signInWithGithub, signInWithWeb3 } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -27,10 +23,12 @@ export function Login() {
   } | null)?.from;
   const fromPath = `${fromLocation?.pathname ?? "/"}${fromLocation?.search ?? ""}${fromLocation?.hash ?? ""}`;
 
-  // Save redirect target for OAuth flows (they break the state chain via /auth/callback)
   const saveOAuthRedirect = () => {
-    if (fromPath && fromPath !== "/") sessionStorage.setItem("lokal:auth_redirect", fromPath);
+    if (fromPath && fromPath !== "/") {
+      sessionStorage.setItem("lokal:auth_redirect", fromPath);
+    }
   };
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -38,38 +36,55 @@ export function Login() {
   const [providerHint, setProviderHint] = useState<string | null>(null);
   const [isLocked, setIsLocked] = useState(false);
   const [lockoutMinutes, setLockoutMinutes] = useState(0);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaResetSignal, setCaptchaResetSignal] = useState(0);
 
-  // Show OAuth error if redirected back with ?error=
   useEffect(() => {
     const err = searchParams.get("error");
-    if (err) toast.error(decodeURIComponent(err));
+    if (err) {
+      toast.error(decodeURIComponent(err));
+    }
   }, [searchParams]);
 
-  // Clear provider hint when email changes
   useEffect(() => {
     setProviderHint(null);
     setIsLocked(false);
   }, [email]);
+
+  const resetCaptcha = () => {
+    setCaptchaToken(null);
+    setCaptchaResetSignal((current) => current + 1);
+  };
 
   const handleForgotPassword = async () => {
     if (!email) {
       toast.error("Enter your email above first, then click Forgot password.");
       return;
     }
+
+    if (!captchaToken) {
+      toast.error("Please complete the security check first.");
+      return;
+    }
+
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/login`,
+      captchaToken,
     });
+
+    resetCaptcha();
+
     if (error) {
       toast.error(error.message);
-    } else {
-      toast.success("Password reset email sent! Check your inbox.");
+      return;
     }
+
+    toast.success("Password reset email sent! Check your inbox.");
   };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Client-side email validation
     if (!isValidEmail(email)) {
       toast.error("Please enter a valid email address.");
       return;
@@ -77,7 +92,6 @@ export function Login() {
 
     setLoading(true);
 
-    // ── Pre-login check: lockout, provider hint, account existence ──
     const check = await preLoginCheck(email);
 
     if (check.isLocked) {
@@ -90,7 +104,6 @@ export function Login() {
       return;
     }
 
-    // Backend provides a hint when the account was created with OAuth
     if (check.providerHint) {
       setProviderHint(check.providerHint);
       toast.error(check.providerHint);
@@ -98,38 +111,44 @@ export function Login() {
       return;
     }
 
-    // ── Attempt Supabase login ──
-    const { data: signInData, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (!captchaToken) {
+      toast.error("Please complete the security check first.");
+      setLoading(false);
+      return;
+    }
+
+    const { error, session } = await signInWithEmail(email, password, captchaToken);
+
+    resetCaptcha();
     setLoading(false);
 
     if (error) {
-      // Medium #16: We no longer call recordLoginAttempt on failure because there
-      // is no access token to authenticate the request with. Brute-force tracking
-      // for failed attempts is handled server-side via Supabase Auth Hooks.
       toast.error("Invalid email or password.");
       return;
     }
 
-    // Record successful login — pass the session token so the backend can verify identity
-    const accessToken = signInData?.session?.access_token;
-    await syncSessionCookie(signInData?.session ?? null).catch(() => {});
+    const accessToken = session?.access_token;
     if (accessToken) {
       recordLoginAttempt(email, true, "email", accessToken).catch(() => {});
     }
+
     navigate(fromPath);
   };
 
   const handleGoogleLogin = async () => {
     saveOAuthRedirect();
     const { error } = await signInWithGoogle();
-    if (error) toast.error(error.message);
-    // On success Supabase redirects to /auth/callback → router handles the rest
+    if (error) {
+      toast.error(error.message);
+    }
   };
 
   const handleGithubLogin = async () => {
     saveOAuthRedirect();
     const { error } = await signInWithGithub();
-    if (error) toast.error(error.message);
+    if (error) {
+      toast.error(error.message);
+    }
   };
 
   const handleWeb3Login = async () => {
@@ -137,62 +156,61 @@ export function Login() {
     setWeb3Loading(true);
     const { error } = await signInWithWeb3();
     setWeb3Loading(false);
-    if (error) toast.error(error.message);
+    if (error) {
+      toast.error(error.message);
+    }
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-background via-muted/30 to-primary/5">
       <div className="w-full max-w-6xl grid md:grid-cols-2 gap-8 items-center">
-        {/* Left Side - Branding */}
         <div className="hidden md:block space-y-6">
           <div className="flex items-center gap-3">
             <BrandLogo size="lg" />
           </div>
           <p className="text-base font-semibold tracking-widest uppercase mt-1">
             <span className="text-primary">Connect.</span>
-            {" "}<span className="text-foreground">Build.</span>
-            {" "}<span style={{ color: "#ff6600" }}>Ship.</span>
+            {" "}
+            <span className="text-foreground">Build.</span>
+            {" "}
+            <span style={{ color: "#ff6600" }}>Ship.</span>
           </p>
           <div className="space-y-4">
             <p className="text-lg text-muted-foreground leading-relaxed">
-              Join the community of indie developers in the Philippines. Share your projects, 
+              Join the community of indie developers in the Philippines. Share your projects,
               collaborate with fellow builders, and grow together.
             </p>
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-primary"></div>
+                <div className="w-2 h-2 rounded-full bg-primary" />
                 <p className="text-sm text-muted-foreground">Showcase your projects</p>
               </div>
               <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-primary"></div>
+                <div className="w-2 h-2 rounded-full bg-primary" />
                 <p className="text-sm text-muted-foreground">Connect with developers</p>
               </div>
               <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-primary"></div>
+                <div className="w-2 h-2 rounded-full bg-primary" />
                 <p className="text-sm text-muted-foreground">Join events and hackathons</p>
               </div>
               <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-primary"></div>
+                <div className="w-2 h-2 rounded-full bg-primary" />
                 <p className="text-sm text-muted-foreground">Climb the leaderboard</p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Right Side - Login Form */}
         <Card className="border shadow-xl">
           <CardHeader className="space-y-1">
             <div className="md:hidden flex items-center justify-center gap-2 mb-4">
               <BrandLogo />
             </div>
             <CardTitle className="text-2xl">Welcome back</CardTitle>
-            <CardDescription>
-              Log in to your account to continue
-            </CardDescription>
+            <CardDescription>Log in to your account to continue</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Account lockout warning */}
-            {isLocked && (
+            {isLocked ? (
               <div className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-sm">
                 <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" />
                 <div>
@@ -203,17 +221,15 @@ export function Login() {
                   </p>
                 </div>
               </div>
-            )}
+            ) : null}
 
-            {/* Provider mismatch hint */}
-            {providerHint && !isLocked && (
+            {providerHint && !isLocked ? (
               <div className="flex items-start gap-2 p-3 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 text-sm">
                 <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
                 <p>{providerHint}</p>
               </div>
-            )}
+            ) : null}
 
-            {/* Social Login Buttons */}
             <div className="space-y-2">
               <Button
                 variant="outline"
@@ -255,7 +271,7 @@ export function Login() {
                 disabled={web3Loading}
               >
                 <Wallet className="w-5 h-5" strokeWidth={2} />
-                {web3Loading ? "Connecting wallet…" : "Continue with Web3 Wallet"}
+                {web3Loading ? "Connecting wallet..." : "Continue with Web3 Wallet"}
               </Button>
             </div>
 
@@ -270,7 +286,6 @@ export function Login() {
               </div>
             </div>
 
-            {/* Email/Password Form */}
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
@@ -298,15 +313,21 @@ export function Login() {
                 <Input
                   id="password"
                   type="password"
-                  placeholder="••••••••"
+                  placeholder="........"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   className="h-11"
                 />
               </div>
+
+              <TurnstileCaptcha
+                onVerify={setCaptchaToken}
+                resetSignal={captchaResetSignal}
+              />
+
               <Button type="submit" className="w-full h-11" disabled={loading || isLocked}>
-                {loading ? "Logging in…" : isLocked ? "Account locked" : "Log in"}
+                {loading ? "Logging in..." : isLocked ? "Account locked" : "Log in"}
               </Button>
             </form>
           </CardContent>
