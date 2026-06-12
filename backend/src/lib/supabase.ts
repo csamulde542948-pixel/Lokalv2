@@ -3,10 +3,11 @@ import type { AuthUser } from "../graphql/context";
 import { supabaseAdminKey } from "./supabaseAdminKey";
 
 const supabaseUrl = process.env.SUPABASE_URL!;
+const supabaseAuthKey = process.env.SUPABASE_AUTH_KEY || supabaseAdminKey;
 
-// Secret-key client - used server-side only. Has full DB access.
-// NEVER expose this to the client.
-export const supabase = createClient(supabaseUrl, supabaseAdminKey, {
+// Token verification only needs a project public key. Keeping it separate from
+// the admin client lets authentication remain available during key rotation.
+export const supabase = createClient(supabaseUrl, supabaseAuthKey, {
   auth: {
     autoRefreshToken: false,
     persistSession: false,
