@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { supabase } from "../../lib/supabase";
 import { recordLoginAttempt } from "../../lib/auth-security";
+import { syncSessionCookie } from "../../lib/auth-session-cookie";
 
 /**
  * Handles Supabase Auth redirects using PKCE only.
@@ -58,11 +59,26 @@ export function AuthCallback() {
         return;
       }
 
+      // Remove the one-time authorization code from browser history before
+      // exchanging it so it cannot linger in copied URLs or crash reports.
+      window.history.replaceState({}, document.title, url.pathname);
+
       const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
       if (exchangeError || !data.session) {
         console.error("[auth/callback] exchangeCodeForSession failed:", exchangeError);
         navigate(
           `/login?error=${encodeURIComponent(exchangeError?.message ?? "Session could not be established. Please try again.")}`,
+          { replace: true }
+        );
+        return;
+      }
+
+      try {
+        await syncSessionCookie(data.session);
+      } catch {
+        await supabase.auth.signOut({ scope: "global" });
+        navigate(
+          `/login?error=${encodeURIComponent("Secure session setup failed. Please sign in again.")}`,
           { replace: true }
         );
         return;

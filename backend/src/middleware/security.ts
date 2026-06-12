@@ -10,22 +10,8 @@
  */
 
 import rateLimit from "express-rate-limit";
-import { Kind, parse } from "graphql";
+import { analyzeGraphqlRequest } from "../lib/graphqlRequest";
 import { prisma } from "../lib/prisma";
-
-function isGraphqlMutationRequest(query: unknown): boolean {
-  if (typeof query !== "string" || !query.trim()) return false;
-  try {
-    const document = parse(query);
-    return document.definitions.some(
-      (definition) =>
-        definition.kind === Kind.OPERATION_DEFINITION &&
-        definition.operation === "mutation"
-    );
-  } catch {
-    return false;
-  }
-}
 
 // ─── Rate Limiters ───────────────────────────────────────────────────────────
 
@@ -77,7 +63,10 @@ export const mutationRateLimiter = rateLimit({
   keyGenerator: (req: any) => req.user?.id ? `user:${req.user.id}` : `ip:${req.ip}`,
   skip: (req) => {
     // Only rate-limit mutations, not queries
-    return !isGraphqlMutationRequest(req.body?.query);
+    return !analyzeGraphqlRequest(
+      req.body?.query,
+      req.body?.operationName
+    ).isMutation;
   },
 });
 

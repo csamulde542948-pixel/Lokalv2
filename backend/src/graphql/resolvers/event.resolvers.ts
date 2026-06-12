@@ -107,7 +107,7 @@ export const eventResolvers = {
           startDate: new Date(input.startDate),
           endDate: new Date(input.endDate),
           maxAttendees: input.maxAttendees,
-          isFeatured: input.isFeatured ?? false,
+          isFeatured: false,
           tags: { create: tagRecords.map((t: any) => ({ tagId: t.id })) },
         },
         include: {
@@ -176,20 +176,29 @@ export const eventResolvers = {
         throw new Error("Event is fully booked");
       }
 
-      await prisma.eventRegistration.upsert({
-        where: { eventId_profileId: { eventId, profileId: user.id } },
-        create: { eventId, profileId: user.id },
-        update: {},
-      });
+      const { updatedEvent, registeredNow } = await prisma.$transaction(
+        async (tx) => {
+          const existing = await tx.eventRegistration.findUnique({
+            where: { eventId_profileId: { eventId, profileId: user.id } },
+            select: { id: true },
+          });
+          if (!existing) {
+            await tx.eventRegistration.create({
+              data: { eventId, profileId: user.id },
+            });
+          }
 
-      const updatedEvent = await prisma.event.update({
-        where: { id: eventId },
-        data: { attendeesCount: { increment: 1 } },
-        include: {
-          organizer: { include: { rank: true } },
-          tags: { include: { tag: true } },
-        },
-      });
+          const updated = await tx.event.update({
+            where: { id: eventId },
+            data: existing ? {} : { attendeesCount: { increment: 1 } },
+            include: {
+              organizer: { include: { rank: true } },
+              tags: { include: { tag: true } },
+            },
+          });
+          return { updatedEvent: updated, registeredNow: !existing };
+        }
+      );
 
       const profile = await prisma.profile.findUnique({ where: { id: user.id } });
       if (profile?.email) {
@@ -202,7 +211,9 @@ export const eventResolvers = {
         ).catch(console.error);
       }
 
-      awardXp(user.id, "REGISTER_EVENT", undefined, clientIp).catch(console.error);
+      if (registeredNow) {
+        awardXp(user.id, "REGISTER_EVENT", undefined, clientIp).catch(console.error);
+      }
       return updatedEvent;
     },
 
@@ -212,16 +223,24 @@ export const eventResolvers = {
       { user, prisma }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
-      await prisma.eventRegistration.deleteMany({
-        where: { eventId, profileId: user.id },
-      });
-      return prisma.event.update({
-        where: { id: eventId },
-        data: { attendeesCount: { decrement: 1 } },
-        include: {
-          organizer: { include: { rank: true } },
-          tags: { include: { tag: true } },
-        },
+      return prisma.$transaction(async (tx) => {
+        const deleted = await tx.eventRegistration.deleteMany({
+          where: { eventId, profileId: user.id },
+        });
+        if (deleted.count > 0) {
+          await tx.$executeRaw`
+            UPDATE events
+            SET "attendeesCount" = GREATEST(0, "attendeesCount" - 1)
+            WHERE id = ${eventId}
+          `;
+        }
+        return tx.event.findUniqueOrThrow({
+          where: { id: eventId },
+          include: {
+            organizer: { include: { rank: true } },
+            tags: { include: { tag: true } },
+          },
+        });
       });
     },
   },

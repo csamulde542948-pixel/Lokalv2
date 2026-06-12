@@ -1,16 +1,20 @@
 import { createClient } from "@supabase/supabase-js";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./env";
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "./env";
+import {
+  AUTH_STORAGE_KEY,
+  clearLegacySupabaseAuthStorage,
+  secureAuthStorage,
+} from "./secure-auth-storage";
 
-console.log('[SUPABASE CLIENT] Initializing with:', {
-  url: SUPABASE_URL,
-  keyPrefix: SUPABASE_ANON_KEY.substring(0, 30) + '...'
-});
+clearLegacySupabaseAuthStorage();
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
     flowType: "pkce",
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
+    storage: secureAuthStorage,
+    storageKey: AUTH_STORAGE_KEY,
   },
 });

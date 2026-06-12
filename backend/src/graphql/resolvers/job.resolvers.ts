@@ -124,7 +124,7 @@ export const jobResolvers = {
           shortDesc: input.shortDesc,
           fullDesc: input.fullDesc,
           applyEmail: input.applyEmail,
-          isFeatured: input.isFeatured ?? false,
+          isFeatured: false,
           tags: { create: tagRecords.map((t: any) => ({ tagId: t.id })) },
         },
         include: {

@@ -6,13 +6,27 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const supabaseSecretKeys = JSON.parse(
+  Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}"
+) as Record<string, string>;
+const supabaseSecretKey = supabaseSecretKeys.edge_functions;
+const webhookSecretKey = supabaseSecretKeys.database_webhooks;
 const resendKey = Deno.env.get("RESEND_API_KEY")!;
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+if (!supabaseSecretKey || !webhookSecretKey) {
+  throw new Error(
+    "Missing edge_functions or database_webhooks Supabase secret key"
+  );
+}
+
+const supabase = createClient(supabaseUrl, supabaseSecretKey);
 
 Deno.serve(async (req: Request) => {
   try {
+    if (req.headers.get("apikey") !== webhookSecretKey) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+    }
+
     const { record } = await req.json();
     const profileId: string = record.profile_id;
     const newTotalXp: number = record.total_xp_after ?? 0;

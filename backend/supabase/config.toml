@@ -365,6 +365,17 @@ inspector_port = 8083
 # The Deno major version to use.
 deno_version = 2
 
+# Modern Supabase API keys are not JWTs. These functions authenticate their
+# apikey header before doing any work.
+[functions.on-post-created]
+verify_jwt = false
+
+[functions.on-xp-award]
+verify_jwt = false
+
+[functions.recompute-interest-embedding]
+verify_jwt = false
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 

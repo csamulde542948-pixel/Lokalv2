@@ -8,12 +8,12 @@
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY!;
 
 // MED-04: Singleton client — avoids creating a new TCP connection pool on
 // every captureAndUploadScreenshot call, which was wasteful and could exhaust
 // the connection limit under load.
-const supabaseStorage = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+const supabaseStorage = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY);
 
 /**
  * Build the Microlink screenshot API URL for a given website.

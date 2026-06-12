@@ -8,7 +8,11 @@ import {
 } from "react";
 import type { Session, User, AuthError } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
-import { clearSessionCookie, syncSessionCookie } from "../lib/auth-session-cookie";
+import {
+  clearSessionCookie,
+  getSessionCookieUser,
+  syncSessionCookie,
+} from "../lib/auth-session-cookie";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -45,28 +49,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Load initial session
-    supabase.auth.getSession().then(({ data, error }) => {
-      console.log('[AUTH CONTEXT] Initial session loaded:', { 
-        hasSession: !!data.session, 
-        user: data.session?.user?.email,
-        error 
-      });
-      syncSessionCookie(data.session).catch(() => {});
-      setSession(data.session);
-      setUser(data.session?.user ?? null);
+    let cancelled = false;
+
+    const loadInitialSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (cancelled) return;
+
+      if (data.session) {
+        await syncSessionCookie(data.session).catch(() => {});
+        if (cancelled) return;
+        setSession(data.session);
+        setUser(data.session.user);
+      } else {
+        const cookieUser = await getSessionCookieUser().catch(() => null);
+        if (cancelled) return;
+        setSession(null);
+        setUser(cookieUser);
+      }
+
       setLoading(false);
+    };
+
+    loadInitialSession().catch(() => {
+      if (!cancelled) {
+        setSession(null);
+        setUser(null);
+        setLoading(false);
+      }
     });
 
     // Listen to auth state changes (login, logout, token refresh, OAuth callback)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, newSession) => {
-      console.log('[AUTH CONTEXT] Auth state changed:', { 
-        event, 
-        hasSession: !!newSession, 
-        user: newSession?.user?.email 
-      });
+      if (event === "INITIAL_SESSION") return;
+
       setSession(newSession);
       setUser(newSession?.user ?? null);
       setLoading(false);
@@ -82,20 +99,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Security: Auto-sign out if token was revoked
       if (event === "TOKEN_REFRESHED" && !newSession) {
-        console.log('[AUTH CONTEXT] Token refresh failed, signing out');
         supabase.auth.signOut();
       }
 
       // Security: Clear state on sign-out
       if (event === "SIGNED_OUT") {
-        console.log('[AUTH CONTEXT] User signed out');
         clearSessionCookie().catch(() => {});
         setSession(null);
         setUser(null);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signInWithEmail = useCallback(
@@ -105,6 +123,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         password,
         options: captchaToken ? { captchaToken } : undefined,
       });
+      if (data.session) {
+        await syncSessionCookie(data.session);
+      }
       return { error, session: data.session ?? null };
     },
     []
@@ -126,6 +147,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ...(captchaToken ? { captchaToken } : {}),
         },
       });
+      if (data.session) {
+        await syncSessionCookie(data.session);
+      }
       return { error, session: data.session ?? null };
     },
     []

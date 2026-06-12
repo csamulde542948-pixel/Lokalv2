@@ -3049,10 +3049,10 @@ async function incrementFeedEngagementCount(
  */
 async function triggerInterestEmbeddingRecompute(userId: string): Promise<void> {
   const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
 
-  if (!supabaseUrl || !supabaseKey) {
-    console.warn("[triggerInterestEmbeddingRecompute] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !supabaseSecretKey) {
+    console.warn("[triggerInterestEmbeddingRecompute] Missing SUPABASE_URL or SUPABASE_SECRET_KEY");
     return;
   }
 
@@ -3061,7 +3061,7 @@ async function triggerInterestEmbeddingRecompute(userId: string): Promise<void> 
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${supabaseKey}`,
+        apikey: supabaseSecretKey,
       },
       body: JSON.stringify({ userId }),
     });

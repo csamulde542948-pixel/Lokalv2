@@ -207,7 +207,7 @@ export const launchpadResolvers = {
           ...(input.coverImageUrl != null ? { coverImageUrl: input.coverImageUrl } : {}),
           ...(input.link ?? input.targetUrl ? { targetUrl: input.link ?? input.targetUrl } : {}),
           ...(deadlineRaw ? { launchDate: new Date(deadlineRaw) } : {}),
-          isFeatured: input.isFeatured ?? false,
+          isFeatured: false,
           // Project branding — stored to DB so they survive restarts
           projectName: input.projectName ?? null,
           iconUrl: input.iconUrl ?? null,

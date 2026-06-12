@@ -2,11 +2,11 @@ import { createClient } from "@supabase/supabase-js";
 import type { AuthUser } from "../graphql/context";
 
 const supabaseUrl = process.env.SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY!;
 
-// Service role client — used server-side only. Has full DB access.
+// Secret-key client - used server-side only. Has full DB access.
 // NEVER expose this to the client.
-export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+export const supabase = createClient(supabaseUrl, supabaseSecretKey, {
   auth: {
     autoRefreshToken: false,
     persistSession: false,

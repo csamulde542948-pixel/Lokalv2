@@ -15,9 +15,17 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const supabaseSecretKeys = JSON.parse(
+  Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}"
+) as Record<string, string>;
+const supabaseSecretKey = supabaseSecretKeys.edge_functions;
+const railwaySecretKey = supabaseSecretKeys.railway;
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+if (!supabaseSecretKey || !railwaySecretKey) {
+  throw new Error("Missing edge_functions or railway Supabase secret key");
+}
+
+const supabase = createClient(supabaseUrl, supabaseSecretKey);
 
 const EMBEDDING_DIM = 1536;
 
@@ -56,6 +64,10 @@ function weightedAverage(items: WeightedEmbedding[]): number[] {
 
 Deno.serve(async (req: Request) => {
   try {
+    if (req.headers.get("apikey") !== railwaySecretKey) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+    }
+
     const { userId } = await req.json();
     if (!userId) {
       return new Response(JSON.stringify({ error: "userId is required" }), { status: 400 });

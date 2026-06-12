@@ -50,7 +50,7 @@ Create local env files from your own Supabase and service credentials. **Do not 
 
 ```env
 VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-key
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your-key
 VITE_GRAPHQL_URL=http://localhost:4000/graphql
 VITE_BACKEND_URL=http://localhost:4000
 VITE_GETSTREAM_API_KEY=your-getstream-api-key
@@ -63,12 +63,21 @@ PORT=4000
 NODE_ENV=development
 FRONTEND_URL=http://localhost:5173
 SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_SECRET_KEY=sb_secret_your-key
 DATABASE_URL=postgresql://...
 DIRECT_URL=postgresql://...
 GETSTREAM_API_KEY=your-getstream-api-key
 GETSTREAM_API_SECRET=your-getstream-api-secret
 ```
+
+Use named, independently rotatable Supabase secret keys:
+
+- `railway` for the backend `SUPABASE_SECRET_KEY`
+- `edge_functions` for privileged database access inside Edge Functions
+- `database_webhooks` for the `apikey` header sent by database webhooks
+
+Edge Functions read the hosted `SUPABASE_SECRET_KEYS` dictionary and do not use
+the legacy `SUPABASE_SERVICE_ROLE_KEY`.
 
 Apply database migrations from `backend/supabase/migrations/` via the Supabase SQL editor or your preferred migration workflow, then generate the Prisma client:
 

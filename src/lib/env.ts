@@ -21,6 +21,17 @@ function requireEnv(key: string): string {
   return value.trim();
 }
 
+function requireEnvPrefix(key: string, prefix: string): string {
+  const value = requireEnv(key);
+  if (!value.startsWith(prefix)) {
+    throw new Error(
+      `[env] ${key} must use the modern Supabase ${prefix}... key format. ` +
+      "Legacy JWT API keys are not supported."
+    );
+  }
+  return value;
+}
+
 // ─── App Environment ──────────────────────────────────────────────────────────
 export const APP_ENV = env["VITE_APP_ENV"] ?? "development";
 
@@ -29,8 +40,9 @@ export const IS_STAGING    = APP_ENV === "staging";
 export const IS_DEV        = APP_ENV === "development";
 
 // ─── Validated Variables ──────────────────────────────────────────────────────
-export const SUPABASE_URL         = requireEnv("VITE_SUPABASE_URL");
-export const SUPABASE_ANON_KEY    = requireEnv("VITE_SUPABASE_PUBLISHABLE_KEY");
+export const SUPABASE_URL = requireEnv("VITE_SUPABASE_URL");
+export const SUPABASE_PUBLISHABLE_KEY =
+  requireEnvPrefix("VITE_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_");
 export const GRAPHQL_URL          = requireEnv("VITE_GRAPHQL_URL");
 export const BACKEND_URL          = requireEnv("VITE_BACKEND_URL");
 export const GETSTREAM_API_KEY    = requireEnv("VITE_GETSTREAM_API_KEY");

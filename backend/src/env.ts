@@ -11,7 +11,7 @@ dotenv.config();
 const REQUIRED_ENV: string[] = [
   "DATABASE_URL",
   "SUPABASE_URL",
-  "SUPABASE_SERVICE_ROLE_KEY",
+  "SUPABASE_SECRET_KEY",
   "FRONTEND_URL",
 ];
 
@@ -38,6 +38,14 @@ const missing = REQUIRED_ENV.filter((key) => !process.env[key]);
 if (missing.length > 0) {
   console.error(
     `[env] FATAL: Missing required environment variables:\n  ${missing.join("\n  ")}`
+  );
+  process.exit(1);
+}
+
+if (!process.env.SUPABASE_SECRET_KEY?.startsWith("sb_secret_")) {
+  console.error(
+    "[env] FATAL: SUPABASE_SECRET_KEY must use the modern sb_secret_... format. " +
+    "Legacy service_role JWT keys are not supported."
   );
   process.exit(1);
 }

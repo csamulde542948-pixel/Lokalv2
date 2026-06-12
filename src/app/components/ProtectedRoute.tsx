@@ -1,8 +1,5 @@
 import { Navigate, Outlet, useLocation } from "react-router";
-import { useEffect, useState } from "react";
-import type { Session } from "@supabase/supabase-js";
 import { useAuth } from "../../contexts/AuthContext";
-import { supabase } from "../../lib/supabase";
 import { BrandLoading } from "./brand-loading";
 
 /**
@@ -12,41 +9,14 @@ import { BrandLoading } from "./brand-loading";
  * - Otherwise renders the child route.
  */
 export function ProtectedRoute() {
-  const { session, loading } = useAuth();
+  const { user, loading } = useAuth();
   const location = useLocation();
-  const [storedSession, setStoredSession] = useState<Session | null>(null);
-  const [checkingStoredSession, setCheckingStoredSession] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    if (session) {
-      setStoredSession(session);
-      setCheckingStoredSession(false);
-      return;
-    }
-
-    if (loading) {
-      return;
-    }
-
-    setCheckingStoredSession(true);
-    supabase.auth.getSession().then(({ data }) => {
-      if (cancelled) return;
-      setStoredSession(data.session);
-      setCheckingStoredSession(false);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [loading, session]);
-
-  if (loading || checkingStoredSession) {
+  if (loading) {
     return <BrandLoading label="Checking your session" />;
   }
 
-  if (!session && !storedSession) {
+  if (!user) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 

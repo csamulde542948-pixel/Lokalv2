@@ -49,7 +49,10 @@ export function CookiePolicy() {
               </thead>
               <tbody className="divide-y divide-border/50">
                 {[
-                  ["sb-*-auth-token", "Cookie / localStorage", "Supabase authentication session", "Session / configurable"],
+                  ["lokal_access_token", "HttpOnly cookie", "Authenticates backend requests without exposing the token to page scripts", "1 hour"],
+                  ["lokal_refresh_token", "HttpOnly cookie", "Renews the backend session", "30 days"],
+                  ["lokal_csrf_token", "Secure cookie / sessionStorage", "Protects authenticated mutations from cross-site requests", "Up to 30 days"],
+                  ["lokal-supabase-auth", "sessionStorage", "Supabase authentication session for the active tab", "Until the tab is closed"],
                   ["lokal:pending_roast", "sessionStorage", "Temporarily stores roast data across redirect", "Browser session"],
                   ["lokal:pending_publish", "sessionStorage", "Tracks pending publish action across auth redirect", "Browser session"],
                   ["lokal:auth_redirect", "sessionStorage", "Saves redirect target for OAuth flows", "Browser session"],
@@ -76,7 +79,7 @@ export function CookiePolicy() {
             <h2 className="text-base font-semibold text-foreground">3. Essential vs. Non-Essential</h2>
             <div className="space-y-2">
               <p>
-                <strong>Essential cookies</strong> (Supabase auth token) are strictly necessary for
+                <strong>Essential cookies</strong> (backend session and CSRF tokens) are strictly necessary for
                 the platform to function. You cannot opt out of these without disabling your account
                 session entirely.
               </p>

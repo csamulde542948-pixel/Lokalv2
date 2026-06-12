@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "prisma generate && tsc",
+    "security:test": "tsx scripts/security-regression.ts",
     "start": "node dist/index.js",
     "start:staging": "NODE_ENV=staging node dist/index.js",
     "start:production": "NODE_ENV=production node dist/index.js",

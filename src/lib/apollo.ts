@@ -6,6 +6,7 @@ import { DocumentTransform } from "@apollo/client/utilities";
 import { separateOperations, OperationDefinitionNode, FragmentDefinitionNode, Kind, DocumentNode } from "graphql";
 import { supabase } from "./supabase";
 import { GRAPHQL_URL } from "./env";
+import { getSessionCsrfToken } from "./auth-session-cookie";
 
 const httpLink = createHttpLink({
   uri: GRAPHQL_URL,
@@ -21,7 +22,7 @@ function readCookie(name: string): string | null {
   return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
 }
 
-// ── S3 #9: Cache Supabase JWT in memory to avoid localStorage read per request ──
+// Cache the active-tab Supabase JWT in memory to avoid repeated storage reads.
 let cachedToken: string | null = null;
 supabase.auth.onAuthStateChange((_event, session) => {
   cachedToken = session?.access_token ?? null;
@@ -33,11 +34,11 @@ supabase.auth.getSession().then(({ data }) => {
 
 // Attach the Supabase session JWT to every GraphQL request
 const authLink = setContext(async (_, { headers }) => {
-  // Always do a fresh getSession() — it reads from localStorage and is fast.
+  // Always do a fresh getSession() from active-tab session storage.
   // This prevents the race where cachedToken is still null on first load.
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token ?? cachedToken ?? null;
-  const csrfToken = readCookie("lokal_csrf_token");
+  const csrfToken = getSessionCsrfToken() ?? readCookie("lokal_csrf_token");
   // Keep cache in sync
   cachedToken = token;
 

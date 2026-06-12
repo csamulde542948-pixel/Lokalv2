@@ -14,10 +14,10 @@ jobs:
     name: Frontend — Build (production)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           cache: npm
@@ -30,13 +30,13 @@ jobs:
         env:
           VITE_APP_ENV: production
           VITE_SUPABASE_URL: https://cdglgwuquklscfwivfcj.supabase.co
-          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.PROD_SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.PROD_SUPABASE_PUBLISHABLE_KEY }}
           VITE_GRAPHQL_URL: ${{ secrets.PROD_GRAPHQL_URL }}
           VITE_BACKEND_URL: ${{ secrets.PROD_BACKEND_URL }}
           VITE_GETSTREAM_API_KEY: ${{ secrets.GETSTREAM_API_KEY }}
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: frontend-production-dist
           path: dist/
@@ -51,10 +51,10 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           cache: npm
@@ -86,10 +86,10 @@ jobs:
     needs: [frontend-build, backend-build]
     environment: production        # ← requires approval in GitHub Settings → Environments
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install Railway CLI
-        run: npm install -g @railway/cli
+        run: npm install -g @railway/cli@4.40.0
 
       - name: Deploy to Railway production
         run: railway up --service ${{ secrets.RAILWAY_PROD_SERVICE_ID }} --detach

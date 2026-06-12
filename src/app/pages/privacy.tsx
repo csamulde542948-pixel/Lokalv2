@@ -178,7 +178,7 @@ export function Privacy() {
                     <li>IP address and approximate geographic location (country/region)</li>
                     <li>Browser type, device type, and operating system</li>
                     <li>Pages visited, features used, and time spent on the platform</li>
-                    <li>Authentication tokens stored in cookies / localStorage</li>
+                    <li>Authentication sessions stored in secure cookies and active-tab sessionStorage</li>
                     <li>Error and diagnostic logs</li>
                   </ul>
                 </div>
@@ -361,7 +361,7 @@ export function Privacy() {
               <h2 className="text-base font-semibold text-foreground">10. Cookies &amp; Local Storage</h2>
               <div className="pl-6 space-y-2">
                 <p>
-                  We use cookies and browser localStorage primarily for authentication and preferences.
+                  We use secure cookies and active-tab sessionStorage for authentication. LocalStorage is used only for non-sensitive preferences.
                   See our full{" "}
                   <Link to="/cookie-policy" className="text-primary hover:underline">Cookie Policy</Link>{" "}
                   for details. You can disable cookies in your browser settings, but some features

@@ -1,7 +1,6 @@
 import "./env"; // MUST be first — loads dotenv before any other module reads process.env
 import express from "express";
 import http from "http";
-import dns from "dns/promises";
 import { randomBytes, randomUUID } from "crypto";
 import cors from "cors";
 import compression from "compression";
@@ -12,11 +11,17 @@ import { ApolloServerPluginDrainHttpServer } from "@apollo/server/plugin/drainHt
 import DataLoader from "dataloader";
 
 import depthLimit from "graphql-depth-limit";
-import { Kind, parse } from "graphql";
 import { typeDefs } from "./graphql/typedefs";
 import { resolvers } from "./graphql/resolvers";
 import { prisma } from "./lib/prisma";
 import { supabase as supabaseAdmin } from "./lib/supabase";
+import { analyzeGraphqlRequest } from "./lib/graphqlRequest";
+import {
+  assertSafeExternalUrl,
+  ExternalFetchError,
+  fetchSafeExternalHtml,
+} from "./lib/ssrf";
+import { verifyGoogleRiscToken } from "./lib/googleRisc";
 import { authMiddleware, AuthenticatedRequest } from "./middleware/auth";
 import { GraphQLContext } from "./graphql/context";
 import { startLeaderboardRefreshers } from "./services/leaderboardRefreshers";
@@ -268,30 +273,6 @@ function createCommentMyReactionLoader(userId: string | null) {
   });
 }
 
-function getMutationFieldCounts(query: unknown): Record<string, number> {
-  if (typeof query !== "string" || !query.trim()) return {};
-  try {
-    const document = parse(query);
-    const counts: Record<string, number> = {};
-    for (const definition of document.definitions) {
-      if (definition.kind !== Kind.OPERATION_DEFINITION || definition.operation !== "mutation") {
-        continue;
-      }
-      for (const selection of definition.selectionSet.selections) {
-        if (selection.kind !== Kind.FIELD) continue;
-        counts[selection.name.value] = (counts[selection.name.value] ?? 0) + 1;
-      }
-    }
-    return counts;
-  } catch {
-    return {};
-  }
-}
-
-function isMutationOperation(query: unknown): boolean {
-  return Object.keys(getMutationFieldCounts(query)).length > 0;
-}
-
 // ─── Apollo Server ───────────────────────────────────────────────────────────
 
 async function startServer() {
@@ -531,7 +512,7 @@ async function startServer() {
   function setSessionCookies(res: any, accessToken: string, refreshToken: string) {
     res.cookie(AUTH_ACCESS_COOKIE, accessToken, sessionCookieOptions(60 * 60 * 1000));
     res.cookie(AUTH_REFRESH_COOKIE, refreshToken, sessionCookieOptions(30 * 24 * 60 * 60 * 1000));
-    issueCsrfToken(res, 30 * 24 * 60 * 60 * 1000);
+    return issueCsrfToken(res, 30 * 24 * 60 * 60 * 1000);
   }
 
   function clearSessionCookies(res: any) {
@@ -541,7 +522,11 @@ async function startServer() {
   }
 
   function requireGraphqlMutationCsrf(req: any, res: any, next: any) {
-    if (!isMutationOperation(req.body?.query)) return next();
+    const analysis = analyzeGraphqlRequest(
+      req.body?.query,
+      req.body?.operationName
+    );
+    if (!analysis.isMutation) return next();
 
     const authHeader = String(req.headers.authorization ?? "");
     const usingCookieAuth = !authHeader.startsWith("Bearer ") && !!readCookie(req, AUTH_ACCESS_COOKIE);
@@ -562,6 +547,19 @@ async function startServer() {
       }
     }
 
+    next();
+  }
+
+  function enforceGraphqlMutationBatchLimit(req: any, res: any, next: any) {
+    const analysis = analyzeGraphqlRequest(
+      req.body?.query,
+      req.body?.operationName
+    );
+    if (analysis.topLevelMutationFieldCount > 10) {
+      return res.status(400).json({
+        error: "A request can contain at most 10 mutation operations.",
+      });
+    }
     next();
   }
 
@@ -586,8 +584,9 @@ async function startServer() {
         return res.status(401).json({ error: "Invalid session" });
       }
 
-      setSessionCookies(res, accessToken, refreshToken);
-      return res.json({ ok: true, user: { id: user.id, email: user.email } });
+      const csrfToken = setSessionCookies(res, accessToken, refreshToken);
+      res.set("Cache-Control", "no-store");
+      return res.json({ ok: true, user, csrfToken });
     } catch (err) {
       console.error("[session-cookie]", err);
       clearSessionCookies(res);
@@ -597,29 +596,34 @@ async function startServer() {
 
   app.delete("/auth/session-cookie", sessionCookieRateLimiter, requireSameOrigin, (_req: any, res: any) => {
     clearSessionCookies(res);
+    res.set("Cache-Control", "no-store");
     return res.json({ ok: true });
   });
 
   app.get("/auth/session-cookie", async (req: any, res: any) => {
     try {
+      res.set("Cache-Control", "private, no-store");
       const accessToken = readCookie(req, AUTH_ACCESS_COOKIE);
       const refreshToken = readCookie(req, AUTH_REFRESH_COOKIE);
 
       if (accessToken) {
         const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
         if (!error && user) {
+          let csrfToken = readCookie(req, AUTH_CSRF_COOKIE);
           if (refreshToken && !readCookie(req, AUTH_CSRF_COOKIE)) {
-            setSessionCookies(res, accessToken, refreshToken);
+            csrfToken = setSessionCookies(res, accessToken, refreshToken);
+          } else if (!csrfToken) {
+            csrfToken = issueCsrfToken(res, 60 * 60 * 1000);
           }
-          return res.json({ authenticated: true, user: { id: user.id, email: user.email } });
+          return res.json({ authenticated: true, user, csrfToken });
         }
       }
 
       if (refreshToken) {
         const { data, error } = await supabaseAdmin.auth.refreshSession({ refresh_token: refreshToken });
         if (!error && data.session?.access_token && data.session.refresh_token && data.user) {
-          setSessionCookies(res, data.session.access_token, data.session.refresh_token);
-          return res.json({ authenticated: true, user: { id: data.user.id, email: data.user.email } });
+          const csrfToken = setSessionCookies(res, data.session.access_token, data.session.refresh_token);
+          return res.json({ authenticated: true, user: data.user, csrfToken });
         }
       }
 
@@ -748,15 +752,18 @@ async function startServer() {
         return res.status(400).json({ error: "Missing security event token" });
       }
 
-      // Decode the JWT without verification first to get the event type
-      // (Full verification requires fetching Google's JWKS endpoint)
-      const parts = token.split(".");
-      if (parts.length !== 3) return res.status(400).end();
-
-      const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
-      const events = payload.events ?? {};
-      const subjectEmail = payload.sub ?? payload.email;
-      const subjectId = payload.sub_id ?? null;
+      const payload = await verifyGoogleRiscToken(token);
+      const events =
+        payload.events && typeof payload.events === "object"
+          ? payload.events as Record<string, any>
+          : {};
+      const firstSubject = Object.values(events)
+        .map((event) => event?.subject)
+        .find((subject) => subject && typeof subject === "object");
+      const subjectEmail =
+        typeof firstSubject?.email === "string" ? firstSubject.email : null;
+      const googleSubject =
+        typeof firstSubject?.sub === "string" ? firstSubject.sub : null;
 
       console.log("[RISC] Received security event:", {
         events: Object.keys(events),
@@ -767,7 +774,7 @@ async function startServer() {
       if (events["https://schemas.openid.net/secevent/risc/event-type/account-disabled"]) {
         // User's Google account was disabled — sign them out & log it
         console.warn("[RISC] Account disabled for:", subjectEmail);
-        await logSecurityEvent(subjectId ?? null, "google_account_disabled", { events: Object.keys(events), subject: subjectEmail }, "google_risc");
+        await logSecurityEvent(null, "google_account_disabled", { events: Object.keys(events), subject: subjectEmail, googleSubject }, "google_risc");
         // Optionally: revoke their Supabase session
         // await supabaseAdmin.auth.admin.signOut(userId)
       }
@@ -775,18 +782,18 @@ async function startServer() {
       if (events["https://schemas.openid.net/secevent/risc/event-type/account-credential-change-required"]) {
         // User's Google credentials may be compromised — force re-auth
         console.warn("[RISC] Credential change required for:", subjectEmail);
-        await logSecurityEvent(subjectId ?? null, "google_credential_change_required", { events: Object.keys(events), subject: subjectEmail }, "google_risc");
+        await logSecurityEvent(null, "google_credential_change_required", { events: Object.keys(events), subject: subjectEmail, googleSubject }, "google_risc");
       }
 
       if (events["https://schemas.openid.net/secevent/risc/event-type/sessions-revoked"]) {
         // All sessions revoked — sign user out
         console.warn("[RISC] Sessions revoked for:", subjectEmail);
-        await logSecurityEvent(subjectId ?? null, "google_sessions_revoked", { events: Object.keys(events), subject: subjectEmail }, "google_risc");
+        await logSecurityEvent(null, "google_sessions_revoked", { events: Object.keys(events), subject: subjectEmail, googleSubject }, "google_risc");
       }
 
       if (events["https://schemas.openid.net/secevent/risc/event-type/token-claims-change"]) {
         console.warn("[RISC] Token claims changed for:", subjectEmail);
-        await logSecurityEvent(subjectId ?? null, "google_token_claims_change", { events: Object.keys(events), subject: subjectEmail }, "google_risc");
+        await logSecurityEvent(null, "google_token_claims_change", { events: Object.keys(events), subject: subjectEmail, googleSubject }, "google_risc");
       }
 
       // Acknowledge the event with 202 Accepted
@@ -812,12 +819,16 @@ async function startServer() {
 
   app.use(
     "/graphql",
+    enforceGraphqlMutationBatchLimit,
     requireGraphqlMutationCsrf,
     expressMiddleware(server, {
       context: async ({ req }: { req: any }): Promise<GraphQLContext> => {
         const authReq = req as AuthenticatedRequest;
         const userId = authReq.user?.id ?? null;
-        const mutationFieldCounts = getMutationFieldCounts(req.body?.query);
+        const mutationFieldCounts = analyzeGraphqlRequest(
+          req.body?.query,
+          req.body?.operationName
+        ).mutationFieldCounts;
         // Resolve real client IP — respects X-Forwarded-For behind a proxy/load balancer
         const clientIp: string =
           (req.headers["x-forwarded-for"] as string)?.split(",")[0].trim() ??
@@ -890,65 +901,13 @@ async function startServer() {
     ogCache.set(key, value);
   }
 
-  /**
-   * SSRF protection: validate a URL is safe to fetch server-side.
-   * Blocks private/internal IPs, loopback, cloud metadata endpoints, and non-http(s) schemes.
-   */
-  function isPrivateIp(ip: string): boolean {
-    return (
-      ip === "127.0.0.1" ||
-      ip === "::1" ||
-      ip === "0.0.0.0" ||
-      ip.startsWith("10.") ||
-      ip.startsWith("192.168.") ||
-      ip.startsWith("169.254.") || // AWS/GCP metadata
-      ip.startsWith("fd") ||       // IPv6 ULA
-      ip.startsWith("fc") ||       // IPv6 ULA
-      /^172\.(1[6-9]|2\d|3[01])\./.test(ip) // 172.16–31.x.x
-    );
-  }
-
-  async function assertSafeUrl(rawUrl: string): Promise<string> {
-    let parsed: URL;
-    try {
-      parsed = new URL(rawUrl);
-    } catch {
-      throw new Error("invalid url");
-    }
-    // Only allow http and https
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      throw new Error("url scheme not allowed");
-    }
-    // Block obvious internal hostnames
-    const host = parsed.hostname.toLowerCase();
-    if (
-      host === "localhost" ||
-      host.endsWith(".local") ||
-      host.endsWith(".internal") ||
-      host.endsWith(".localhost")
-    ) {
-      throw new Error("url not allowed");
-    }
-    // DNS resolution check — prevents DNS rebinding attacks
-    try {
-      const { address } = await dns.lookup(host);
-      if (isPrivateIp(address)) {
-        throw new Error("url resolves to private ip");
-      }
-    } catch (e: any) {
-      if (e.message.startsWith("url")) throw e; // re-throw our own errors
-      throw new Error("url could not be resolved");
-    }
-    return parsed.href;
-  }
-
   app.get("/og", async (req: any, res: any) => {
     const raw = req.query.url as string | undefined;
     if (!raw) return res.status(400).json({ error: "url param required" });
 
     let url: string;
     try {
-      url = await assertSafeUrl(raw);
+      url = await assertSafeExternalUrl(raw);
     } catch (e: any) {
       return res.status(400).json({ error: e.message ?? "invalid url" });
     }
@@ -960,51 +919,21 @@ async function startServer() {
     }
 
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-
-      const response = await fetch(url, {
-        signal: controller.signal,
+      const response = await fetchSafeExternalHtml(url, {
+        timeoutMs: 5_000,
+        maxBytes: 1_000_000,
         headers: {
           "User-Agent":
             "Mozilla/5.0 (compatible; LokalBot/1.0; +https://lokal.dev)",
           Accept: "text/html,application/xhtml+xml",
         },
-        redirect: "manual",
       });
-      clearTimeout(timeout);
 
       if (response.status >= 300 && response.status < 400) {
         return res.status(400).json({ error: "redirects not allowed" });
       }
 
-      const contentLength = Number(response.headers.get("content-length") ?? 0);
-      if (Number.isFinite(contentLength) && contentLength > 1_000_000) {
-        return res.status(413).json({ error: "response too large" });
-      }
-
-      const chunks: Uint8Array[] = [];
-      let totalBytes = 0;
-      const reader = response.body?.getReader();
-      if (!reader) {
-        return res.status(502).json({ error: "failed to read response body" });
-      }
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!value) continue;
-        totalBytes += value.byteLength;
-        if (totalBytes > 1_000_000) {
-          controller.abort();
-          return res.status(413).json({ error: "response too large" });
-        }
-        chunks.push(value);
-      }
-
-      const html = new TextDecoder("utf-8").decode(
-        Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)))
-      );
+      const html = response.body.toString("utf8");
 
       function getMeta(property: string): string | null {
         // Match both og: and twitter: tags, property or name attr
@@ -1040,8 +969,17 @@ async function startServer() {
       ogCacheSet(url, { data, fetchedAt: Date.now() });
       return res.json(data);
     } catch (err: any) {
-      if (err?.name === "AbortError") {
+      if (err instanceof ExternalFetchError && err.code === "TIMEOUT") {
         return res.status(504).json({ error: "request timed out" });
+      }
+      if (err instanceof ExternalFetchError && err.code === "RESPONSE_TOO_LARGE") {
+        return res.status(413).json({ error: "response too large" });
+      }
+      if (
+        err instanceof ExternalFetchError &&
+        err.code === "UNSUPPORTED_CONTENT_TYPE"
+      ) {
+        return res.status(415).json({ error: "url did not return html" });
       }
       return res.status(502).json({ error: "failed to fetch url" });
     }
