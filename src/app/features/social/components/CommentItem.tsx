@@ -318,7 +318,7 @@ export function CommentItem({
 
       {/* ── Replies ──────────────────────────────────────────────── */}
       {showNestedReplies && depth < 2 && hasReplies && (
-        <div className="mt-2 flex min-w-0 flex-col gap-2 border-t pt-3">
+        <div className="mt-2 flex min-w-0 flex-col gap-2">
 
             {/* ── Depth-0 and depth-1: collapsed toggle ── */}
             {depth <= 1 && !repliesExpanded && (
