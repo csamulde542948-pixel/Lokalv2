@@ -11,6 +11,7 @@ dotenv.config();
 const REQUIRED_ENV: string[] = [
   "DATABASE_URL",
   "SUPABASE_URL",
+  "SUPABASE_SECRET_KEY",
   "FRONTEND_URL",
 ];
 
@@ -42,26 +43,10 @@ if (missing.length > 0) {
 }
 
 const hasModernSupabaseSecret = process.env.SUPABASE_SECRET_KEY?.startsWith("sb_secret_");
-const hasLegacySupabaseSecret = process.env.SUPABASE_SERVICE_ROLE_KEY?.startsWith("eyJ");
-const hasSupabaseAuthKey =
-  process.env.SUPABASE_AUTH_KEY?.startsWith("sb_publishable_") ||
-  process.env.SUPABASE_AUTH_KEY?.startsWith("eyJ");
 
-if (!hasModernSupabaseSecret && !hasLegacySupabaseSecret && !hasSupabaseAuthKey) {
+if (!hasModernSupabaseSecret) {
   console.error(
-    "[env] FATAL: Set a valid SUPABASE_SECRET_KEY or SUPABASE_AUTH_KEY."
+    "[env] FATAL: SUPABASE_SECRET_KEY must use the modern sb_secret_... format."
   );
   process.exit(1);
-}
-
-if (!hasModernSupabaseSecret && !hasLegacySupabaseSecret && hasSupabaseAuthKey) {
-  console.warn(
-    "[env] WARNING: Supabase is running in auth-only mode. " +
-    "Admin and storage operations require a valid SUPABASE_SECRET_KEY."
-  );
-} else if (!hasModernSupabaseSecret && hasLegacySupabaseSecret) {
-  console.warn(
-    "[env] WARNING: Using the legacy Supabase service_role key fallback. " +
-    "Replace it with a valid SUPABASE_SECRET_KEY before disabling legacy API keys."
-  );
 }
