@@ -12,6 +12,32 @@ import { avatarSrc } from "../../../../lib/defaults";
 import { timeAgo } from "../time";
 import type { CommentData } from "../types";
 
+function CommentText({ content }: { content: string }) {
+  const parts = content.split(/(@[A-Za-z0-9_.-]+)/g);
+
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (!part.startsWith("@") || part.length <= 1) {
+          return <span key={`${index}-${part}`}>{part}</span>;
+        }
+
+        const username = part.slice(1);
+        return (
+          <Link
+            key={`${index}-${part}`}
+            to={`/profile/${username}`}
+            className="font-medium text-sky-500 hover:underline"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {part}
+          </Link>
+        );
+      })}
+    </>
+  );
+}
+
 export function CommentItem({
   comment,
   currentUserId,
@@ -194,6 +220,45 @@ export function CommentItem({
                 <span className="shrink-0 text-muted-foreground">
                   {comment.createdAt ? timeAgo(comment.createdAt) : "now"}
                 </span>
+                {comment.isEdited && (
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setShowHistory(true);
+                    }}
+                    className="shrink-0 text-xs italic text-muted-foreground hover:underline"
+                  >
+                    Edited
+                  </button>
+                )}
+                {isOwn && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <MoreHorizontal className="w-4 h-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-40">
+                      <DropdownMenuItem onClick={startEdit} className="gap-2 cursor-pointer text-sm">
+                        <Pencil className="w-3.5 h-3.5" />Edit
+                      </DropdownMenuItem>
+                      {(comment.editHistory?.length ?? 0) > 0 && (
+                        <DropdownMenuItem onClick={() => setShowHistory(true)} className="gap-2 cursor-pointer text-sm">
+                          <History className="w-3.5 h-3.5" />Edit history
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem
+                        onClick={() => onDelete(comment.id)}
+                        className="gap-2 text-destructive focus:text-destructive cursor-pointer text-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </div>
               {comment.mediaUrl && (
                 comment.mediaType === "video" ? (
@@ -203,26 +268,16 @@ export function CommentItem({
                 )
               )}
               {comment.content && (
-                <p className="whitespace-pre-wrap break-words text-sm leading-5 text-foreground">{comment.content}</p>
+                <p className="whitespace-pre-wrap break-words text-sm leading-5 text-foreground">
+                  <CommentText content={comment.content} />
+                </p>
               )}
             </div>
           )}
 
           {/* Action row */}
           {!isEditing && (
-            <div className="mt-3 grid max-w-md grid-cols-3 text-muted-foreground">
-              {comment.isEdited && (
-                <button
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setShowHistory(true);
-                  }}
-                  className="inline-flex h-9 items-center gap-1 text-xs italic hover:underline"
-                >
-                  <History className="w-2.5 h-2.5" />Edited
-                </button>
-              )}
-
+            <div className="mt-3 grid max-w-xs grid-cols-2 text-muted-foreground">
               <button
                 onClick={(event) => {
                   event.stopPropagation();
@@ -256,36 +311,6 @@ export function CommentItem({
                 </span>
                 <span className="tabular-nums">{comment.repliesCount}</span>
               </button>
-
-              {/* 3-dot menu for own comments */}
-              {isOwn && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <MoreHorizontal className="w-4 h-4" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-40">
-                    <DropdownMenuItem onClick={startEdit} className="gap-2 cursor-pointer text-sm">
-                      <Pencil className="w-3.5 h-3.5" />Edit
-                    </DropdownMenuItem>
-                    {(comment.editHistory?.length ?? 0) > 0 && (
-                      <DropdownMenuItem onClick={() => setShowHistory(true)} className="gap-2 cursor-pointer text-sm">
-                        <History className="w-3.5 h-3.5" />Edit history
-                      </DropdownMenuItem>
-                    )}
-                    <DropdownMenuItem
-                      onClick={() => onDelete(comment.id)}
-                      className="gap-2 text-destructive focus:text-destructive cursor-pointer text-sm"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
             </div>
           )}
         </div>
@@ -293,9 +318,7 @@ export function CommentItem({
 
       {/* ── Replies ──────────────────────────────────────────────── */}
       {showNestedReplies && depth < 2 && hasReplies && (
-        <div className="flex gap-2">
-          <div className="w-7 flex-shrink-0" />
-          <div className="flex-1 min-w-0 flex flex-col gap-2 pt-0.5">
+        <div className="mt-2 flex min-w-0 flex-col gap-2 border-t pt-3">
 
             {/* ── Depth-0 and depth-1: collapsed toggle ── */}
             {depth <= 1 && !repliesExpanded && (
@@ -362,8 +385,6 @@ export function CommentItem({
                 Hide replies
               </button>
             )}
-
-          </div>
         </div>
       )}
 
