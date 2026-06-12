@@ -2,31 +2,28 @@ import { useState, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useQuery, useMutation } from "@apollo/client/react";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { Separator } from "../components/ui/separator";
 import { Skeleton } from "../components/ui/skeleton";
-import { PostCard } from "../components/post-card";
-import { RoastedProjectCard, FeedPost } from "../components/roasted-project-card";
 import { CreatePost } from "../components/create-post";
 import { AvatarFrame, pickFrameRole } from "../components/avatar-frame";
+import { CommentModal } from "../features/social/components/CommentModal";
+import { TimelinePost, type TimelinePostData } from "../features/social/components/TimelinePost";
 import {
   MapPin, Link2, Calendar, Code2, Camera,
-  Edit, UserPlus, UserCheck, MoreHorizontal, Star, Users, Image as ImageIcon, Loader2,
+  Edit, UserPlus, UserCheck, MoreHorizontal, Star, Image as ImageIcon, Loader2,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { avatarSrc, DEFAULT_COVER } from "../../lib/defaults";
 import { supabase } from "../../lib/supabase";
 import { toast } from "sonner";
-import { adaptPost } from "../features/social/adapters";
 import {
   ALL_FRAGMENTS,
   FOLLOW_USER, UNFOLLOW_USER,
 } from "../features/social/graphql";
 
-// ─── GraphQL ──────────────────────────────────────────────────────────────────
+// GraphQL
 
 const GET_ME = gql`
   query GetMe {
@@ -95,27 +92,32 @@ const UPDATE_PROFILE = gql`
   }
 `;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// Helpers
 
-// ─── Skeletons ────────────────────────────────────────────────────────────────
+// Skeletons
 
 function PostSkeleton() {
   return (
-    <div className="rounded-lg border bg-card p-4 space-y-3">
-      <div className="flex items-center gap-3">
-        <Skeleton className="w-10 h-10 rounded-full" />
-        <div className="space-y-1.5">
-          <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-2.5 w-16" />
+    <article className="border-b px-4 py-4">
+      <div className="flex gap-3">
+        <Skeleton className="h-10 w-10 rounded-full" />
+        <div className="flex-1 space-y-3">
+          <div className="flex gap-2">
+            <Skeleton className="h-3 w-28" />
+            <Skeleton className="h-3 w-16" />
+          </div>
+          <div className="space-y-2">
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-[82%]" />
+            <Skeleton className="h-3 w-[54%]" />
+          </div>
         </div>
       </div>
-      <Skeleton className="h-3 w-full" />
-      <Skeleton className="h-3 w-4/5" />
-    </div>
+    </article>
   );
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// Component
 
 type Tab = "posts" | "about" | "projects";
 
@@ -125,6 +127,7 @@ export function Profile() {
   const navigate = useNavigate();
   const isOtherUser = !!username;
   const [activeTab, setActiveTab] = useState<Tab>("posts");
+  const [commentPost, setCommentPost] = useState<TimelinePostData | null>(null);
 
   // Own profile
   const { data: meData, loading: meLoading } = useQuery(GET_ME, {
@@ -142,7 +145,7 @@ export function Profile() {
   const profile = isOtherUser ? profileData?.profile : meData?.me;
   const loading = isOtherUser ? profileLoading : meLoading;
 
-  // Follow state — optimistic UI
+  // Follow state - optimistic UI
   const [optimisticFollowing, setOptimisticFollowing] = useState<boolean | null>(null);
   const [optimisticFollowers, setOptimisticFollowers] = useState<number | null>(null);
   const isFollowing = optimisticFollowing ?? (profile?.isFollowedByMe ?? false);
@@ -163,7 +166,7 @@ export function Profile() {
     if (!file || !user) return;
     if (file.size > 2 * 1024 * 1024) { toast.error("Image too large. Max 2 MB."); return; }
     setAvatarUploading(true);
-    const toastId = toast.loading("Uploading photo…");
+    const toastId = toast.loading("Uploading photo...");
     try {
       const ext  = file.name.split(".").pop();
       const path = `avatars/${user.id}.${ext}`;
@@ -176,7 +179,7 @@ export function Profile() {
       }
       const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
       const avatarUrl = `${urlData.publicUrl}?t=${Date.now()}`;
-      toast.loading("Saving profile…", { id: toastId });
+      toast.loading("Saving profile...", { id: toastId });
       await updateProfile({ variables: { input: { avatarUrl } } });
       setLocalAvatarUrl(avatarUrl);
       toast.success("Profile photo updated!", { id: toastId });
@@ -193,7 +196,7 @@ export function Profile() {
     if (!file || !user) return;
     if (file.size > 5 * 1024 * 1024) { toast.error("Image too large. Max 5 MB."); return; }
     setCoverUploading(true);
-    const toastId = toast.loading("Uploading cover photo…");
+    const toastId = toast.loading("Uploading cover photo...");
     try {
       const ext  = file.name.split(".").pop();
       const path = `covers/${user.id}.${ext}`;
@@ -206,7 +209,7 @@ export function Profile() {
       }
       const { data: urlData } = supabase.storage.from("covers").getPublicUrl(path);
       const coverUrl = `${urlData.publicUrl}?t=${Date.now()}`;
-      toast.loading("Saving cover…", { id: toastId });
+      toast.loading("Saving cover...", { id: toastId });
       await updateProfile({ variables: { input: { coverUrl } } });
       setLocalCoverUrl(coverUrl);
       toast.success("Cover photo updated!", { id: toastId });
@@ -250,21 +253,22 @@ export function Profile() {
     fetchPolicy: "cache-and-network",
   });
 
-  // Projects — works for own AND other user profiles
+  // Projects - works for own AND other user profiles
   const { data: projectsData, loading: projectsLoading } = useQuery(GET_USER_PROJECTS, {
     skip: !profile?.id,
     variables: { userId: profile?.id },
     fetchPolicy: "cache-and-network",
   });
 
-  const posts = postsData?.userPosts?.posts ?? [];
+  const posts = (postsData?.userPosts?.posts ?? []) as TimelinePostData[];
   const projects = projectsData?.userProjects ?? [];
 
   const displayName = profile?.displayName ?? profile?.name ?? user?.email ?? "";
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Cover Photo — standalone element, NOT wrapping the info bar */}
+      <div className="mx-auto min-h-screen max-w-[640px] border-x bg-background">
+      {/* Cover Photo - standalone element, NOT wrapping the info bar */}
       <div className="h-40 sm:h-56 md:h-72 bg-gradient-to-br from-primary/20 via-muted to-primary/10 relative overflow-hidden">
         <img
           src={localCoverUrl || profile?.coverUrl || DEFAULT_COVER}
@@ -283,7 +287,7 @@ export function Profile() {
               {coverUploading
                 ? <Loader2 className="w-4 h-4 animate-spin" />
                 : <Camera className="w-4 h-4" strokeWidth={2} />}
-              {coverUploading ? "Uploading…" : "Edit Cover Photo"}
+              {coverUploading ? "Uploading..." : "Edit Cover Photo"}
             </Button>
             <input
               ref={coverFileRef}
@@ -296,7 +300,7 @@ export function Profile() {
         )}
       </div>
 
-      {/* Profile Info Bar — BELOW the cover, avatar overlaps bottom edge via negative margin */}
+      {/* Profile Info Bar - BELOW the cover, avatar overlaps bottom edge via negative margin */}
       <div className="bg-card border-b shadow-sm">
         <div className="max-w-5xl mx-auto px-2 sm:px-4">
           {loading ? (
@@ -343,7 +347,7 @@ export function Profile() {
             </>
           ) : (
             <>
-              {/* ── MOBILE layout (< sm): avatar row + info row stacked ── */}
+              {/* -- MOBILE layout (< sm): avatar row + info row stacked -- */}
               <div className="sm:hidden">
                 {/* Row 1: avatar (overlapping cover) + action buttons flush right */}
                 <div className="flex items-end justify-between -mt-12 pb-2">
@@ -385,7 +389,7 @@ export function Profile() {
                     )}
                   </div>
 
-                  {/* Action buttons — vertically centered with avatar bottom */}
+                  {/* Action buttons - vertically centered with avatar bottom */}
                   <div className="flex gap-2 flex-shrink-0 pb-1">
                     {isOtherUser && !isOwnProfile ? (
                       <>
@@ -419,10 +423,10 @@ export function Profile() {
                   </div>
                 </div>
 
-                {/* Row 2: name, username, badge, stats — no wasted space */}
+                {/* Row 2: name, username, badge, stats - no wasted space */}
                 <div className="pb-3 space-y-1">
                   <h1 className="text-lg font-bold leading-tight truncate">{displayName}</h1>
-                  <p className="text-sm text-muted-foreground truncate">@{profile?.username ?? "—"}</p>
+                  <p className="text-sm text-muted-foreground truncate">@{profile?.username ?? "-"}</p>
                   {profile?.rank && (
                     <Badge
                       className="text-xs"
@@ -471,7 +475,7 @@ export function Profile() {
                 </div>
               </div>
 
-              {/* ── DESKTOP layout (sm+): original side-by-side, unchanged ── */}
+              {/* -- DESKTOP layout (sm+): original side-by-side, unchanged -- */}
               <div className="hidden sm:flex items-start gap-4 pt-1 pb-3">
                 {/* Avatar */}
                 <div className="relative -mt-16 flex-shrink-0">
@@ -517,7 +521,7 @@ export function Profile() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <h1 className="text-2xl font-bold leading-tight truncate">{displayName}</h1>
-                      <p className="text-sm text-muted-foreground truncate">@{profile?.username ?? "—"}</p>
+                      <p className="text-sm text-muted-foreground truncate">@{profile?.username ?? "-"}</p>
                       {profile?.rank && (
                         <Badge
                           className="mt-1 text-xs"
@@ -533,7 +537,7 @@ export function Profile() {
                       )}
                     </div>
 
-                    {/* Action buttons — top-right */}
+                    {/* Action buttons - top-right */}
                     <div className="flex gap-2 flex-shrink-0">
                       {isOtherUser && !isOwnProfile ? (
                         <>
@@ -631,391 +635,177 @@ export function Profile() {
       </div>
 
       {/* Content Area */}
-      <div className="max-w-5xl mx-auto px-2 sm:px-4 py-4 sm:py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Left Sidebar */}
-          <div className="lg:col-span-1 space-y-4">
-            {/* Intro Card */}
-            <Card className="border">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Intro</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {loading ? (
-                  <div className="space-y-2">
-                    <Skeleton className="h-3 w-full" />
-                    <Skeleton className="h-3 w-4/5" />
-                    <Skeleton className="h-3 w-3/5" />
-                  </div>
-                ) : (
-                  <>
-                    {profile?.bio && (
-                      <p className="text-sm text-muted-foreground text-center">{profile.bio}</p>
-                    )}
-                    {!isOtherUser && (
-                      <Button variant="secondary" size="sm" className="w-full">
-                        Edit Bio
-                      </Button>
-                    )}
-                    <Separator />
-                    <div className="space-y-3 text-sm">
-                      {profile?.location && (
-                        <div className="flex items-center gap-3 text-muted-foreground">
-                          <MapPin className="w-4 h-4 flex-shrink-0" strokeWidth={2} />
-                          <span>
-                            Lives in{" "}
-                            <span className="text-foreground font-medium">{profile.location}</span>
-                          </span>
-                        </div>
-                      )}
-                      {profile?.website && (
-                        <div className="flex items-center gap-3 text-muted-foreground">
-                          <Link2 className="w-4 h-4 flex-shrink-0" strokeWidth={2} />
-                          <a
-                            href={profile.website}
-                            className="text-primary hover:underline truncate"
-                          >
-                            {profile.website}
-                          </a>
-                        </div>
-                      )}
-                      {profile?.xp != null && (
-                        <div className="flex items-center gap-3 text-muted-foreground">
-                          <Star className="w-4 h-4 flex-shrink-0" strokeWidth={2} />
-                          <span>
-                            <span className="text-foreground font-medium">
-                              {profile.xp.toLocaleString()}
-                            </span>{" "}
-                            XP
-                          </span>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-3 text-muted-foreground">
-                        <Calendar className="w-4 h-4 flex-shrink-0" strokeWidth={2} />
-                        <span>Member of lokalhost.club</span>
-                      </div>
-                    </div>
-                    {!isOtherUser && (
-                      <Button variant="secondary" size="sm" className="w-full">
-                        Edit Details
-                      </Button>
-                    )}
-                  </>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Roles card */}
-            {(profile?.earnedRoles?.length ?? 0) > 0 && (
-              <Card className="border">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Roles</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {profile.earnedRoles.map((ur: any) => (
-                    <div
-                      key={ur.id}
-                      className="flex items-center gap-2 py-1"
-                      title={ur.role.description}
-                    >
-                      <span className="text-xl leading-none w-6 text-center">{ur.role.emoji}</span>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold leading-tight">{ur.role.name}</p>
-                        {ur.role.description && (
-                          <p className="text-xs text-muted-foreground leading-tight line-clamp-1">
-                            {ur.role.description}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
+      <div>
+        {activeTab === "posts" && (
+          <>
+            {!isOtherUser && (
+              <section className="border-b bg-background">
+                <CreatePost onPost={() => refetchPosts()} variant="timeline" />
+              </section>
             )}
-
-            {/* Projects sidebar card */}
-            <Card className="border">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Code2 className="w-4 h-4 text-muted-foreground" strokeWidth={2} />
-                    Projects
-                  </CardTitle>
-                  <Button
-                    variant="link"
-                    size="sm"
-                    className="h-auto p-0 text-primary text-xs"
-                    onClick={() => setActiveTab("projects")}
-                  >
-                    See all
-                  </Button>
+            {postsLoading ? (
+              <div>
+                {[0, 1, 2].map((index) => (
+                  <PostSkeleton key={index} />
+                ))}
+              </div>
+            ) : posts.length === 0 ? (
+              <div className="px-8 py-14 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <ImageIcon className="h-5 w-5" strokeWidth={1.5} />
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {projectsLoading ? (
-                  [...Array(2)].map((_, i) => (
-                    <div key={i} className="flex items-start gap-3">
-                      <Skeleton className="w-12 h-12 rounded-md flex-shrink-0" />
-                      <div className="space-y-1.5 flex-1">
-                        <Skeleton className="h-3 w-24" />
-                        <Skeleton className="h-3 w-16" />
-                      </div>
-                    </div>
-                  ))
-                ) : projects.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-2">No projects yet</p>
-                ) : (
-                  projects.slice(0, 5).map((project: any) => (
-                    <div key={project.id} className="flex items-start gap-3 group cursor-pointer">
-                      <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/20 transition-colors">
-                        <Code2 className="w-6 h-6 text-primary" strokeWidth={2} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-semibold group-hover:text-primary transition-colors truncate">
-                          {project.name}
-                        </h4>
-                        <p className="text-xs text-muted-foreground line-clamp-1">
-                          {project.tagline}
-                        </p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-xs text-muted-foreground flex items-center gap-1">
-                            <Star className="w-3 h-3" strokeWidth={2} />
-                            {project.starsCount}
-                          </span>
-                          {(project.tags ?? []).slice(0, 2).map((t: any) => (
-                            <Badge
-                              key={t.name}
-                              variant="secondary"
-                              className="text-[10px] px-1.5 py-0 h-4"
-                            >
-                              {t.name}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Main Content */}
-          <div className="lg:col-span-2 space-y-4">
-            {activeTab === "posts" && (
-              <>
-                {!isOtherUser && <CreatePost />}
-                {postsLoading ? (
-                  [...Array(2)].map((_, i) => <PostSkeleton key={i} />)
-                ) : posts.length === 0 ? (
-                  <Card className="border">
-                    <CardContent className="py-10 text-center">
-                      <ImageIcon
-                        className="w-10 h-10 mx-auto mb-3 text-muted-foreground"
-                        strokeWidth={1.5}
-                      />
-                      <p className="text-sm text-muted-foreground">No posts yet</p>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <div className="space-y-4">
-                    {posts.map((post: any) => {
-                      const adapted = adaptPost(post);
-                      if (adapted.postType === "roast") {
-                        return (
-                          <RoastedProjectCard
-                            key={post.id}
-                            post={adapted as FeedPost}
-                            isFollowing={adapted.author?.isFollowedByMe ?? false}
-                          />
-                        );
-                      }
-                      return (
-                        <PostCard
-                          key={post.id}
-                          post={adapted}
-                          isFollowing={adapted.author?.isFollowedByMe ?? false}
-                          onDelete={() => refetchPosts()}
-                        />
-                      );
-                    })}
-                  </div>
-                )}
-              </>
+                <h2 className="mt-4 text-lg font-semibold">No posts yet</h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {isOwnProfile ? "Your posts will show up here." : `${displayName || "This user"} has not posted yet.`}
+                </p>
+              </div>
+            ) : (
+              posts.map((post) => (
+                <TimelinePost
+                  key={post.id}
+                  post={post}
+                  onOpenPost={(nextPost) => navigate(`/post/${nextPost.id}`)}
+                  onOpenComments={setCommentPost}
+                  onDeleted={() => refetchPosts()}
+                />
+              ))
             )}
+          </>
+        )}
 
-            {activeTab === "about" && (
-              <Card className="border">
-                <CardHeader>
-                  <CardTitle>About</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {loading ? (
-                    <div className="space-y-3">
-                      <Skeleton className="h-3 w-full" />
-                      <Skeleton className="h-3 w-4/5" />
-                      <Skeleton className="h-3 w-3/5" />
-                    </div>
-                  ) : (
-                    <>
-                      <div>
-                        <h3 className="font-semibold mb-3">Overview</h3>
-                        <p className="text-sm text-muted-foreground leading-relaxed">
-                          {profile?.bio ?? "No bio yet. Edit your profile to add one!"}
-                        </p>
-                      </div>
-                      {profile?.location && (
-                        <>
-                          <Separator />
-                          <div>
-                            <h3 className="font-semibold mb-3">Location</h3>
-                            <div className="flex items-start gap-3">
-                              <MapPin className="w-5 h-5 text-muted-foreground mt-0.5" strokeWidth={2} />
-                              <span className="text-sm font-medium">{profile.location}</span>
-                            </div>
-                          </div>
-                        </>
-                      )}
-                      {profile?.website && (
-                        <>
-                          <Separator />
-                          <div>
-                            <h3 className="font-semibold mb-3">Contact Info</h3>
-                            <div className="flex items-start gap-3">
-                              <Link2 className="w-5 h-5 text-muted-foreground mt-0.5" strokeWidth={2} />
-                              <div>
-                                <p className="text-sm font-medium">Website</p>
-                                <a
-                                  href={profile.website}
-                                  className="text-sm text-primary hover:underline"
-                                >
-                                  {profile.website}
-                                </a>
-                              </div>
-                            </div>
-                          </div>
-                        </>
-                      )}
-                      <Separator />
-                      <div>
-                        <h3 className="font-semibold mb-3">Rank &amp; XP</h3>
-                        <div className="flex items-center gap-3">
-                          <Star className="w-5 h-5 text-muted-foreground" strokeWidth={2} />
-                          <span className="text-sm">
-                            <span className="font-medium">
-                              {profile?.xp?.toLocaleString() ?? 0}
-                            </span>{" "}
-                            XP
-                            {profile?.rank && (
-                              <>
-                                {" "}
-                                ·{" "}
-                                <span
-                                  className="font-medium"
-                                  style={{ color: profile.rank.color }}
-                                >
-                                  {profile.rank.name}
-                                </span>
-                              </>
-                            )}
-                          </span>
-                        </div>
-                      </div>
 
-                      {/* Roles section */}
-                      {(profile?.earnedRoles?.length ?? 0) > 0 && (
-                        <>
-                          <Separator />
-                          <div>
-                            <h3 className="font-semibold mb-3">Roles &amp; Achievements</h3>
-                            <div className="flex flex-wrap gap-2">
-                              {profile.earnedRoles.map((ur: any) => (
-                                <div
-                                  key={ur.id}
-                                  title={ur.role.description ?? ur.role.name}
-                                  className="flex items-center gap-1.5 bg-muted rounded-full px-3 py-1 text-sm"
-                                >
-                                  <span className="text-base leading-none">{ur.role.emoji}</span>
-                                  <span className="font-medium">{ur.role.name}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </>
-                  )}
-                </CardContent>
-              </Card>
+        {activeTab === "about" && (
+          <section className="divide-y">
+            <div className="px-4 py-5">
+              <h2 className="text-lg font-semibold">About</h2>
+              {loading ? (
+                <div className="mt-4 space-y-3">
+                  <Skeleton className="h-3 w-full" />
+                  <Skeleton className="h-3 w-4/5" />
+                  <Skeleton className="h-3 w-3/5" />
+                </div>
+              ) : (
+                <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
+                  {profile?.bio ?? "No bio yet."}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-3 px-4 py-5 text-sm">
+              {profile?.location && (
+                <div className="flex items-center gap-3 text-muted-foreground">
+                  <MapPin className="h-4 w-4" strokeWidth={2} />
+                  <span className="text-foreground">{profile.location}</span>
+                </div>
+              )}
+              {profile?.website && (
+                <div className="flex items-center gap-3 text-muted-foreground">
+                  <Link2 className="h-4 w-4" strokeWidth={2} />
+                  <a href={profile.website} className="min-w-0 truncate text-primary hover:underline">
+                    {profile.website}
+                  </a>
+                </div>
+              )}
+              <div className="flex items-center gap-3 text-muted-foreground">
+                <Calendar className="h-4 w-4" strokeWidth={2} />
+                <span>Member of lokalhost.club</span>
+              </div>
+              <div className="flex items-center gap-3 text-muted-foreground">
+                <Star className="h-4 w-4" strokeWidth={2} />
+                <span>
+                  <span className="font-semibold text-foreground">{profile?.xp?.toLocaleString() ?? 0}</span> XP
+                  {profile?.rank ? <span style={{ color: profile.rank.color }}> - {profile.rank.name}</span> : null}
+                </span>
+              </div>
+            </div>
+
+            {(profile?.earnedRoles?.length ?? 0) > 0 && (
+              <div className="px-4 py-5">
+                <h3 className="text-sm font-semibold">Roles</h3>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {profile.earnedRoles.map((ur: any) => (
+                    <span
+                      key={ur.id}
+                      title={ur.role.description ?? ur.role.name}
+                      className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm"
+                    >
+                      <span className="text-base leading-none">{ur.role.emoji}</span>
+                      <span className="font-medium">{ur.role.name}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
+          </section>
+        )}
 
-            {activeTab === "projects" && (
-              <Card className="border">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle>Projects</CardTitle>
-                    <div className="text-sm text-muted-foreground">{projects.length} projects</div>
+        {activeTab === "projects" && (
+          <section>
+            <div className="flex items-center justify-between border-b px-4 py-4">
+              <h2 className="text-lg font-semibold">Projects</h2>
+              <span className="text-sm text-muted-foreground">{projects.length} projects</span>
+            </div>
+            {projectsLoading ? (
+              <div>
+                {[0, 1, 2].map((index) => (
+                  <div key={index} className="flex items-center gap-3 border-b px-4 py-4">
+                    <Skeleton className="h-12 w-12 rounded-md" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-3 w-32" />
+                      <Skeleton className="h-3 w-48" />
+                    </div>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  {projectsLoading ? (
-                    <div className="grid grid-cols-1 gap-3">
-                      {[...Array(3)].map((_, i) => (
-                        <div key={i} className="flex items-center gap-3 p-2">
-                          <Skeleton className="w-12 h-12 rounded-md flex-shrink-0" />
-                          <div className="space-y-1.5 flex-1">
-                            <Skeleton className="h-3 w-32" />
-                            <Skeleton className="h-3 w-48" />
-                          </div>
-                        </div>
+                ))}
+              </div>
+            ) : projects.length === 0 ? (
+              <div className="px-8 py-14 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Code2 className="h-5 w-5" strokeWidth={1.5} />
+                </div>
+                <h2 className="mt-4 text-lg font-semibold">No projects yet</h2>
+              </div>
+            ) : (
+              projects.map((project: any) => (
+                <div key={project.id} className="flex items-center gap-3 border-b px-4 py-4 transition-colors hover:bg-muted/25">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-primary/10">
+                    <Code2 className="h-6 w-6 text-primary" strokeWidth={2} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="truncate text-sm font-semibold">{project.name}</h3>
+                    <p className="line-clamp-1 text-xs text-muted-foreground">{project.tagline}</p>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                        <Star className="h-3 w-3" strokeWidth={2} />
+                        {project.starsCount}
+                      </span>
+                      {(project.tags ?? []).slice(0, 2).map((tag: any) => (
+                        <Badge key={tag.name} variant="secondary" className="h-4 px-1.5 py-0 text-[10px]">
+                          {tag.name}
+                        </Badge>
                       ))}
                     </div>
-                  ) : projects.length === 0 ? (
-                    <p className="text-center text-sm text-muted-foreground py-8">
-                      No projects yet
-                    </p>
-                  ) : (
-                    <div className="space-y-3">
-                      {projects.map((project: any) => (
-                        <div
-                          key={project.id}
-                          className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted cursor-pointer transition-colors"
-                        >
-                          <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
-                            <Code2 className="w-6 h-6 text-primary" strokeWidth={2} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h4 className="text-sm font-semibold truncate">{project.name}</h4>
-                            <p className="text-xs text-muted-foreground line-clamp-1">
-                              {project.tagline}
-                            </p>
-                            <div className="flex items-center gap-2 mt-1">
-                              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                                <Star className="w-3 h-3" strokeWidth={2} />
-                                {project.starsCount}
-                              </span>
-                              {(project.tags ?? []).slice(0, 2).map((t: any) => (
-                                <Badge
-                                  key={t.name}
-                                  variant="secondary"
-                                  className="text-[10px] px-1.5 py-0 h-4"
-                                >
-                                  {t.name}
-                                </Badge>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                  </div>
+                </div>
+              ))
             )}
-          </div>
-        </div>
+          </section>
+        )}
+      </div>
+
+      {commentPost && (
+        <CommentModal
+          postId={commentPost.id}
+          authorName={commentPost.author.displayName ?? commentPost.author.name ?? commentPost.author.username}
+          authorUsername={commentPost.author.username}
+          authorAvatarUrl={commentPost.author.avatarUrl}
+          content={commentPost.content}
+          initialCount={commentPost.commentsCount}
+          onClose={() => setCommentPost(null)}
+        />
+      )}
       </div>
     </div>
   );
 }
+
 
