@@ -28,8 +28,35 @@ declare global {
 const TURNSTILE_SCRIPT_SELECTOR = 'script[data-turnstile-script="true"]';
 const TURNSTILE_SCRIPT_SRC =
   "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+const TURNSTILE_LOAD_TIMEOUT_MS = 8000;
 
 let turnstileScriptPromise: Promise<void> | null = null;
+
+function waitForTurnstileApi(timeoutMs: number = TURNSTILE_LOAD_TIMEOUT_MS): Promise<void> {
+  if (typeof window === "undefined" || window.turnstile) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+
+    const checkReady = () => {
+      if (window.turnstile) {
+        resolve();
+        return;
+      }
+
+      if (Date.now() - startedAt >= timeoutMs) {
+        reject(new Error("Turnstile API timed out."));
+        return;
+      }
+
+      window.setTimeout(checkReady, 50);
+    };
+
+    checkReady();
+  });
+}
 
 function loadTurnstileScript(): Promise<void> {
   if (typeof window === "undefined") {
@@ -49,17 +76,31 @@ function loadTurnstileScript(): Promise<void> {
       TURNSTILE_SCRIPT_SELECTOR
     ) as HTMLScriptElement | null;
 
-    const handleReady = () => resolve();
-    const handleError = () =>
-      reject(new Error("Failed to load Turnstile CAPTCHA."));
+    const fail = (error: Error) => {
+      turnstileScriptPromise = null;
+      reject(error);
+    };
+
+    const handleReady = () => {
+      waitForTurnstileApi()
+        .then(resolve)
+        .catch((error) => {
+          fail(error instanceof Error ? error : new Error("Failed to initialize Turnstile CAPTCHA."));
+        });
+    };
+    const handleError = () => {
+      fail(new Error("Failed to load Turnstile CAPTCHA."));
+    };
 
     if (existingScript) {
-      existingScript.addEventListener("load", handleReady, { once: true });
-      existingScript.addEventListener("error", handleError, { once: true });
-
       if (window.turnstile) {
         resolve();
+        return;
       }
+
+      existingScript.addEventListener("load", handleReady, { once: true });
+      existingScript.addEventListener("error", handleError, { once: true });
+      waitForTurnstileApi().then(resolve).catch(() => {});
       return;
     }
 
