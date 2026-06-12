@@ -6,7 +6,7 @@ import {
   UserIcon as UserSolid,
   RocketLaunchIcon as RocketSolid,
 } from "@heroicons/react/24/solid";
-import { Search, Bell, MessageSquare, Menu, Code2, X, User, Users, BarChart3, Settings, LogOut, Shield, Briefcase } from "lucide-react";
+import { Search, Bell, MessageSquare, Menu, Code2, X, User, Users, BarChart3, Settings, LogOut, Shield, Briefcase, Coins } from "lucide-react";
 import { BrandLogo } from "./brand-logo";
 import { AvatarFrame } from "./avatar-frame";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
@@ -29,6 +29,14 @@ const GET_ME_LAYOUT = gql`
   }
 `;
 
+const GET_NAV_CREDITS = gql`
+  query GetNavCreditBalance {
+    myCredits {
+      balance
+    }
+  }
+`;
+
 const GLOBAL_SEARCH = gql`
   query GlobalSearch($query: String!, $limit: Int) {
     globalSearch(query: $query, limit: $limit) {
@@ -42,7 +50,7 @@ const GLOBAL_SEARCH = gql`
 export function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { signOut } = useAuth();
+  const { user, signOut } = useAuth();
   const [showMessages, setShowMessages] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
@@ -94,6 +102,11 @@ export function Layout() {
     pollInterval: 15_000,   // lightweight poll — reads one profile row, no notification table scan
   });
   const me = meData?.me;
+  const { data: creditData, loading: creditLoading, error: creditError } = useQuery(GET_NAV_CREDITS, {
+    skip: !user,
+    fetchPolicy: "cache-and-network",
+    pollInterval: 30_000,
+  });
 
   // Seed badge count from the me query (keeps badge in sync between polls)
   useEffect(() => {
@@ -288,6 +301,21 @@ export function Layout() {
 
             {/* Right: Actions & Profile */}
             <div className="flex items-center gap-2 flex-1 justify-end">
+              {user && (
+                <button
+                  type="button"
+                  onClick={() => navigate("/roast")}
+                  title="AI credits for Roast and Brand Analysis"
+                  className="h-9 inline-flex items-center gap-1.5 px-2.5 rounded-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  aria-label={`${creditData?.myCredits?.balance ?? 0} AI credits available`}
+                >
+                  <Coins className="w-4 h-4 text-orange-500" />
+                  <span className="text-xs font-mono font-semibold tabular-nums">
+                    {creditError || (creditLoading && !creditData) ? "—" : creditData?.myCredits?.balance ?? 0}
+                  </span>
+                  <span className="hidden xl:inline text-[10px] font-mono uppercase tracking-wider">credits</span>
+                </button>
+              )}
               <ThemeToggle />
               <Button 
                 variant="ghost" 

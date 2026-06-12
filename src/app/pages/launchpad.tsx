@@ -23,7 +23,7 @@ import {
   Plus,
   AlertCircle,
   Search, Filter, Loader2, Check, ArrowUpDown,
-  X, BadgeCheck, Clock, Flame, Coins, Gauge, History,
+  X, BadgeCheck, Clock, Flame, ArrowRight,
 } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { useAuth } from "../../contexts/AuthContext";
@@ -44,17 +44,6 @@ const GET_LAUNCHPAD_EVENTS = gql`
       id projectName iconUrl screenshotUrl projectTagline projectCategory projectStatus eventType title description deadline link
       spotsTotal interestedCount interestedByMe tags { name } createdAt
       author { id name username avatarUrl isVerified }
-    }
-  }
-`;
-
-const GET_MY_CREDITS = gql`
-  query GetLaunchpadCreditBalance {
-    myCredits {
-      balance
-      lifetimeCredits
-      lifetimeSpent
-      starterCredits
     }
   }
 `;
@@ -304,10 +293,6 @@ export function Launchpad() {
     variables: { limit: 30 },
     fetchPolicy: "cache-and-network",
   });
-  const creditsQuery = useQuery(GET_MY_CREDITS, {
-    skip: !user,
-    fetchPolicy: "cache-and-network",
-  });
 
   const [markInterested] = useMutation(MARK_INTERESTED);
   const [markNotInterested] = useMutation(MARK_NOT_INTERESTED);
@@ -357,8 +342,6 @@ export function Launchpad() {
 
   const hostingCount = user ? events.filter((e: any) => e.author?.id === user.id).length : 0;
   const joinedCount = user ? events.filter((e: any) => e.interestedByMe).length : 0;
-  const credits = creditsQuery.data?.myCredits;
-
   const handleJoin = useCallback(async (eventId: string, email: string, note: string) => {
     if (!user) return;
     setJoiningId(eventId);
@@ -459,41 +442,29 @@ export function Launchpad() {
 
             <div className="p-5 sm:p-6 bg-background/45">
               {user ? (
-                <div className="h-full flex flex-col">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground">AI tool credits</p>
-                      <p className="text-xs text-muted-foreground mt-1">Shared by Roast and Brand Analysis</p>
-                    </div>
-                    <Coins className="w-5 h-5 text-orange-500" />
+                <div className="h-full flex flex-col justify-between gap-6">
+                  <div>
+                    <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground">Host controls</p>
+                    <h2 className="font-semibold mt-2">Run your next launch</h2>
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      Create an event, review joiner commitments, publish announcements, and open a participant group chat.
+                    </p>
                   </div>
-
-                  <div className="mt-5 flex items-end justify-between gap-4">
-                    <div>
-                      <div className="text-4xl font-semibold tabular-nums leading-none">
-                        {creditsQuery.error || (creditsQuery.loading && !credits) ? "—" : credits?.balance ?? 0}
-                      </div>
-                      <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mt-2">available balance</p>
-                    </div>
-                    <Button onClick={() => setShowWizard(true)} className="gap-1.5 rounded-md font-mono">
-                      <Plus className="w-4 h-4" />
-                      Create Event
+                  <div className="flex flex-col gap-2">
+                    <Button onClick={() => setShowWizard(true)} className="w-full justify-between rounded-md font-mono">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Plus className="w-4 h-4" />
+                        Create Event
+                      </span>
+                      <ArrowRight className="w-4 h-4" />
                     </Button>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 mt-5">
-                    <div className="border border-border/60 bg-background/70 rounded-md p-2.5">
-                      <div className="flex items-center gap-1.5 text-[9px] font-mono uppercase text-muted-foreground">
-                        <Gauge className="w-3 h-3" /> granted
-                      </div>
-                      <div className="font-semibold tabular-nums mt-1">{creditsQuery.error ? "—" : credits?.lifetimeCredits ?? "—"}</div>
-                    </div>
-                    <div className="border border-border/60 bg-background/70 rounded-md p-2.5">
-                      <div className="flex items-center gap-1.5 text-[9px] font-mono uppercase text-muted-foreground">
-                        <History className="w-3 h-3" /> spent
-                      </div>
-                      <div className="font-semibold tabular-nums mt-1">{creditsQuery.error ? "—" : credits?.lifetimeSpent ?? "—"}</div>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setScope("hosting")}
+                      className="h-9 px-3 rounded-md border border-border/60 bg-background/65 text-xs font-mono text-muted-foreground hover:text-foreground hover:bg-muted/60 text-left"
+                    >
+                      Open hosted events ({hostingCount})
+                    </button>
                   </div>
                 </div>
               ) : (
