@@ -79,6 +79,7 @@ export interface TimelinePostData {
   content: string;
   imageUrl: string | null;
   imageUrls: string[];
+  videoUrl?: string | null;
   projectName?: string | null;
   postType?: string | null;
   tags?: { id: string; name: string }[] | null;
@@ -232,16 +233,18 @@ function TimelineImageLightbox({
 
 function TimelineMedia({
   images,
+  videoUrl,
   postId,
   onImageError,
 }: {
   images: string[];
+  videoUrl?: string | null;
   postId: string;
   onImageError: (image: string) => void;
 }) {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
-  if (images.length === 0) return null;
+  if (images.length === 0 && !videoUrl) return null;
 
   return (
     <>
@@ -253,32 +256,43 @@ function TimelineMedia({
         />
       )}
 
-      <div
-        className={`mt-3 overflow-hidden rounded-2xl border bg-muted/40 ${
-          images.length > 1 ? "grid grid-cols-2 gap-px" : ""
-        }`}
-      >
-        {images.slice(0, 4).map((image, index) => (
-          <button
-            key={`${postId}-${index}`}
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              setPreviewIndex(index);
-            }}
-            className={`group block min-w-0 bg-background/70 ${
-              images.length === 3 && index === 0 ? "col-span-2" : ""
-            }`}
-          >
-            <img
-              src={image}
-              alt=""
-              className="block h-auto max-h-[560px] w-full object-contain transition-opacity group-hover:opacity-95"
-              onError={() => onImageError(image)}
-            />
-          </button>
-        ))}
-      </div>
+      {images.length > 0 ? (
+        <div
+          className={`mt-3 overflow-hidden rounded-2xl border bg-muted/40 ${
+            images.length > 1 ? "grid grid-cols-2 gap-px" : ""
+          }`}
+        >
+          {images.slice(0, 4).map((image, index) => (
+            <button
+              key={`${postId}-${index}`}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setPreviewIndex(index);
+              }}
+              className={`group block min-w-0 bg-background/70 ${
+                images.length === 3 && index === 0 ? "col-span-2" : ""
+              }`}
+            >
+              <img
+                src={image}
+                alt=""
+                className="block h-auto max-h-[560px] w-full object-contain transition-opacity group-hover:opacity-95"
+                onError={() => onImageError(image)}
+              />
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-3 overflow-hidden rounded-2xl border bg-black">
+          <video
+            src={videoUrl ?? undefined}
+            controls
+            className="max-h-[560px] w-full"
+            onClick={(event) => event.stopPropagation()}
+          />
+        </div>
+      )}
     </>
   );
 }
@@ -485,6 +499,7 @@ export function TimelinePost({ post, className = "", onOpenPost, onOpenComments,
 
           <TimelineMedia
             images={images}
+            videoUrl={post.videoUrl}
             postId={post.id}
             onImageError={(image) => setFailedImages((current) => new Set(current).add(image))}
           />

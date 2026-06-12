@@ -365,6 +365,17 @@ export function Signup() {
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
             <Separator />
+            <p className="max-w-sm text-center text-xs leading-5 text-muted-foreground">
+              Review our{" "}
+              <Link to="/terms" className="font-medium text-primary hover:underline">
+                Terms of Service
+              </Link>{" "}
+              and{" "}
+              <Link to="/privacy" className="font-medium text-primary hover:underline">
+                Privacy Policy
+              </Link>{" "}
+              anytime before creating your account.
+            </p>
             <div className="text-sm text-center text-muted-foreground">
               Already have an account?{" "}
               <Link to="/login" className="text-primary hover:underline font-medium">

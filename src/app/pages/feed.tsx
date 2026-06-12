@@ -19,6 +19,7 @@ const GET_SOCIAL_FEED = gql`
         content
         imageUrl
         imageUrls
+        videoUrl
         projectName
         postType
         tags {
@@ -150,13 +151,15 @@ export function Feed() {
     setHasMore(page.hasMore);
   }, [data]);
 
-  async function handleNewPost(content: string, images?: string[]) {
+  async function handleNewPost(content: string, images?: string[], videoUrl?: string, tags?: string[]) {
     await createPostMutation({
       variables: {
         input: {
           content,
           imageUrl: images?.[0],
           imageUrls: images ?? [],
+          videoUrl,
+          tags: tags ?? [],
         },
       },
     });
@@ -193,7 +196,7 @@ export function Feed() {
         <div className="mx-auto min-h-screen max-w-[640px] border-x bg-background">
           <FeedTabs value={tab} onChange={setTab} />
 
-          <section className="border-b bg-background">
+          <section className="bg-background">
             <CreatePost onPost={handleNewPost} variant="timeline" />
           </section>
 

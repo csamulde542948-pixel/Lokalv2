@@ -6,7 +6,10 @@ export const DEFAULT_COVER  = "/defaults/default-cover.png";
  * Returns the avatar URL, falling back to the default SVG when null/undefined.
  */
 export function avatarSrc(url: string | null | undefined): string {
-  return url || DEFAULT_AVATAR;
+  const trimmed = url?.trim();
+  if (!trimmed) return DEFAULT_AVATAR;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  return trimmed;
 }
 
 /**

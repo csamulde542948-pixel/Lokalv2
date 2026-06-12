@@ -185,6 +185,7 @@ export const typeDefs = gql`
     content: String!
     imageUrl: String
     imageUrls: [String!]!
+    videoUrl: String
     projectName: String
     projectId: String
     likesCount: Int!
@@ -1157,6 +1158,7 @@ export const typeDefs = gql`
     content: String!
     imageUrl: String
     imageUrls: [String!]
+    videoUrl: String
     projectName: String
     projectId: String
     tags: [String!]

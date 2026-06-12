@@ -3,6 +3,7 @@ import { lazy, Suspense } from "react";
 import type { ComponentType, LazyExoticComponent } from "react";
 import { Layout } from "./components/layout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { BrandLoading } from "./components/brand-loading";
 
 function isChunkLoadError(error: unknown) {
   const message = String((error as Error)?.message ?? error);
@@ -66,14 +67,7 @@ const Landing       = lazyRoute(() => import("./pages/landing").then(m => ({ def
 
 // Page-level loading skeleton shown while chunks download
 function PageSkeleton() {
-  return (
-    <div className="flex items-center justify-center min-h-[60vh]">
-      <div className="flex flex-col items-center gap-3">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm text-muted-foreground font-mono">Loading…</p>
-      </div>
-    </div>
-  );
+  return <BrandLoading />;
 }
 
 function RouteErrorFallback() {

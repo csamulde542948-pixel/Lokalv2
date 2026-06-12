@@ -265,6 +265,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           const tb = b.lastMessageAt?.getTime() ?? 0;
           return tb - ta;
         });
+        setTotalUnread(updated.reduce((sum, p) => sum + p.unreadCount, 0));
         return updated;
       });
     };
@@ -272,8 +273,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const onMessageNew = (event: Event) => {
       if (event.cid) {
         updateChannel(event.cid);
-        // Update total unread
-        setTotalUnread((prev) => prev + 1);
+        void loadChannels();
       }
     };
 

@@ -38,6 +38,7 @@ export interface OriginalPost {
   content: string;
   imageUrl?: string;
   imageUrls?: string[];
+  videoUrl?: string;
   projectName?: string;
   postType?: "post" | "roast";
   tags?: { id: string | number; name: string }[];
@@ -59,6 +60,7 @@ export interface Post {
   content: string;
   image?: string;
   images?: string[];
+  videoUrl?: string;
   likes: number;
   comments: number;
   shares: number;

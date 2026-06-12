@@ -7,6 +7,7 @@ type PostContentBodyProps = {
   tags?: { id: string | number; name: string }[];
   image?: string;
   images?: string[];
+  videoUrl?: string;
 };
 
 /**
@@ -20,6 +21,7 @@ export function PostContentBody({
   tags,
   image,
   images,
+  videoUrl,
 }: PostContentBodyProps) {
   const [contentExpanded, setContentExpanded] = useState(false);
   const clean = content.replace(/\[shared:[^\]]+\]/g, "").trim();
@@ -61,6 +63,15 @@ export function PostContentBody({
 
       {detectedUrl && <LinkPreviewCard url={detectedUrl} />}
       {mediaImages.length > 0 && <MediaGrid imgs={mediaImages} />}
+      {videoUrl && mediaImages.length === 0 && (
+        <div className="px-4 pb-3">
+          <video
+            src={videoUrl}
+            controls
+            className="max-h-[560px] w-full rounded-2xl border bg-black"
+          />
+        </div>
+      )}
     </>
   );
 }

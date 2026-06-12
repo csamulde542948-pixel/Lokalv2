@@ -59,6 +59,7 @@ const GET_COMMENT_PAGE = gql`
         content
         imageUrl
         imageUrls
+        videoUrl
         projectName
         postType
         tags {

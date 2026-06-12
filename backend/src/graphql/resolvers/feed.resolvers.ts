@@ -12,6 +12,12 @@ import {
 } from "../../services/postIntelligence.service";
 import { sanitizeInput } from "../../middleware/security";
 import {
+  assertCommentRateLimit,
+  assertPostDailyLimit,
+  assertReactionAntiSpam,
+  recordActionEvent,
+} from "../../lib/mutationLimits";
+import {
   rankPosts,
   applyDiversityPass,
   PostSignals,
@@ -1003,10 +1009,18 @@ export const feedResolvers = {
       if (!user) throw new Error("Unauthorized");
 
       // Medium #13: Input length limits
-      if (!input.content?.trim()) throw new Error("Post content cannot be empty");
-      if (input.content.length > 5000) throw new Error("Post content must be 5 000 characters or fewer");
+      const incomingImages = Array.isArray(input.imageUrls)
+        ? input.imageUrls.filter(Boolean)
+        : input.imageUrl
+          ? [input.imageUrl]
+          : [];
+      if (!input.content?.trim() && incomingImages.length === 0 && !input.videoUrl) throw new Error("Post content cannot be empty");
+      if (input.content.length > 250) throw new Error("Post content must be 250 characters or fewer");
       if (input.projectName && input.projectName.length > 120) throw new Error("Project name must be 120 characters or fewer");
       if (Array.isArray(input.tags) && input.tags.length > 10) throw new Error("A post can have at most 10 tags");
+      if (incomingImages.length > 4) throw new Error("A post can have at most 4 images");
+      if (input.videoUrl && incomingImages.length > 0) throw new Error("A post can have images or one video, not both");
+      await assertPostDailyLimit(user.id, prisma);
 
       // Medium #21: Strip HTML tags from user-provided text fields
       const safeContent = sanitizeInput(input.content);
@@ -1031,8 +1045,9 @@ export const feedResolvers = {
           data: {
             authorId: user.id,
             content: safeContent,
-            imageUrl: input.imageUrl ?? input.imageUrls?.[0],
-            imageUrls: input.imageUrls ?? (input.imageUrl ? [input.imageUrl] : []),
+            imageUrl: incomingImages[0] ?? null,
+            imageUrls: incomingImages,
+            videoUrl: input.videoUrl ?? null,
             projectName: safeProjectName,
             projectId: input.projectId,
             tags: {
@@ -1098,11 +1113,24 @@ export const feedResolvers = {
       const existing = await prisma.postLike.findUnique({
         where: { postId_profileId: { postId, profileId: user.id } },
       });
+      await assertReactionAntiSpam({
+        profileId: user.id,
+        action: "POST_REACTION",
+        targetId: postId,
+        prisma,
+      });
 
       await prisma.postLike.upsert({
         where: { postId_profileId: { postId, profileId: user.id } },
         create: { postId, profileId: user.id, reaction: safeReaction },
         update: { reaction: safeReaction },
+      });
+      await recordActionEvent({
+        profileId: user.id,
+        action: "POST_REACTION",
+        targetId: postId,
+        metadata: { operation: existing ? "change" : "react", reaction: safeReaction },
+        prisma,
       });
 
       // Only increment count on a new like (not a reaction change)
@@ -1136,13 +1164,14 @@ export const feedResolvers = {
         incrementFeedEngagementCount(prisma, user.id).catch(console.error);
       }
 
-      // Notify post author
-      if (post.authorId !== user.id) {
+      // Notify post author only for a new reaction, not reaction changes.
+      if (!existing && post.authorId !== user.id) {
         createNotification(prisma, {
           recipientId: post.authorId,
           actorId: user.id,
           type: "LIKE",
           postId: postId,
+          message: safeReaction === "Fire" ? "fired up your post" : "reacted to your post",
         }).catch(console.error);
       }
 
@@ -1157,9 +1186,24 @@ export const feedResolvers = {
       if (!user) throw new Error("Unauthorized");
 
       // P1 #11: Only decrement if a like actually existed (prevents negative counts)
+      await assertReactionAntiSpam({
+        profileId: user.id,
+        action: "POST_REACTION",
+        targetId: postId,
+        prisma,
+      });
       const deleted = await prisma.postLike.deleteMany({
         where: { postId, profileId: user.id },
       });
+      if (deleted.count > 0) {
+        await recordActionEvent({
+          profileId: user.id,
+          action: "POST_REACTION",
+          targetId: postId,
+          metadata: { operation: "unreact" },
+          prisma,
+        });
+      }
 
       if (deleted.count > 0) {
         const post = await prisma.post.update({
@@ -1304,6 +1348,7 @@ export const feedResolvers = {
       if (!input.content?.trim()) throw new Error("Comment cannot be empty");
       if (input.content.length > 2000) throw new Error("Comment must be 2 000 characters or fewer");
       if (Array.isArray(input.mentions) && input.mentions.length > 20) throw new Error("Cannot mention more than 20 users");
+      await assertCommentRateLimit(user.id, prisma);
 
       // Medium #21: Strip HTML tags
       const safeContent = sanitizeInput(input.content);
@@ -1388,6 +1433,7 @@ export const feedResolvers = {
       if (!input.content?.trim()) throw new Error("Reply cannot be empty");
       if (input.content.length > 2000) throw new Error("Reply must be 2 000 characters or fewer");
       if (Array.isArray(input.mentions) && input.mentions.length > 20) throw new Error("Cannot mention more than 20 users");
+      await assertCommentRateLimit(user.id, prisma);
 
       // Medium #21: Strip HTML tags
       const safeContent = sanitizeInput(input.content);
@@ -1433,6 +1479,7 @@ export const feedResolvers = {
           actorId: user.id,
           type: "COMMENT",
           postId: input.postId,
+          entityId: reply.id,
           message: "replied to your comment",
         }).catch(console.error);
       }
@@ -1465,11 +1512,24 @@ export const feedResolvers = {
       const existing = await prisma.commentLike.findUnique({
         where: { commentId_profileId: { commentId, profileId: user.id } },
       });
+      await assertReactionAntiSpam({
+        profileId: user.id,
+        action: "COMMENT_REACTION",
+        targetId: commentId,
+        prisma,
+      });
 
       await prisma.commentLike.upsert({
         where: { commentId_profileId: { commentId, profileId: user.id } },
         create: { commentId, profileId: user.id, reaction: safeReaction },
         update: { reaction: safeReaction },
+      });
+      await recordActionEvent({
+        profileId: user.id,
+        action: "COMMENT_REACTION",
+        targetId: commentId,
+        metadata: { operation: existing ? "change" : "react", reaction: safeReaction },
+        prisma,
       });
 
       const updatedComment = await prisma.postComment.update({
@@ -1493,6 +1553,8 @@ export const feedResolvers = {
           actorId: user.id,
           type: "LIKE",
           postId: updatedComment.postId,
+          entityId: commentId,
+          message: safeReaction === "Fire" ? "fired up your comment" : "reacted to your comment",
         }).catch(console.error);
       }
 
@@ -1506,9 +1568,24 @@ export const feedResolvers = {
     ) => {
       if (!user) throw new Error("Unauthorized");
 
+      await assertReactionAntiSpam({
+        profileId: user.id,
+        action: "COMMENT_REACTION",
+        targetId: commentId,
+        prisma,
+      });
       const deleted = await prisma.commentLike.deleteMany({
         where: { commentId, profileId: user.id },
       });
+      if (deleted.count > 0) {
+        await recordActionEvent({
+          profileId: user.id,
+          action: "COMMENT_REACTION",
+          targetId: commentId,
+          metadata: { operation: "unreact" },
+          prisma,
+        });
+      }
 
       return prisma.postComment.update({
         where: { id: commentId },

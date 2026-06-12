@@ -1,62 +1,72 @@
-import { useState, useRef, useEffect } from "react";
-import { Card, CardContent } from "./ui/card";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Bug,
+  Code2,
+  Coffee,
+  ExternalLink,
+  Film,
+  Flame,
+  Hash,
+  ImageIcon,
+  List,
+  Loader2,
+  MapPin,
+  Rocket,
+  Smile,
+  Sparkles,
+  Target,
+  X,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { gql } from "@apollo/client/core";
+import { useQuery } from "@apollo/client/react";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
-import { Separator } from "./ui/separator";
-import { Images, X, Loader2, ExternalLink, Smile, ChevronLeft } from "lucide-react";
-import { gql } from "@apollo/client/core";
-import { useQuery } from "@apollo/client/react";
 import { useAuth } from "../../contexts/AuthContext";
 import { supabase } from "../../lib/supabase";
 import { avatarSrc } from "../../lib/defaults";
 
+const MAX_POST_CHARS = 250;
+const MAX_IMAGES = 4;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 25 * 1024 * 1024;
+const MAX_TAGS = 10;
+
+const PROMPTS = [
+  "What are you building?",
+  "What's happening?",
+  "Shipping something new?",
+  "Share a tiny win.",
+  "Debugging anything interesting?",
+];
+
+const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#@$%";
+
 const FEELING_CATEGORIES = [
   {
-    label: "Feelings",
+    label: "Mood",
     items: [
-      { emoji: "😊", label: "happy" },
-      { emoji: "😢", label: "sad" },
-      { emoji: "😍", label: "loved" },
-      { emoji: "😎", label: "cool" },
-      { emoji: "😤", label: "determined" },
-      { emoji: "😴", label: "sleepy" },
-      { emoji: "🥳", label: "celebrating" },
-      { emoji: "😂", label: "amused" },
-      { emoji: "🤔", label: "thoughtful" },
-      { emoji: "😅", label: "nervous" },
-      { emoji: "🥰", label: "grateful" },
-      { emoji: "😡", label: "frustrated" },
-      { emoji: "🤩", label: "excited" },
-      { emoji: "😭", label: "overwhelmed" },
-      { emoji: "🤯", label: "mind blown" },
-      { emoji: "😏", label: "confident" },
+      { label: "focused", Icon: Target },
+      { label: "excited", Icon: Sparkles },
+      { label: "confident", Icon: Flame },
+      { label: "thoughtful", Icon: Smile },
     ],
   },
   {
-    label: "Activities",
+    label: "Activity",
     items: [
-      { emoji: "💻", label: "coding" },
-      { emoji: "🚀", label: "shipping" },
-      { emoji: "🐛", label: "debugging" },
-      { emoji: "☕", label: "caffeinating" },
-      { emoji: "🎯", label: "focused" },
-      { emoji: "🔥", label: "grinding" },
-      { emoji: "📚", label: "learning" },
-      { emoji: "🏗️", label: "building" },
-      { emoji: "🎨", label: "designing" },
-      { emoji: "🧪", label: "testing" },
-      { emoji: "📦", label: "deploying" },
-      { emoji: "🤝", label: "collaborating" },
-      { emoji: "🎤", label: "presenting" },
-      { emoji: "🧠", label: "thinking" },
-      { emoji: "🌙", label: "late-nighting" },
-      { emoji: "🏆", label: "winning" },
+      { label: "coding", Icon: Code2 },
+      { label: "shipping", Icon: Rocket },
+      { label: "debugging", Icon: Bug },
+      { label: "caffeinating", Icon: Coffee },
     ],
   },
 ];
 
-type Feeling = { emoji: string; label: string } | null;
+type Feeling = { label: string; Icon: LucideIcon } | null;
+type MediaImage = { file: File; preview: string };
+type VideoPreview = { file: File; preview: string } | null;
 
 const GET_ME_AVATAR = gql`
   query GetMeAvatar {
@@ -65,35 +75,101 @@ const GET_ME_AVATAR = gql`
 `;
 
 interface CreatePostProps {
-  onPost: (content: string, images?: string[], videoUrl?: string) => void;
+  onPost: (content: string, images?: string[], videoUrl?: string, tags?: string[]) => void | Promise<void>;
   variant?: "card" | "timeline";
 }
 
-type VideoPreview = { url: string } | null;
+function formatBytes(bytes: number) {
+  return `${Math.round((bytes / 1024 / 1024) * 10) / 10}MB`;
+}
+
+function normalizeTag(value: string) {
+  return value
+    .trim()
+    .replace(/^#/, "")
+    .replace(/[^\w-]/g, "")
+    .slice(0, 32)
+    .toLowerCase();
+}
+
+function useScrambledPrompt(enabled: boolean) {
+  const [index, setIndex] = useState(0);
+  const [display, setDisplay] = useState(PROMPTS[0]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const timer = window.setInterval(() => {
+      const nextIndex = (index + 1) % PROMPTS.length;
+      const next = PROMPTS[nextIndex];
+      let frame = 0;
+      const frames = 10;
+      const scramble = window.setInterval(() => {
+        frame += 1;
+        if (frame >= frames) {
+          window.clearInterval(scramble);
+          setIndex(nextIndex);
+          setDisplay(next);
+          return;
+        }
+        setDisplay(
+          next
+            .split("")
+            .map((char, charIndex) => {
+              if (char === " ") return " ";
+              if (charIndex / next.length < frame / frames) return char;
+              return SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
+            })
+            .join(""),
+        );
+      }, 28);
+    }, 2800);
+    return () => window.clearInterval(timer);
+  }, [enabled, index]);
+
+  return display;
+}
 
 export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
+  const { user } = useAuth();
+  const { data: meData } = useQuery(GET_ME_AVATAR, {
+    skip: !user,
+    fetchPolicy: "cache-first",
+  });
+
   const [content, setContent] = useState("");
-  const [images, setImages] = useState<{ file: File; preview: string }[]>([]);
+  const [images, setImages] = useState<MediaImage[]>([]);
   const [video, setVideo] = useState<VideoPreview>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [feeling, setFeeling] = useState<Feeling>(null);
   const [showFeelingPicker, setShowFeelingPicker] = useState(false);
-  const [feelingCategory, setFeelingCategory] = useState<number | null>(null);
-  const [feelingSearch, setFeelingSearch] = useState("");
-  const mediaInputRef = useRef<HTMLInputElement>(null);
+  const [showTagEditor, setShowTagEditor] = useState(false);
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [dismissedUrl, setDismissedUrl] = useState<string | null>(null);
   const [ogData, setOgData] = useState<Record<string, string> | null>(null);
   const [ogLoading, setOgLoading] = useState(false);
 
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const me = meData?.me;
+  const prompt = useScrambledPrompt(content.length === 0);
+  const remaining = MAX_POST_CHARS - content.length;
+  const hasBody = content.trim().length > 0 || images.length > 0 || !!video || !!feeling;
+  const overLimit = remaining < 0;
+  const wrapperClass = variant === "timeline"
+    ? "border-b bg-background"
+    : "rounded-lg border bg-card";
+
+  const selectedFeelingIcon = useMemo(() => feeling?.Icon ?? Smile, [feeling]);
+  const SelectedFeelingIcon = selectedFeelingIcon;
+
   useEffect(() => {
-    if (!isExpanded) return;
-    const timer = setTimeout(() => {
-      const match = content.match(new RegExp('https?://[^\\s\\)\\]>"\']+', 'i'));
+    const timer = window.setTimeout(() => {
+      const match = content.match(new RegExp('https?://[^\\s\\)\\]>"\']+', "i"));
       const found = match ? match[0] : null;
-      if (found !== previewUrl && found !== dismissedUrl) {
+      if (found && found !== previewUrl && found !== dismissedUrl) {
         setPreviewUrl(found);
         setOgData(null);
       } else if (!found) {
@@ -101,9 +177,8 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
         setOgData(null);
       }
     }, 600);
-    return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [content, isExpanded]);
+    return () => window.clearTimeout(timer);
+  }, [content, dismissedUrl, previewUrl]);
 
   useEffect(() => {
     if (!previewUrl || previewUrl === dismissedUrl) return;
@@ -112,25 +187,61 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
     const base = import.meta.env.VITE_BACKEND_URL ?? "http://localhost:4000";
     fetch(`${base}/og?url=${encodeURIComponent(previewUrl)}`, { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { if (d.title || d.image) setOgData(d); })
+      .then((d) => {
+        if (d.title || d.image) setOgData(d);
+      })
       .catch(() => {})
       .finally(() => setOgLoading(false));
     return () => ctrl.abort();
   }, [previewUrl, dismissedUrl]);
 
-  function handleMediaChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function setError(message: string) {
+    setUploadError(message);
+  }
+
+  function handleImagesChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
-    if (!files.length) return;
-    const videoFile = files.find((f) => f.type.startsWith("video/"));
-    if (videoFile) {
-      setVideo({ url: URL.createObjectURL(videoFile) });
-      setImages([]);
-    } else {
-      const entries = files.map((f) => ({ file: f, preview: URL.createObjectURL(f) }));
-      setImages((prev) => [...prev, ...entries].slice(0, 10));
-      setVideo(null);
-    }
     e.target.value = "";
+    if (!files.length) return;
+    if (video) {
+      setError("Remove the video before adding images.");
+      return;
+    }
+
+    const nextCount = images.length + files.length;
+    if (nextCount > MAX_IMAGES) {
+      setError(`You can add up to ${MAX_IMAGES} images per post.`);
+      return;
+    }
+
+    const tooLarge = files.find((file) => file.size > MAX_IMAGE_BYTES);
+    if (tooLarge) {
+      setError(`${tooLarge.name} is ${formatBytes(tooLarge.size)}. Images must be 5MB or less.`);
+      return;
+    }
+
+    setUploadError(null);
+    setImages((current) => [
+      ...current,
+      ...files.map((file) => ({ file, preview: URL.createObjectURL(file) })),
+    ]);
+  }
+
+  function handleVideoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (images.length > 0) {
+      setError("A post can have images or one video, not both.");
+      return;
+    }
+    if (file.size > MAX_VIDEO_BYTES) {
+      setError(`${file.name} is ${formatBytes(file.size)}. Videos must be 25MB or less.`);
+      return;
+    }
+    if (video) URL.revokeObjectURL(video.preview);
+    setUploadError(null);
+    setVideo({ file, preview: URL.createObjectURL(file) });
   }
 
   function removeImage(idx: number) {
@@ -140,14 +251,35 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
     });
   }
 
-  async function uploadImagesToSupabase(items: { file: File; preview: string }[]): Promise<string[]> {
+  function removeVideo() {
+    if (video) URL.revokeObjectURL(video.preview);
+    setVideo(null);
+  }
+
+  function addTag() {
+    const tag = normalizeTag(tagInput);
+    if (!tag) return;
+    if (tags.includes(tag)) {
+      setTagInput("");
+      return;
+    }
+    if (tags.length >= MAX_TAGS) {
+      setError(`You can add up to ${MAX_TAGS} tags.`);
+      return;
+    }
+    setTags((current) => [...current, tag]);
+    setTagInput("");
+    setUploadError(null);
+  }
+
+  async function uploadImagesToSupabase(items: MediaImage[]): Promise<string[]> {
     const urls: string[] = [];
     for (const { file } of items) {
       const ext = file.name.split(".").pop() ?? "jpg";
       const path = `posts/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const { error } = await supabase.storage
         .from("post-images")
-        .upload(path, file, { cacheControl: "3600", upsert: false });
+        .upload(path, file, { cacheControl: "3600", contentType: file.type, upsert: false });
       if (error) throw error;
       const { data } = supabase.storage.from("post-images").getPublicUrl(path);
       urls.push(data.publicUrl);
@@ -155,366 +287,315 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
     return urls;
   }
 
-  const { user } = useAuth();
-  const { data: meData } = useQuery(GET_ME_AVATAR, {
-    skip: !user,
-    fetchPolicy: "cache-first",
-  });
-  const me = meData?.me;
+  async function uploadVideoToSupabase(item: NonNullable<VideoPreview>): Promise<string> {
+    const ext = item.file.name.split(".").pop() ?? "mp4";
+    const path = `posts/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const { error } = await supabase.storage
+      .from("post-videos")
+      .upload(path, item.file, { cacheControl: "3600", contentType: item.file.type, upsert: false });
+    if (error) throw error;
+    const { data } = supabase.storage.from("post-videos").getPublicUrl(path);
+    return data.publicUrl;
+  }
 
-  const handlePost = async () => {
-    if (!content.trim() && images.length === 0 && !video && !feeling) return;
+  async function handlePost() {
+    if (!hasBody || overLimit || isPosting) return;
     setIsPosting(true);
     setUploadError(null);
     try {
-      let permanentUrls: string[] | undefined;
-      if (images.length > 0) {
-        permanentUrls = await uploadImagesToSupabase(images);
-      }
+      const permanentUrls = images.length > 0 ? await uploadImagesToSupabase(images) : undefined;
+      const permanentVideoUrl = video ? await uploadVideoToSupabase(video) : undefined;
+      const text = content.trim();
       const finalContent = feeling
-        ? `${content.trim()}${content.trim() ? "\n" : ""}— feeling ${feeling.emoji} ${feeling.label}`
-        : content;
-      onPost(finalContent, permanentUrls, video?.url);
+        ? `${text}${text ? "\n" : ""}-- feeling ${feeling.label}`
+        : text;
+
+      await onPost(finalContent, permanentUrls, permanentVideoUrl, tags);
       images.forEach((img) => URL.revokeObjectURL(img.preview));
+      if (video) URL.revokeObjectURL(video.preview);
       setContent("");
       setImages([]);
       setVideo(null);
       setFeeling(null);
-      setIsExpanded(false);
+      setShowFeelingPicker(false);
+      setShowTagEditor(false);
+      setTags([]);
+      setTagInput("");
       setPreviewUrl(null);
       setOgData(null);
       setDismissedUrl(null);
-      setShowFeelingPicker(false);
-      setFeelingCategory(null);
-      setFeelingSearch("");
     } catch (err: any) {
       const msg = err?.message ?? String(err);
       if (msg.includes("Bucket not found")) {
-        setUploadError(
-          'Storage bucket missing. Go to Supabase > Storage and create a public bucket named "post-images".'
-        );
+        setUploadError('Storage bucket missing. Create public buckets named "post-images" and "post-videos" in Supabase.');
       } else {
-        setUploadError(`Image upload failed: ${msg}`);
+        setUploadError(`Post upload failed: ${msg}`);
       }
     } finally {
       setIsPosting(false);
     }
-  };
+  }
 
   return (
-    <Card className={variant === "timeline" ? "border-0 rounded-none shadow-none bg-transparent" : "border"}>
-      <CardContent className={variant === "timeline" ? "p-4" : "p-3 sm:p-4"}>
-        {showFeelingPicker && (
-          <div className="mb-3 rounded-xl border bg-card shadow-lg overflow-hidden">
-            <div className="flex items-center gap-2 px-3 py-2.5 border-b">
-              {feelingCategory !== null && (
-                <button
-                  onClick={() => { setFeelingCategory(null); setFeelingSearch(""); }}
-                  className="w-7 h-7 rounded-full hover:bg-muted flex items-center justify-center flex-shrink-0"
-                >
-                  <ChevronLeft className="w-4 h-4" strokeWidth={2.5} />
-                </button>
-              )}
-              <span className="text-sm font-semibold flex-1">
-                {feelingCategory !== null
-                  ? FEELING_CATEGORIES[feelingCategory].label
-                  : "How are you feeling?"}
-              </span>
-              <button
-                onClick={() => { setShowFeelingPicker(false); setFeelingCategory(null); setFeelingSearch(""); }}
-                className="w-7 h-7 rounded-full hover:bg-muted flex items-center justify-center"
-              >
-                <X className="w-4 h-4" strokeWidth={2} />
-              </button>
-            </div>
-            {feelingCategory !== null && (
-              <div className="px-3 pt-2">
-                <input
-                  type="text"
-                  placeholder="Search feelings..."
-                  value={feelingSearch}
-                  onChange={(e) => setFeelingSearch(e.target.value)}
-                  className="w-full text-sm rounded-lg bg-muted px-3 py-1.5 outline-none placeholder:text-muted-foreground"
-                  autoFocus
-                />
-              </div>
-            )}
-            {feelingCategory === null ? (
-              <div className="p-2 space-y-1">
-                {FEELING_CATEGORIES.map((cat, idx) => (
-                  <button
-                    key={cat.label}
-                    onClick={() => setFeelingCategory(idx)}
-                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted text-left transition-colors"
-                  >
-                    <span className="text-xl">{cat.items[0].emoji}</span>
-                    <span className="text-sm font-medium">{cat.label}</span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-4 gap-1 p-3 max-h-52 overflow-y-auto">
-                {FEELING_CATEGORIES[feelingCategory].items
-                  .filter(
-                    (f) =>
-                      !feelingSearch ||
-                      f.label.toLowerCase().includes(feelingSearch.toLowerCase())
-                  )
-                  .map((f) => (
-                    <button
-                      key={f.label}
-                      onClick={() => {
-                        setFeeling(f);
-                        setShowFeelingPicker(false);
-                        setFeelingCategory(null);
-                        setFeelingSearch("");
-                      }}
-                      className={`flex flex-col items-center gap-1 p-2 rounded-lg hover:bg-muted transition-colors ${
-                        feeling?.label === f.label ? "bg-primary/10 ring-1 ring-primary" : ""
-                      }`}
-                    >
-                      <span className="text-2xl">{f.emoji}</span>
-                      <span className="text-[10px] text-muted-foreground font-medium capitalize leading-tight text-center">
-                        {f.label}
-                      </span>
-                    </button>
-                  ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="flex gap-3 items-center">
-          <Avatar className="w-9 h-9 sm:w-10 sm:h-10 border-2 border-border flex-shrink-0">
+    <div className={wrapperClass}>
+      <div className="p-4">
+        <div className="flex gap-3">
+          <Avatar className="h-10 w-10 shrink-0 border">
             <AvatarImage src={avatarSrc(me?.avatarUrl)} />
             <AvatarFallback>
               {(me?.displayName ?? me?.username ?? me?.name ?? user?.email ?? "?")[0]?.toUpperCase()}
             </AvatarFallback>
           </Avatar>
 
-          <div className="flex-1 min-w-0 space-y-3">
-            {!isExpanded ? (
-              <div
-                onClick={() => setIsExpanded(true)}
-                className="bg-muted hover:bg-border rounded-full px-3 sm:px-4 py-2 sm:py-2.5 cursor-text transition-colors border flex items-center gap-2 overflow-hidden"
-              >
-                <span className="text-sm text-muted-foreground truncate flex-1 min-w-0">
-                  {feeling
-                    ? `${feeling.emoji} feeling ${feeling.label}...`
-                    : "What are you building?"}
-                </span>
-                <div className="flex items-center gap-0.5 flex-shrink-0">
-                  <span className="w-7 h-7 flex items-center justify-center rounded-full text-muted-foreground">
-                    <Images className="w-4 h-4" strokeWidth={2} />
-                  </span>
-                  <span className="w-7 h-7 flex items-center justify-center rounded-full text-muted-foreground">
-                    <Smile className="w-4 h-4" strokeWidth={2} />
-                  </span>
+          <div className="min-w-0 flex-1">
+            <div className="relative">
+              {content.length === 0 && (
+                <div className="pointer-events-none absolute left-0 top-1 text-xl text-muted-foreground">
+                  {prompt}
+                </div>
+              )}
+              <Textarea
+                aria-label="Create post"
+                value={content}
+                maxLength={MAX_POST_CHARS + 20}
+                onChange={(e) => setContent(e.target.value)}
+                className="min-h-[72px] resize-none border-0 bg-transparent p-0 text-xl leading-7 shadow-none outline-none focus-visible:ring-0"
+              />
+            </div>
+
+            {(feeling || tags.length > 0) && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {feeling && (
+                  <button
+                    type="button"
+                    onClick={() => setFeeling(null)}
+                    className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    <SelectedFeelingIcon className="h-3.5 w-3.5" />
+                    feeling {feeling.label}
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+                {tags.map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => setTags((current) => current.filter((item) => item !== tag))}
+                    className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/10"
+                  >
+                    #{tag}
+                    <X className="h-3 w-3" />
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {previewUrl && previewUrl !== dismissedUrl && images.length === 0 && !video && (
+              <div className="mt-3 overflow-hidden rounded-lg border bg-card">
+                {ogLoading ? (
+                  <div className="h-20 animate-pulse bg-muted/50" />
+                ) : ogData ? (
+                  <div className="flex">
+                    {ogData.image && (
+                      <div className="w-24 shrink-0 bg-muted">
+                        <img src={ogData.image} alt="" className="h-full w-full object-cover" />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1 px-3 py-2">
+                      <p className="truncate text-[11px] font-medium uppercase text-muted-foreground">
+                        {ogData.siteName ?? ogData.domain}
+                      </p>
+                      <p className="line-clamp-2 text-sm font-semibold">{ogData.title}</p>
+                      {ogData.description && (
+                        <p className="line-clamp-2 text-xs text-muted-foreground">{ogData.description}</p>
+                      )}
+                      <a
+                        href={previewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        {ogData.domain}
+                      </a>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDismissedUrl(previewUrl);
+                        setOgData(null);
+                      }}
+                      className="m-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
+                      title="Remove link preview"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {images.length > 0 && (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {images.map((img, idx) => (
+                  <div key={img.preview} className="relative overflow-hidden rounded-lg border bg-muted">
+                    <img src={img.preview} alt="" className="h-auto max-h-64 w-full object-contain" />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(idx)}
+                      className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-background/90 text-foreground shadow"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {video && (
+              <div className="relative mt-3 overflow-hidden rounded-lg border bg-black">
+                <video src={video.preview} controls className="max-h-80 w-full" />
+                <button
+                  type="button"
+                  onClick={removeVideo}
+                  className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-background/90 text-foreground shadow"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+
+            {showFeelingPicker && (
+              <div className="mt-3 rounded-lg border bg-card p-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {FEELING_CATEGORIES.map((category) => (
+                    <div key={category.label}>
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {category.label}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {category.items.map((item) => {
+                          const Icon = item.Icon;
+                          return (
+                            <button
+                              key={item.label}
+                              type="button"
+                              onClick={() => {
+                                setFeeling(item);
+                                setShowFeelingPicker(false);
+                              }}
+                              className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm hover:border-primary hover:text-primary"
+                            >
+                              <Icon className="h-4 w-4" />
+                              {item.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ) : (
-              <>
-                <div className="relative">
-                  <Textarea
-                    placeholder="Share your progress, ask questions, or discuss your project..."
-                    value={content}
-                    onChange={(e) => setContent(e.target.value)}
-                    className="min-h-[90px] resize-none border rounded-xl px-3 pt-3 pb-10 text-sm focus-visible:ring-1"
-                    autoFocus
-                  />
-                  {feeling && (
-                    <div className="absolute bottom-10 left-3 flex items-center gap-1.5 pointer-events-none">
-                      <span className="pointer-events-auto inline-flex items-center gap-1 text-xs text-primary font-medium bg-primary/10 rounded-full px-2 py-0.5">
-                        {feeling.emoji} feeling {feeling.label}
-                        <button
-                          onClick={() => setFeeling(null)}
-                          className="ml-0.5 text-primary/70 hover:text-primary"
-                        >
-                          <X className="w-2.5 h-2.5" strokeWidth={3} />
-                        </button>
-                      </span>
-                    </div>
-                  )}
-                  <div className="absolute bottom-2 right-2 flex items-center gap-0.5">
-                    <button
-                      type="button"
-                      onClick={() => mediaInputRef.current?.click()}
-                      disabled={images.length >= 10}
-                      title="Add photo or video"
-                      className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors disabled:opacity-40 ${
-                        images.length > 0 || !!video
-                          ? "text-primary bg-primary/10"
-                          : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                      }`}
-                    >
-                      <Images className="w-4 h-4" strokeWidth={2} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowFeelingPicker((v) => !v)}
-                      title="Add a feeling / activity"
-                      className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${
-                        feeling
-                          ? "text-primary bg-primary/10"
-                          : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                      }`}
-                    >
-                      <Smile className="w-4 h-4" strokeWidth={2} />
-                    </button>
-                  </div>
-                </div>
-                <input
-                  ref={mediaInputRef}
-                  type="file"
-                  accept="image/*,video/*"
-                  multiple
-                  className="hidden"
-                  onChange={handleMediaChange}
-                />
-                {previewUrl && previewUrl !== dismissedUrl && images.length === 0 && !video && (
-                  <div className="rounded-xl border bg-card overflow-hidden">
-                    {ogLoading ? (
-                      <div className="h-20 animate-pulse bg-muted/50" />
-                    ) : ogData ? (
-                      <div className="flex">
-                        {ogData.image && (
-                          <div className="w-24 flex-shrink-0 bg-muted">
-                            <img
-                              src={ogData.image}
-                              alt=""
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                (e.currentTarget as HTMLImageElement).style.display = "none";
-                              }}
-                            />
-                          </div>
-                        )}
-                        <div className="flex-1 flex flex-col justify-center px-3 py-2.5 min-w-0 gap-0.5">
-                          {(ogData.siteName || ogData.domain) && (
-                            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide truncate">
-                              {ogData.siteName ?? ogData.domain}
-                            </span>
-                          )}
-                          {ogData.title && (
-                            <span className="text-sm font-semibold leading-snug text-foreground line-clamp-2">
-                              {ogData.title}
-                            </span>
-                          )}
-                          {ogData.description && (
-                            <span className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                              {ogData.description}
-                            </span>
-                          )}
-                          <a
-                            href={previewUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[10px] text-primary flex items-center gap-1 mt-0.5 hover:underline w-fit"
-                          >
-                            <ExternalLink className="w-2.5 h-2.5" />
-                            {ogData.domain}
-                          </a>
-                        </div>
-                        <button
-                          onClick={() => { setDismissedUrl(previewUrl); setOgData(null); }}
-                          className="self-start m-2 w-5 h-5 rounded-full bg-muted hover:bg-border flex items-center justify-center flex-shrink-0"
-                          title="Remove link preview"
-                        >
-                          <X className="w-3 h-3" strokeWidth={2.5} />
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-                {images.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {images.map((img, idx) => (
-                      <div key={idx} className="relative group w-20 h-20 flex-shrink-0">
-                        <img
-                          src={img.preview}
-                          alt=""
-                          className="w-full h-full object-cover rounded-md border"
-                        />
-                        <button
-                          onClick={() => removeImage(idx)}
-                          className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-foreground text-background rounded-full flex items-center justify-center shadow hover:bg-foreground/80 transition-colors"
-                        >
-                          <X className="w-3 h-3" strokeWidth={2.5} />
-                        </button>
-                      </div>
-                    ))}
-                    {images.length < 10 && (
-                      <button
-                        onClick={() => mediaInputRef.current?.click()}
-                        className="w-20 h-20 flex-shrink-0 flex flex-col items-center justify-center rounded-md border-2 border-dashed border-border text-muted-foreground hover:border-primary hover:text-primary transition-colors gap-1"
-                      >
-                        <Images className="w-5 h-5" />
-                        <span className="text-[10px] font-medium">Add more</span>
-                      </button>
-                    )}
-                  </div>
-                )}
-                {video && (
-                  <div className="relative rounded-md overflow-hidden border">
-                    <video src={video.url} controls className="w-full max-h-64 bg-black" />
-                    <button
-                      onClick={() => setVideo(null)}
-                      className="absolute top-2 right-2 w-7 h-7 bg-card/90 hover:bg-card rounded-md flex items-center justify-center transition-colors border"
-                    >
-                      <X className="w-4 h-4" strokeWidth={2} />
-                    </button>
-                  </div>
-                )}
-              </>
             )}
+
+            {showTagEditor && (
+              <div className="mt-3 rounded-lg border bg-card p-3">
+                <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Tags
+                </label>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addTag();
+                      }
+                    }}
+                    placeholder="ai, design, launch"
+                    className="h-9 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
+                  />
+                  <Button type="button" variant="outline" className="h-9 rounded-full" onClick={addTag}>
+                    Add
+                  </Button>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {tags.length}/{MAX_TAGS} tags
+                </p>
+              </div>
+            )}
+
+            {uploadError && (
+              <div className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {uploadError}
+              </div>
+            )}
+
+            <div className="mt-3 flex items-center justify-between border-t pt-3">
+              <div className="flex items-center gap-1 text-primary">
+                <button
+                  type="button"
+                  title={`Add images (${MAX_IMAGES} max, 5MB each)`}
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={!!video || images.length >= MAX_IMAGES}
+                  className="flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ImageIcon className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  title="Add one video (25MB max)"
+                  onClick={() => videoInputRef.current?.click()}
+                  disabled={images.length > 0 || !!video}
+                  className="flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Film className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  title="Add feeling or activity"
+                  onClick={() => setShowFeelingPicker((value) => !value)}
+                  className="flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-primary/10"
+                >
+                  <Smile className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  title="Add tags"
+                  onClick={() => setShowTagEditor((value) => !value)}
+                  className="flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-primary/10"
+                >
+                  <Hash className="h-5 w-5" />
+                </button>
+                <button type="button" title="Polls coming soon" disabled className="flex h-9 w-9 cursor-not-allowed items-center justify-center rounded-md opacity-35">
+                  <List className="h-5 w-5" />
+                </button>
+                <button type="button" title="Location coming soon" disabled className="hidden h-9 w-9 cursor-not-allowed items-center justify-center rounded-md opacity-35 sm:flex">
+                  <MapPin className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className={`text-xs tabular-nums ${remaining < 0 ? "text-destructive" : remaining <= 25 ? "text-primary" : "text-muted-foreground"}`}>
+                  {remaining}
+                </span>
+                <Button
+                  type="button"
+                  onClick={handlePost}
+                  disabled={isPosting || !hasBody || overLimit}
+                  className="h-9 rounded-full px-5 font-semibold"
+                >
+                  {isPosting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Post"}
+                </Button>
+              </div>
+            </div>
+
+            <input ref={imageInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImagesChange} />
+            <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={handleVideoChange} />
           </div>
         </div>
-
-        {isExpanded && (
-          <>
-            <Separator className="my-3" />
-            {uploadError && (
-              <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive flex items-start gap-2">
-                <span className="flex-shrink-0 mt-0.5">(!) </span>
-                <span>{uploadError}</span>
-              </div>
-            )}
-            <div className="flex items-center justify-end gap-2">
-              <Button
-                onClick={() => {
-                  images.forEach((img) => URL.revokeObjectURL(img.preview));
-                  setIsExpanded(false);
-                  setContent("");
-                  setImages([]);
-                  setVideo(null);
-                  setFeeling(null);
-                  setPreviewUrl(null);
-                  setOgData(null);
-                  setDismissedUrl(null);
-                  setShowFeelingPicker(false);
-                  setFeelingCategory(null);
-                  setFeelingSearch("");
-                }}
-                variant="ghost"
-                size="sm"
-                disabled={isPosting}
-                className="px-4 rounded-md h-8"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handlePost}
-                disabled={isPosting || (!content.trim() && images.length === 0 && !video && !feeling)}
-                size="sm"
-                className="px-4 rounded-md h-8 gap-2"
-              >
-                {isPosting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                {isPosting ? "Posting..." : "Post"}
-              </Button>
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

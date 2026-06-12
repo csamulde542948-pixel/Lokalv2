@@ -689,21 +689,21 @@ export function Messages() {
 
   if (!currentUserId) {
     return (
-      <div className="flex h-[calc(100vh-3.5rem)] items-center justify-center">
+      <div className="flex h-[calc(100dvh-4rem-3.5rem)] items-center justify-center overflow-hidden lg:h-[calc(100dvh-4rem-3rem)]">
         <p className="text-muted-foreground text-sm">Sign in to view messages</p>
       </div>
     );
   }
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] lg:h-[calc(100vh-3.5rem)] border-t">
+    <div className="flex h-[calc(100dvh-4rem-3.5rem)] min-h-0 overflow-hidden border-t lg:h-[calc(100dvh-4rem-3rem)]">
       {showNewConvo && (
         <NewConversationModal onClose={() => setShowNewConvo(false)} onStart={handleStartDM} />
       )}
 
       {/* Sidebar — full-width on mobile, w-80 on desktop. Hidden on mobile when a chat is active */}
       <div className={cn(
-        "w-full lg:w-80 border-r bg-card flex flex-col lg:flex-shrink-0",
+        "w-full lg:w-80 border-r bg-card flex min-h-0 flex-col lg:flex-shrink-0",
         activeChannel ? "hidden lg:flex" : "flex"
       )}>
         <div className="p-4 border-b">

@@ -43,8 +43,8 @@ interface RankLimit {
  * Fallback for unknown rank names: Newbie limits (safest default).
  */
 const RANK_LIMITS: Record<string, RankLimit> = {
-  "Newbie":      { projects: 1,                       launchpadEvents: 1  },
-  "Junior Dev":  { projects: 2,                       launchpadEvents: 2  },
+  "Newbie":      { projects: 3,                       launchpadEvents: 1  },
+  "Junior Dev":  { projects: 3,                       launchpadEvents: 2  },
   "Developer":   { projects: 3,                       launchpadEvents: 3  },
   "Senior Dev":  { projects: 5,                       launchpadEvents: 5  },
   "Tech Lead":   { projects: 8,                       launchpadEvents: 8  },

@@ -37,6 +37,7 @@
  */
 
 import { prisma } from "../lib/prisma";
+import { createNotification } from "../lib/notifications";
 
 const XP_REWARDS: Record<string, number> = {
   CREATE_POST: 10,
@@ -255,12 +256,10 @@ export async function awardXp(
 
   // Fire XP_LEVELUP notification when user ranks up
   if (leveledUp && newRank) {
-    prisma.notification.create({
-      data: {
+    createNotification(prisma, {
         recipientId: profileId,
         type: "XP_LEVELUP",
         message: `You ranked up to ${newRank.name}! 🎉`,
-      },
     }).catch(console.error);
   }
 
@@ -312,13 +311,11 @@ export async function awardRole(
   await prisma.userRole.create({ data: { profileId, roleId: role.id } });
 
   // Notify
-  prisma.notification.create({
-    data: {
+  createNotification(prisma, {
       recipientId: profileId,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       type: "EARNED_ROLE" as any,
       message: `You earned the ${role.emoji ?? ""} ${role.name} role! 🎉`,
-    },
   }).catch(console.error);
 
   return { awarded: true, roleName };

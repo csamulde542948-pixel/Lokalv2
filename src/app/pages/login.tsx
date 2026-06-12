@@ -312,6 +312,17 @@ export function Login() {
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
             <Separator />
+            <p className="max-w-sm text-center text-xs leading-5 text-muted-foreground">
+              By continuing, you agree to lokalhost.club's{" "}
+              <Link to="/terms" className="font-medium text-primary hover:underline">
+                Terms of Service
+              </Link>{" "}
+              and acknowledge the{" "}
+              <Link to="/privacy" className="font-medium text-primary hover:underline">
+                Privacy Policy
+              </Link>
+              .
+            </p>
             <div className="text-sm text-center text-muted-foreground">
               Don't have an account?{" "}
               <Link to="/signup" className="text-primary hover:underline font-medium">

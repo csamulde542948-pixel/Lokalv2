@@ -35,6 +35,7 @@ type RawPost = {
   content: string;
   imageUrl?: string | null;
   imageUrls?: string[] | null;
+  videoUrl?: string | null;
   projectName?: string | null;
   likesCount?: number | null;
   commentsCount?: number | null;
@@ -58,6 +59,7 @@ type RawOriginalPost = {
   content: string;
   imageUrl?: string | null;
   imageUrls?: string[] | null;
+  videoUrl?: string | null;
   projectName?: string | null;
   postType?: "post" | "roast" | string | null;
   tags?: { id: string | number; name: string }[] | null;
@@ -155,6 +157,7 @@ export function adaptOriginalPost(raw: RawOriginalPost): OriginalPost {
     content: raw.content,
     imageUrl: raw.imageUrl ?? undefined,
     imageUrls: raw.imageUrls ?? [],
+    videoUrl: raw.videoUrl ?? undefined,
     projectName: raw.projectName ?? undefined,
     postType: (raw.postType ?? "post") as "post" | "roast",
     tags: raw.tags ?? [],
@@ -189,6 +192,7 @@ export function adaptPost(raw: RawPost): Post {
     content: raw.content,
     image: imageUrl,
     images: imageUrls,
+    videoUrl: raw.videoUrl ?? undefined,
     likes: raw.likesCount ?? 0,
     comments: raw.commentsCount ?? 0,
     shares: raw.sharesCount ?? 0,

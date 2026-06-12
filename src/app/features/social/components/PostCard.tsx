@@ -189,6 +189,7 @@ export function PostCard({
               tags={post.tags}
               image={(post as Post).image}
               images={(post as Post).images}
+              videoUrl={(post as Post).videoUrl ?? (post as OriginalPost).videoUrl}
             />
 
             {/* ── Nested original post (fully interactive) ──────────────────── */}

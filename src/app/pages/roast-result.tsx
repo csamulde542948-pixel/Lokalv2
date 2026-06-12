@@ -574,7 +574,7 @@ function formatToolError(err: any): ToolErrorState {
     return {
       kind: "credits",
       title: "NO CREDITS AVAILABLE",
-      message: "This tool needs 1 credit. Add or grant credits before trying again.",
+      message: "Roasts need 5 credits and brand analysis needs 10 credits. Wait for your weekly reset or add credits before trying again.",
     };
   }
 
@@ -1440,7 +1440,7 @@ export function RoastResult() {
                 </p>
                 <p className="text-sm text-muted-foreground/70 mt-2 leading-relaxed normal-case">
                   {isNoCredits
-                    ? "This roast needs 1 credit. Add or grant credits before trying again."
+                    ? "Roasts need 5 credits and brand analysis needs 10 credits. Wait for your weekly reset or add credits before trying again."
                     : isAuthRequired
                     ? "Sign in so Lokal can use your credit balance for this roast."
                     : isNetwork

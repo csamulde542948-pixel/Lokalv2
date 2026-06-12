@@ -197,6 +197,7 @@ model Profile {
   weeklyXpSnapshots   WeeklyXpSnapshot[]
   creditAccount       CreditAccount?
   creditLedger        CreditLedger[]
+  userActionEvents    UserActionEvent[]
 
   // Interest vector for recommendation engine (pgvector)
   interestEmbedding Unsupported("vector(1536)")?
@@ -251,6 +252,7 @@ model CreditAccount {
   balance         Int      @default(0)
   lifetimeCredits Int      @default(0)
   lifetimeSpent   Int      @default(0)
+  weeklyResetAt   DateTime @default(now())
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -276,6 +278,22 @@ model CreditLedger {
   @@index([profileId, createdAt])
   @@index([tool, createdAt])
   @@map("credit_ledger")
+}
+
+// Lightweight audit events for action-level rate limits and anti-spam guardrails.
+model UserActionEvent {
+  id        String   @id @default(cuid())
+  profileId String   @db.Uuid
+  action    String   @db.VarChar(80)
+  targetId  String?  @db.VarChar(200)
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, action, createdAt])
+  @@index([profileId, action, targetId, createdAt])
+  @@map("user_action_events")
 }
 
 // ============================================================
@@ -335,6 +353,7 @@ model Post {
   content     String    @db.Text
   imageUrl    String?   @db.Text
   imageUrls   String[]  @default([])
+  videoUrl    String?   @db.Text
   projectName String?   @db.VarChar(100)   // optional project tag on post
   projectId   String?   @db.VarChar(100)
 

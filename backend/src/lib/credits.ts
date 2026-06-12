@@ -1,7 +1,7 @@
 import { GraphQLError } from "graphql";
 import { Prisma, PrismaClient } from "@prisma/client";
 
-const DEFAULT_STARTER_CREDITS = 100;
+const DEFAULT_WEEKLY_CREDITS = 50;
 
 function readPositiveIntEnv(name: string, fallback: number): number {
   const parsed = Number.parseInt(process.env[name] ?? "", 10);
@@ -10,12 +10,12 @@ function readPositiveIntEnv(name: string, fallback: number): number {
 
 export const STARTER_CREDITS = readPositiveIntEnv(
   "STARTER_CREDITS",
-  DEFAULT_STARTER_CREDITS
+  DEFAULT_WEEKLY_CREDITS
 );
 
 export const TOOL_CREDIT_COSTS = {
-  AI_ROAST: readPositiveIntEnv("AI_ROAST_CREDIT_COST", 1),
-  AI_BRAND_ANALYZER: readPositiveIntEnv("AI_BRAND_ANALYZER_CREDIT_COST", 1),
+  AI_ROAST: readPositiveIntEnv("AI_ROAST_CREDIT_COST", 5),
+  AI_BRAND_ANALYZER: readPositiveIntEnv("AI_BRAND_ANALYZER_CREDIT_COST", 10),
 } as const;
 
 export type CreditBalance = {
@@ -31,6 +31,43 @@ type CreditAccountRow = {
   lifetimeSpent: number;
 };
 
+function nextWeeklyReset(from = new Date()): Date {
+  return new Date(from.getTime() + 7 * 24 * 60 * 60 * 1000);
+}
+
+async function resetWeeklyCreditsIfNeeded(
+  tx: Prisma.TransactionClient,
+  profileId: string,
+  account: CreditAccountRow & { weeklyResetAt?: Date | null }
+): Promise<CreditAccountRow> {
+  const resetAt = account.weeklyResetAt ? new Date(account.weeklyResetAt) : null;
+  if (resetAt && resetAt.getTime() > Date.now()) return account;
+
+  const grantAmount = Math.max(STARTER_CREDITS - account.balance, 0);
+  const updated = await (tx.creditAccount as any).update({
+    where: { profileId },
+    data: {
+      balance: STARTER_CREDITS,
+      lifetimeCredits: { increment: grantAmount },
+      weeklyResetAt: nextWeeklyReset(),
+    },
+    select: { balance: true, lifetimeCredits: true, lifetimeSpent: true },
+  });
+
+  await tx.creditLedger.create({
+    data: {
+      profileId,
+      amount: grantAmount,
+      balanceAfter: STARTER_CREDITS,
+      tool: "SYSTEM",
+      action: "WEEKLY_RESET",
+      metadata: { reason: "weekly_credit_reset" },
+    },
+  });
+
+  return updated;
+}
+
 function insufficientCreditsError(required: number, balance: number): GraphQLError {
   return new GraphQLError(
     `Not enough credits. This action needs ${required} credit(s), but you have ${balance}.`,
@@ -42,18 +79,19 @@ async function ensureCreditAccountInTx(
   tx: Prisma.TransactionClient,
   profileId: string
 ): Promise<CreditAccountRow> {
-  const existing = await tx.creditAccount.findUnique({
+  const existing = await (tx.creditAccount as any).findUnique({
     where: { profileId },
-    select: { balance: true, lifetimeCredits: true, lifetimeSpent: true },
+    select: { balance: true, lifetimeCredits: true, lifetimeSpent: true, weeklyResetAt: true },
   });
-  if (existing) return existing;
+  if (existing) return resetWeeklyCreditsIfNeeded(tx, profileId, existing);
 
   try {
-    const created = await tx.creditAccount.create({
+    const created = await (tx.creditAccount as any).create({
       data: {
         profileId,
         balance: STARTER_CREDITS,
         lifetimeCredits: STARTER_CREDITS,
+        weeklyResetAt: nextWeeklyReset(),
       },
       select: { balance: true, lifetimeCredits: true, lifetimeSpent: true },
     });
@@ -74,12 +112,12 @@ async function ensureCreditAccountInTx(
   } catch (error: any) {
     if (error?.code !== "P2002") throw error;
 
-    const account = await tx.creditAccount.findUnique({
+    const account = await (tx.creditAccount as any).findUnique({
       where: { profileId },
-      select: { balance: true, lifetimeCredits: true, lifetimeSpent: true },
+      select: { balance: true, lifetimeCredits: true, lifetimeSpent: true, weeklyResetAt: true },
     });
     if (!account) throw error;
-    return account;
+    return resetWeeklyCreditsIfNeeded(tx, profileId, account);
   }
 }
 

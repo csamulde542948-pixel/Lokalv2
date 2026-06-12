@@ -281,6 +281,7 @@ export const ALL_FRAGMENTS = gql`
     content
     imageUrl
     imageUrls
+    videoUrl
     projectName
     postType
     tags { ...TagFields }
@@ -295,6 +296,7 @@ export const ALL_FRAGMENTS = gql`
     content
     imageUrl
     imageUrls
+    videoUrl
     projectName
     likesCount
     commentsCount

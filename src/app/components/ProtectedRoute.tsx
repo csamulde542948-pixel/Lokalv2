@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { useAuth } from "../../contexts/AuthContext";
 import { supabase } from "../../lib/supabase";
+import { BrandLoading } from "./brand-loading";
 
 /**
  * Wraps routes that require authentication.
@@ -42,11 +43,7 @@ export function ProtectedRoute() {
   }, [loading, session]);
 
   if (loading || checkingStoredSession) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <BrandLoading label="Checking your session" />;
   }
 
   if (!session && !storedSession) {

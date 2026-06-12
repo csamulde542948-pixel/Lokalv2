@@ -134,6 +134,7 @@ interface NotificationsPopoverProps {
 export function NotificationsPopover({ isOpen, onClose, onUnreadCount }: NotificationsPopoverProps) {
   const navigate = useNavigate();
   const panelRef = useRef<HTMLDivElement>(null);
+  const markedOpenRef = useRef(false);
   const [modalPostId,   setModalPostId]   = useState<string | null>(null);
   const [modalNotifType, setModalNotifType] = useState<string | null>(null);
 
@@ -152,6 +153,16 @@ export function NotificationsPopover({ isOpen, onClose, onUnreadCount }: Notific
 
   useEffect(() => { onUnreadCount?.(unreadCount); }, [unreadCount, onUnreadCount]);
   useEffect(() => { if (isOpen) refetch(); }, [isOpen, refetch]);
+  useEffect(() => {
+    if (!isOpen) {
+      markedOpenRef.current = false;
+      return;
+    }
+    if (markedOpenRef.current || unreadCount <= 0) return;
+    markedOpenRef.current = true;
+    onUnreadCount?.(0);
+    markAllRead().then(() => refetch()).catch(console.error);
+  }, [isOpen, markAllRead, onUnreadCount, refetch, unreadCount]);
 
   async function handleMarkAllRead() {
     await markAllRead();
@@ -161,6 +172,12 @@ export function NotificationsPopover({ isOpen, onClose, onUnreadCount }: Notific
   async function handleClick(notif: any) {
     if (!notif.isRead) {
       await markRead({ variables: { notificationId: notif.id } });
+    }
+
+    if ((notif.type === "COMMENT" || notif.type === "LIKE") && notif.entityId) {
+      navigate(`/comment/${notif.entityId}`);
+      onClose();
+      return;
     }
 
     if (POST_MODAL_TYPES.includes(notif.type)) {
