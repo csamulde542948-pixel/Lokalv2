@@ -338,9 +338,9 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
 
   return (
     <div className={wrapperClass}>
-      <div className="p-4">
-        <div className="flex gap-3">
-          <Avatar className="h-10 w-10 shrink-0 border">
+      <div className="px-3 py-3 sm:px-4 sm:py-4">
+        <div className="flex gap-2.5 sm:gap-3">
+          <Avatar className="h-9 w-9 shrink-0 border sm:h-10 sm:w-10">
             <AvatarImage src={avatarSrc(me?.avatarUrl)} />
             <AvatarFallback>
               {(me?.displayName ?? me?.username ?? me?.name ?? user?.email ?? "?")[0]?.toUpperCase()}
@@ -350,7 +350,7 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
           <div className="min-w-0 flex-1">
             <div className="relative">
               {content.length === 0 && (
-                <div className="pointer-events-none absolute left-0 top-1 text-xl text-muted-foreground">
+                <div className="pointer-events-none absolute left-0 top-0.5 text-lg text-muted-foreground sm:top-1 sm:text-xl">
                   {prompt}
                 </div>
               )}
@@ -359,7 +359,7 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
                 value={content}
                 maxLength={MAX_POST_CHARS + 20}
                 onChange={(e) => setContent(e.target.value)}
-                className="min-h-[72px] resize-none border-0 bg-transparent p-0 text-xl leading-7 shadow-none outline-none focus-visible:ring-0"
+                className="min-h-[48px] resize-none border-0 bg-transparent p-0 text-lg leading-6 shadow-none outline-none focus-visible:ring-0 sm:min-h-[72px] sm:text-xl sm:leading-7"
               />
             </div>
 
@@ -532,43 +532,43 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
               </div>
             )}
 
-            <div className="mt-3 flex items-center justify-between border-t pt-3">
-              <div className="flex items-center gap-1 text-primary">
+            <div className="mt-2 flex items-center justify-between gap-2 sm:mt-3">
+              <div className="flex min-w-0 items-center gap-0.5 text-primary sm:gap-1">
                 <button
                   type="button"
                   title={`Add images (${MAX_IMAGES} max, 5MB each)`}
                   onClick={() => imageInputRef.current?.click()}
                   disabled={!!video || images.length >= MAX_IMAGES}
-                  className="flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40 sm:h-9 sm:w-9"
                 >
-                  <ImageIcon className="h-5 w-5" />
+                  <ImageIcon className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
                 </button>
                 <button
                   type="button"
                   title="Add one video (25MB max)"
                   onClick={() => videoInputRef.current?.click()}
                   disabled={images.length > 0 || !!video}
-                  className="flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40 sm:h-9 sm:w-9"
                 >
-                  <Film className="h-5 w-5" />
+                  <Film className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
                 </button>
                 <button
                   type="button"
                   title="Add feeling or activity"
                   onClick={() => setShowFeelingPicker((value) => !value)}
-                  className="flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-primary/10"
+                  className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-primary/10 sm:h-9 sm:w-9"
                 >
-                  <Smile className="h-5 w-5" />
+                  <Smile className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
                 </button>
                 <button
                   type="button"
                   title="Add tags"
                   onClick={() => setShowTagEditor((value) => !value)}
-                  className="flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-primary/10"
+                  className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-primary/10 sm:h-9 sm:w-9"
                 >
-                  <Hash className="h-5 w-5" />
+                  <Hash className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
                 </button>
-                <button type="button" title="Polls coming soon" disabled className="flex h-9 w-9 cursor-not-allowed items-center justify-center rounded-md opacity-35">
+                <button type="button" title="Polls coming soon" disabled className="hidden h-8 w-8 cursor-not-allowed items-center justify-center rounded-md opacity-35 min-[380px]:flex sm:h-9 sm:w-9">
                   <List className="h-5 w-5" />
                 </button>
                 <button type="button" title="Location coming soon" disabled className="hidden h-9 w-9 cursor-not-allowed items-center justify-center rounded-md opacity-35 sm:flex">
@@ -576,7 +576,7 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
                 </button>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex shrink-0 items-center gap-2 sm:gap-3">
                 <span className={`text-xs tabular-nums ${remaining < 0 ? "text-destructive" : remaining <= 25 ? "text-primary" : "text-muted-foreground"}`}>
                   {remaining}
                 </span>
@@ -584,7 +584,7 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
                   type="button"
                   onClick={handlePost}
                   disabled={isPosting || !hasBody || overLimit}
-                  className="h-9 rounded-full px-5 font-semibold"
+                  className="h-8 rounded-full px-4 text-sm font-semibold sm:h-9 sm:px-5"
                 >
                   {isPosting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Post"}
                 </Button>
