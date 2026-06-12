@@ -25,10 +25,12 @@ export function PostContentBody({
   const clean = content.replace(/\[shared:[^\]]+\]/g, "").trim();
   const mediaImages = images && images.length > 0 ? images : image ? [image] : [];
   const detectedUrl = mediaImages.length === 0 ? extractFirstUrl(content) : null;
-  const collapseLimit = 300;
-  const needsReadMore = clean.length > collapseLimit;
+  const collapseLimit = 150;
+  const maxLines = 10;
+  const contentLines = clean.split("\n");
+  const needsReadMore = clean.length > collapseLimit || contentLines.length > maxLines;
   const displayText = needsReadMore && !contentExpanded
-    ? clean.slice(0, collapseLimit).trimEnd() + "..."
+    ? contentLines.slice(0, maxLines).join("\n").slice(0, collapseLimit).trimEnd() + "..."
     : clean;
 
   return (

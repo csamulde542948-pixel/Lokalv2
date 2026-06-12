@@ -38,15 +38,6 @@ const UNLIKE_POST = gql`
   }
 `;
 
-const RECORD_POST_SHARE = gql`
-  mutation TimelineRecordPostShare($postId: ID!) {
-    recordPostShare(postId: $postId) {
-      id
-      sharesCount
-    }
-  }
-`;
-
 const DELETE_POST = gql`
   mutation TimelineDeletePost($id: ID!) {
     deletePost(id: $id)
@@ -305,7 +296,6 @@ export function TimelinePost({ post, className = "", onOpenPost, onOpenComments,
 
   const [firePost] = useMutation(LIKE_POST);
   const [unfirePost] = useMutation(UNLIKE_POST);
-  const [recordShare] = useMutation(RECORD_POST_SHARE);
   const [deletePost] = useMutation(DELETE_POST);
   const [followUser] = useMutation(FOLLOW_USER);
   const [unfollowUser] = useMutation(UNFOLLOW_USER);
@@ -336,20 +326,6 @@ export function TimelinePost({ post, className = "", onOpenPost, onOpenComments,
       setFireCount((value) => Math.max(0, value + (next ? -1 : 1)));
       console.error(error);
     }
-  }
-
-  async function handleShare() {
-    const shareUrl = `${window.location.origin}/?post=${post.id}`;
-    const authorName = post.author.displayName ?? post.author.name ?? `@${post.author.username}`;
-    const text = `${authorName} posted on lokalhost.club\n\n${post.content.slice(0, 220)}`;
-    const intent = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
-
-    setSharedCount((value) => value + 1);
-    recordShare({ variables: { postId: post.id } }).catch((error) => {
-      setSharedCount((value) => Math.max(0, value - 1));
-      console.error(error);
-    });
-    window.open(intent, "_blank", "noopener,noreferrer");
   }
 
   async function handleFollow() {
@@ -384,8 +360,8 @@ export function TimelinePost({ post, className = "", onOpenPost, onOpenComments,
   const images = (post.imageUrls?.length ? post.imageUrls : post.imageUrl ? [post.imageUrl] : []).filter(
     (image) => image && !failedImages.has(image),
   );
-  const contentLimit = isRoastPost ? 460 : 720;
-  const maxLines = isRoastPost ? 8 : 14;
+  const contentLimit = 150;
+  const maxLines = 10;
   const shouldTruncate =
     post.content.length > contentLimit || post.content.split("\n").length > maxLines;
   const visibleContent =
@@ -528,11 +504,9 @@ export function TimelinePost({ post, className = "", onOpenPost, onOpenComments,
                 event.stopPropagation();
                 onOpenComments?.(post);
               }}
-              className="group inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-sky-500"
+              className="inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-sky-500"
             >
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full group-hover:bg-sky-500/10">
-                <MessageSquare className="h-4 w-4" />
-              </span>
+              <MessageSquare className="h-4 w-4" />
               <span className="tabular-nums">{commentCount}</span>
             </button>
 
@@ -542,13 +516,11 @@ export function TimelinePost({ post, className = "", onOpenPost, onOpenComments,
                 event.stopPropagation();
                 handleFire();
               }}
-              className={`group inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-primary ${
+              className={`inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-primary ${
                 fired ? "text-primary" : ""
               }`}
             >
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full group-hover:bg-primary/10">
-                <Flame className={`h-4 w-4 ${fired ? "fill-current" : ""}`} />
-              </span>
+              <Flame className={`h-4 w-4 ${fired ? "fill-current" : ""}`} />
               <span className="tabular-nums">{fireCount}</span>
             </button>
 
@@ -556,13 +528,13 @@ export function TimelinePost({ post, className = "", onOpenPost, onOpenComments,
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
-                handleShare();
               }}
-              className="group inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-green-500"
+              disabled
+              aria-disabled="true"
+              title="Repost coming soon"
+              className="inline-flex h-9 cursor-not-allowed items-center gap-2 text-sm text-muted-foreground/45"
             >
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full group-hover:bg-green-500/10">
-                <Repeat2 className="h-4 w-4" />
-              </span>
+              <Repeat2 className="h-4 w-4" />
               <span className="tabular-nums">{sharedCount}</span>
             </button>
 
@@ -572,17 +544,15 @@ export function TimelinePost({ post, className = "", onOpenPost, onOpenComments,
                 event.stopPropagation();
                 setBookmarked((value) => !value);
               }}
-              className={`group inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-primary ${
+              className={`inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-primary ${
                 bookmarked ? "text-primary" : ""
               }`}
             >
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full group-hover:bg-primary/10">
-                {bookmarked ? (
-                  <BookmarkCheck className="h-4 w-4 fill-current" />
-                ) : (
-                  <Bookmark className="h-4 w-4" />
-                )}
-              </span>
+              {bookmarked ? (
+                <BookmarkCheck className="h-4 w-4 fill-current" />
+              ) : (
+                <Bookmark className="h-4 w-4" />
+              )}
               <span className="hidden sm:inline">{bookmarked ? "Saved" : "Bookmark"}</span>
             </button>
           </div>

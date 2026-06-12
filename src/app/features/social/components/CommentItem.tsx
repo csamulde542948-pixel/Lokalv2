@@ -283,13 +283,11 @@ export function CommentItem({
                   event.stopPropagation();
                   handleLike();
                 }}
-                className={`group inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-primary ${
+                className={`inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-primary ${
                   fired ? "text-primary" : ""
                 }`}
               >
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full group-hover:bg-primary/10">
-                  <Flame className={`h-4 w-4 ${fired ? "fill-current" : ""}`} />
-                </span>
+                <Flame className={`h-4 w-4 ${fired ? "fill-current" : ""}`} />
                 <span className="tabular-nums">{localLikes}</span>
               </button>
 
@@ -304,11 +302,9 @@ export function CommentItem({
                     rootCommentId,
                   );
                 }}
-                className="group inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-sky-500"
+                className="inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-sky-500"
               >
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full group-hover:bg-sky-500/10">
-                  <MessageSquare className="h-4 w-4" />
-                </span>
+                <MessageSquare className="h-4 w-4" />
                 <span className="tabular-nums">{comment.repliesCount}</span>
               </button>
             </div>
