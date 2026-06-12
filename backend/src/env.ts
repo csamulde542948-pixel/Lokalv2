@@ -11,7 +11,6 @@ dotenv.config();
 const REQUIRED_ENV: string[] = [
   "DATABASE_URL",
   "SUPABASE_URL",
-  "SUPABASE_SECRET_KEY",
   "FRONTEND_URL",
 ];
 
@@ -42,10 +41,20 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
-if (!process.env.SUPABASE_SECRET_KEY?.startsWith("sb_secret_")) {
+const hasModernSupabaseSecret = process.env.SUPABASE_SECRET_KEY?.startsWith("sb_secret_");
+const hasLegacySupabaseSecret = process.env.SUPABASE_SERVICE_ROLE_KEY?.startsWith("eyJ");
+
+if (!hasModernSupabaseSecret && !hasLegacySupabaseSecret) {
   console.error(
-    "[env] FATAL: SUPABASE_SECRET_KEY must use the modern sb_secret_... format. " +
-    "Legacy service_role JWT keys are not supported."
+    "[env] FATAL: Set SUPABASE_SECRET_KEY to a modern sb_secret_... key. " +
+    "SUPABASE_SERVICE_ROLE_KEY is accepted only as a temporary migration fallback."
   );
   process.exit(1);
+}
+
+if (!hasModernSupabaseSecret && hasLegacySupabaseSecret) {
+  console.warn(
+    "[env] WARNING: Using the legacy Supabase service_role key fallback. " +
+    "Replace it with a valid SUPABASE_SECRET_KEY before disabling legacy API keys."
+  );
 }

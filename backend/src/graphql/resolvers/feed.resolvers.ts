@@ -31,6 +31,7 @@ import {
 } from "../../services/feedRanking";
 import { awardXp, checkAndAwardRoles } from "../../services/xp";
 import { assertAdminPermission } from "../../lib/permissions";
+import { supabaseAdminKey } from "../../lib/supabaseAdminKey";
 
 // ─────────────────────────────────────────────────────────────
 // Cursor Helpers — Relay-style opaque cursor encoding
@@ -3049,10 +3050,9 @@ async function incrementFeedEngagementCount(
  */
 async function triggerInterestEmbeddingRecompute(userId: string): Promise<void> {
   const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
 
-  if (!supabaseUrl || !supabaseSecretKey) {
-    console.warn("[triggerInterestEmbeddingRecompute] Missing SUPABASE_URL or SUPABASE_SECRET_KEY");
+  if (!supabaseUrl || !supabaseAdminKey) {
+    console.warn("[triggerInterestEmbeddingRecompute] Missing Supabase URL or admin key");
     return;
   }
 
@@ -3061,7 +3061,7 @@ async function triggerInterestEmbeddingRecompute(userId: string): Promise<void> 
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        apikey: supabaseSecretKey,
+        apikey: supabaseAdminKey,
       },
       body: JSON.stringify({ userId }),
     });

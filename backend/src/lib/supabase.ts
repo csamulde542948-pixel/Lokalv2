@@ -1,12 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 import type { AuthUser } from "../graphql/context";
+import { supabaseAdminKey } from "./supabaseAdminKey";
 
 const supabaseUrl = process.env.SUPABASE_URL!;
-const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY!;
 
 // Secret-key client - used server-side only. Has full DB access.
 // NEVER expose this to the client.
-export const supabase = createClient(supabaseUrl, supabaseSecretKey, {
+export const supabase = createClient(supabaseUrl, supabaseAdminKey, {
   auth: {
     autoRefreshToken: false,
     persistSession: false,
