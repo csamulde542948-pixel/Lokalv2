@@ -10,9 +10,14 @@ interface TurnstileApi {
     options: {
       sitekey: string;
       theme?: "auto" | "light" | "dark";
+      retry?: "auto" | "never";
+      "retry-interval"?: number;
+      "refresh-expired"?: "auto" | "manual" | "never";
+      "refresh-timeout"?: "auto" | "manual" | "never";
       callback?: (token: string) => void;
       "expired-callback"?: () => void;
-      "error-callback"?: () => void;
+      "error-callback"?: (errorCode?: string) => void;
+      "timeout-callback"?: () => void;
     }
   ) => TurnstileWidgetId;
   reset: (widgetId?: TurnstileWidgetId) => void;
@@ -132,7 +137,18 @@ export function TurnstileCaptcha({
   const widgetIdRef = useRef<TurnstileWidgetId | null>(null);
   const onVerifyRef = useRef(onVerify);
   const previousResetSignalRef = useRef(resetSignal);
-  const [loadError, setLoadError] = useState(false);
+  const retryCountRef = useRef(0);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const destroyWidget = () => {
+    if (widgetIdRef.current && window.turnstile) {
+      window.turnstile.remove(widgetIdRef.current);
+    }
+    widgetIdRef.current = null;
+    if (containerRef.current) {
+      containerRef.current.innerHTML = "";
+    }
+  };
 
   useEffect(() => {
     onVerifyRef.current = onVerify;
@@ -154,37 +170,65 @@ export function TurnstileCaptcha({
           return;
         }
 
+        setErrorMessage(null);
         widgetIdRef.current = window.turnstile.render(containerRef.current, {
           sitekey: TURNSTILE_SITE_KEY,
           theme: "auto",
+          retry: "auto",
+          "retry-interval": 8000,
+          "refresh-expired": "auto",
+          "refresh-timeout": "auto",
           callback: (token) => {
-            setLoadError(false);
+            retryCountRef.current = 0;
+            setErrorMessage(null);
             onVerifyRef.current(token);
           },
           "expired-callback": () => {
             onVerifyRef.current(null);
           },
-          "error-callback": () => {
-            setLoadError(true);
+          "error-callback": (errorCode) => {
             onVerifyRef.current(null);
+            destroyWidget();
+
+            if (retryCountRef.current < 2) {
+              retryCountRef.current += 1;
+              window.setTimeout(() => {
+                if (!cancelled) {
+                  void renderWidget();
+                }
+              }, 600);
+              return;
+            }
+
+            setErrorMessage(
+              errorCode
+                ? `CAPTCHA could not load in this browser. Error code: ${errorCode}.`
+                : "CAPTCHA could not load in this browser."
+            );
+          },
+          "timeout-callback": () => {
+            onVerifyRef.current(null);
+            destroyWidget();
+            if (!cancelled) {
+              window.setTimeout(() => {
+                void renderWidget();
+              }, 400);
+            }
           },
         });
       } catch {
         if (!cancelled) {
-          setLoadError(true);
+          setErrorMessage("CAPTCHA could not load in this browser.");
           onVerifyRef.current(null);
         }
       }
     }
 
-    renderWidget();
+    void renderWidget();
 
     return () => {
       cancelled = true;
-      if (widgetIdRef.current && window.turnstile) {
-        window.turnstile.remove(widgetIdRef.current);
-        widgetIdRef.current = null;
-      }
+      destroyWidget();
     };
   }, []);
 
@@ -195,6 +239,8 @@ export function TurnstileCaptcha({
 
     previousResetSignalRef.current = resetSignal;
     onVerifyRef.current(null);
+    setErrorMessage(null);
+    retryCountRef.current = 0;
 
     if (widgetIdRef.current && window.turnstile) {
       window.turnstile.reset(widgetIdRef.current);
@@ -204,9 +250,9 @@ export function TurnstileCaptcha({
   return (
     <div className={cn("space-y-2", className)}>
       <div ref={containerRef} className="min-h-[65px]" />
-      {loadError ? (
+      {errorMessage ? (
         <p className="text-xs text-destructive">
-          CAPTCHA could not load. Refresh the page and try again.
+          {errorMessage} Refresh the page or disable blocking extensions/tracking protection for this site, then try again.
         </p>
       ) : null}
     </div>
