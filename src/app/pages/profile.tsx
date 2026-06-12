@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useQuery, useMutation } from "@apollo/client/react";
@@ -8,13 +8,15 @@ import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Separator } from "../components/ui/separator";
 import { Skeleton } from "../components/ui/skeleton";
+import { Textarea } from "../components/ui/textarea";
 import { CreatePost } from "../components/create-post";
 import { AvatarFrame, pickFrameRole } from "../components/avatar-frame";
 import { CommentModal } from "../features/social/components/CommentModal";
 import { TimelinePost, type TimelinePostData } from "../features/social/components/TimelinePost";
+import { getFaviconUrl } from "../features/social/roastMeta";
 import {
   MapPin, Link2, Calendar, Code2, Camera,
-  Edit, UserPlus, UserCheck, MoreHorizontal, Star, Image as ImageIcon, Loader2,
+  Check, Edit, UserPlus, UserCheck, MoreHorizontal, Star, Image as ImageIcon, Loader2, X,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { avatarSrc, DEFAULT_COVER } from "../../lib/defaults";
@@ -63,7 +65,7 @@ const GET_USER_POSTS = gql`
 const GET_USER_PROJECTS = gql`
   query GetUserProjectsProfile($userId: ID!) {
     userProjects(userId: $userId) {
-      id name tagline starsCount
+      id name tagline iconUrl projectUrl githubUrl starsCount
       tags { ...TagFields }
     }
   }
@@ -90,11 +92,15 @@ const GET_PROFILE_BY_USERNAME = gql`
 
 const UPDATE_PROFILE = gql`
   mutation ProfileUpdateProfile($input: UpdateProfileInput!) {
-    updateProfile(input: $input) { id avatarUrl coverUrl }
+    updateProfile(input: $input) { id bio avatarUrl coverUrl }
   }
 `;
 
 // Helpers
+
+function getProjectIconUrl(project: any): string | null {
+  return project?.iconUrl ?? getFaviconUrl(project?.projectUrl ?? project?.githubUrl) ?? null;
+}
 
 // Skeletons
 
@@ -130,9 +136,12 @@ export function Profile() {
   const isOtherUser = !!username;
   const [activeTab, setActiveTab] = useState<Tab>("posts");
   const [commentPost, setCommentPost] = useState<TimelinePostData | null>(null);
+  const [bioEditing, setBioEditing] = useState(false);
+  const [bioDraft, setBioDraft] = useState("");
+  const [bioSaving, setBioSaving] = useState(false);
 
   // Own profile
-  const { data: meData, loading: meLoading } = useQuery(GET_ME, {
+  const { data: meData, loading: meLoading, refetch: refetchMe } = useQuery(GET_ME, {
     skip: !user || isOtherUser,
     fetchPolicy: "cache-and-network",
   });
@@ -162,6 +171,11 @@ export function Profile() {
   const coverFileRef  = useRef<HTMLInputElement>(null);
 
   const [updateProfile] = useMutation(UPDATE_PROFILE);
+
+  useEffect(() => {
+    setBioDraft(profile?.bio ?? "");
+    setBioEditing(false);
+  }, [profile?.id, profile?.bio]);
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -245,6 +259,23 @@ export function Profile() {
       // revert on error
       setOptimisticFollowing(!nowFollowing);
       setOptimisticFollowers(followersCount + (nowFollowing ? -1 : 1));
+    }
+  }
+
+  async function handleSaveBio() {
+    if (isOtherUser || !profile?.id) return;
+    const nextBio = bioDraft.trim();
+    setBioSaving(true);
+    const toastId = toast.loading("Saving bio...");
+    try {
+      await updateProfile({ variables: { input: { bio: nextBio } } });
+      await refetchMe();
+      setBioEditing(false);
+      toast.success("Bio updated.", { id: toastId });
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to update bio.", { id: toastId });
+    } finally {
+      setBioSaving(false);
     }
   }
 
@@ -654,11 +685,58 @@ export function Profile() {
                   </div>
                 ) : (
                   <>
-                    {profile?.bio && (
-                      <p className="text-sm text-muted-foreground text-center">{profile.bio}</p>
+                    {bioEditing ? (
+                      <div className="space-y-2">
+                        <Textarea
+                          value={bioDraft}
+                          onChange={(event) => setBioDraft(event.target.value.slice(0, 500))}
+                          placeholder="Tell people what you build, what you are learning, or what you are looking for."
+                          className="min-h-24 resize-none text-sm"
+                          maxLength={500}
+                        />
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-muted-foreground">{bioDraft.length}/500</span>
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="gap-1.5"
+                              onClick={() => {
+                                setBioDraft(profile?.bio ?? "");
+                                setBioEditing(false);
+                              }}
+                              disabled={bioSaving}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="gap-1.5"
+                              onClick={handleSaveBio}
+                              disabled={bioSaving}
+                            >
+                              {bioSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                              Save
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="whitespace-pre-wrap text-sm text-muted-foreground text-center">
+                        {profile?.bio || (isOwnProfile ? "Add a short bio so builders know what you are working on." : "No bio yet.")}
+                      </p>
                     )}
-                    {!isOtherUser && (
-                      <Button variant="secondary" size="sm" className="w-full">
+                    {isOwnProfile && !bioEditing && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => setBioEditing(true)}
+                      >
                         Edit Bio
                       </Button>
                     )}
@@ -700,8 +778,8 @@ export function Profile() {
                         <span>Member of lokalhost.club</span>
                       </div>
                     </div>
-                    {!isOtherUser && (
-                      <Button variant="secondary" size="sm" className="w-full">
+                    {isOwnProfile && (
+                      <Button variant="secondary" size="sm" className="w-full" onClick={() => navigate("/settings")}>
                         Edit Details
                       </Button>
                     )}
@@ -770,10 +848,22 @@ export function Profile() {
                 ) : projects.length === 0 ? (
                   <p className="text-xs text-muted-foreground text-center py-2">No projects yet</p>
                 ) : (
-                  projects.slice(0, 5).map((project: any) => (
+                  projects.slice(0, 5).map((project: any) => {
+                    const projectIcon = getProjectIconUrl(project);
+                    return (
                     <div key={project.id} className="flex items-start gap-3 group cursor-pointer">
-                      <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/20 transition-colors">
+                      <div className="relative w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0 overflow-hidden group-hover:bg-primary/20 transition-colors">
                         <Code2 className="w-6 h-6 text-primary" strokeWidth={2} />
+                        {projectIcon && (
+                          <img
+                            src={projectIcon}
+                            alt=""
+                            className="absolute inset-0 h-full w-full bg-background object-contain p-2"
+                            onError={(event) => {
+                              event.currentTarget.remove();
+                            }}
+                          />
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <h4 className="text-sm font-semibold group-hover:text-primary transition-colors truncate">
@@ -799,7 +889,8 @@ export function Profile() {
                         </div>
                       </div>
                     </div>
-                  ))
+                  );
+                  })
                 )}
               </CardContent>
             </Card>
@@ -973,13 +1064,25 @@ export function Profile() {
                     </p>
                   ) : (
                     <div className="space-y-3">
-                      {projects.map((project: any) => (
+                      {projects.map((project: any) => {
+                        const projectIcon = getProjectIconUrl(project);
+                        return (
                         <div
                           key={project.id}
                           className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted cursor-pointer transition-colors"
                         >
-                          <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <div className="relative w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
                             <Code2 className="w-6 h-6 text-primary" strokeWidth={2} />
+                            {projectIcon && (
+                              <img
+                                src={projectIcon}
+                                alt=""
+                                className="absolute inset-0 h-full w-full bg-background object-contain p-2"
+                                onError={(event) => {
+                                  event.currentTarget.remove();
+                                }}
+                              />
+                            )}
                           </div>
                           <div className="flex-1 min-w-0">
                             <h4 className="text-sm font-semibold truncate">{project.name}</h4>
@@ -1003,7 +1106,8 @@ export function Profile() {
                             </div>
                           </div>
                         </div>
-                      ))}
+                      );
+                      })}
                     </div>
                   )}
                 </CardContent>
