@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { format, formatDistanceToNow } from "date-fns";
+import { AsciiFireAnimation } from "../components/ascii-fire";
+import { useLayoutBottomOffset } from "../features/launchpad";
 
 // ─── GQL ──────────────────────────────────────────────────────────────────────
 
@@ -96,10 +98,10 @@ function TabBtn({ id, active, icon: Icon, label, onClick }: {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg transition-all ${
+      className={`flex items-center gap-2 px-4 py-2.5 text-sm font-mono font-medium rounded-md transition-all ${
         active
-          ? "bg-primary text-primary-foreground shadow-sm"
-          : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+          ? "bg-foreground text-background shadow-sm"
+          : "text-muted-foreground hover:text-foreground hover:bg-background/70"
       }`}
     >
       <Icon className="w-4 h-4" />
@@ -612,6 +614,7 @@ export function LaunchpadManage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const bottomOffset = useLayoutBottomOffset();
   const [activeTab, setActiveTab] = useState<Tab>("overview");
 
   const { data, loading, error } = useQuery(GET_EVENT, {
@@ -640,10 +643,27 @@ export function LaunchpadManage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+    <div className="relative min-h-screen bg-background text-foreground overflow-x-hidden">
+      <div
+        className="fixed inset-x-0 top-0 pointer-events-none z-0"
+        style={{ bottom: `${bottomOffset}px` }}
+      >
+        <AsciiFireAnimation className="absolute inset-0" />
+        <div className="absolute inset-0 bg-background/82" />
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage:
+              "linear-gradient(hsl(var(--border) / 0.35) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border) / 0.35) 1px, transparent 1px)",
+            backgroundSize: "48px 48px",
+          }}
+        />
+      </div>
+
+    <div className="relative z-10 max-w-5xl mx-auto px-4 py-6 space-y-6">
       {/* Header */}
-      <div className="flex items-start gap-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/launchpad")} className="mt-1 shrink-0">
+      <div className="border border-border/60 bg-background/70 backdrop-blur-sm rounded-lg p-4 flex items-start gap-4">
+        <Button variant="ghost" size="sm" onClick={() => navigate("/launchpad")} className="mt-1 shrink-0 rounded-md font-mono">
           <ArrowLeft className="w-4 h-4 mr-1" />
           Back
         </Button>
@@ -667,7 +687,7 @@ export function LaunchpadManage() {
         </div>
         {event?.link && (
           <a href={event.link} target="_blank" rel="noopener noreferrer">
-            <Button variant="outline" size="sm" className="shrink-0">
+            <Button variant="outline" size="sm" className="shrink-0 rounded-md font-mono">
               <ExternalLink className="w-4 h-4 mr-2" />
               Visit
             </Button>
@@ -676,7 +696,7 @@ export function LaunchpadManage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 flex-wrap">
+      <div className="flex items-center gap-1 flex-wrap border border-border/60 bg-background/60 backdrop-blur-sm rounded-lg p-1">
         <TabBtn id="overview"       active={activeTab === "overview"}       icon={BarChart3}   label="Overview"       onClick={() => setActiveTab("overview")} />
         <TabBtn id="participants"   active={activeTab === "participants"}   icon={Users}       label="Participants"   onClick={() => setActiveTab("participants")} />
         <TabBtn id="announcements"  active={activeTab === "announcements"}  icon={Megaphone}   label="Announcements"  onClick={() => setActiveTab("announcements")} />
@@ -686,8 +706,8 @@ export function LaunchpadManage() {
       {/* Tab content */}
       {loading ? (
         <div className="space-y-4">
-          <Skeleton className="h-32 rounded-xl" />
-          <Skeleton className="h-24 rounded-xl" />
+          <Skeleton className="h-32 rounded-lg" />
+          <Skeleton className="h-24 rounded-lg" />
         </div>
       ) : (
         <>
@@ -703,6 +723,7 @@ export function LaunchpadManage() {
           )}
         </>
       )}
+    </div>
     </div>
   );
 }

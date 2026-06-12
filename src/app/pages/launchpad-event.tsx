@@ -127,15 +127,19 @@ export function LaunchpadEvent() {
   const [copied, setCopied] = useState(false);
 
   const eventQuery = useQuery(GET_EVENT, { variables: { id }, skip: !id });
+  const event = eventQuery.data?.launchpadEvent ?? null;
+  const isHost = !!(user && event && event.author?.id === user.id);
+  const canReadUpdates = !!(user && event && (isHost || event.interestedByMe));
+
   const participantsQuery = useQuery(GET_PARTICIPANTS, {
     variables: { eventId: id },
-    skip: !id,
+    skip: !id || !isHost,
   });
   const announcementsQuery = useQuery(GET_ANNOUNCEMENTS, {
     variables: { eventId: id },
-    skip: !id,
+    skip: !id || !canReadUpdates,
   });
-  const statsQuery = useQuery(GET_STATS, { variables: { eventId: id }, skip: !id });
+  const statsQuery = useQuery(GET_STATS, { variables: { eventId: id }, skip: !id || !isHost });
 
   const [markInterested, { loading: joining }] = useMutation(MARK_INTERESTED, {
     update(cache, { data }) {
@@ -148,10 +152,12 @@ export function LaunchpadEvent() {
         },
       });
     },
-    refetchQueries: [
-      { query: GET_PARTICIPANTS, variables: { eventId: id } },
-      { query: GET_STATS, variables: { eventId: id } },
-    ],
+    refetchQueries: isHost
+      ? [
+        { query: GET_PARTICIPANTS, variables: { eventId: id } },
+        { query: GET_STATS, variables: { eventId: id } },
+      ]
+      : [],
   });
 
   const [markNotInterested, { loading: leaving }] = useMutation(MARK_NOT_INTERESTED, {
@@ -165,18 +171,18 @@ export function LaunchpadEvent() {
         },
       });
     },
-    refetchQueries: [
-      { query: GET_PARTICIPANTS, variables: { eventId: id } },
-      { query: GET_STATS, variables: { eventId: id } },
-    ],
+    refetchQueries: isHost
+      ? [
+        { query: GET_PARTICIPANTS, variables: { eventId: id } },
+        { query: GET_STATS, variables: { eventId: id } },
+      ]
+      : [],
   });
 
-  const event = eventQuery.data?.launchpadEvent ?? null;
   const participants: any[] = participantsQuery.data?.launchpadEventParticipants ?? [];
   const announcements: any[] = announcementsQuery.data?.launchpadAnnouncements ?? [];
   const stats = statsQuery.data?.launchpadEventStats;
   const cfg = event ? eventTypeConfig[event.eventType as LaunchpadEventType] : null;
-  const isHost = !!(user && event && event.author?.id === user.id);
   const dl = event ? deadlineLabel(event.deadline) : null;
 
   // ── Not found ─────────────────────────────────────────────────────────────
@@ -248,8 +254,8 @@ export function LaunchpadEvent() {
           className="absolute inset-0"
           style={{
             backgroundImage:
-              "radial-gradient(circle, hsl(var(--foreground) / 0.22) 1.5px, transparent 1.5px)",
-            backgroundSize: "32px 32px",
+              "linear-gradient(hsl(var(--border) / 0.35) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border) / 0.35) 1px, transparent 1px), radial-gradient(circle, hsl(var(--foreground) / 0.18) 1.2px, transparent 1.2px)",
+            backgroundSize: "48px 48px, 48px 48px, 24px 24px",
           }}
         />
       </div>

@@ -22,6 +22,8 @@ import {
   AlertTriangle, RefreshCw, Lock, CheckCircle2,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
+import { AsciiFireAnimation } from "../components/ascii-fire";
+import { useLayoutBottomOffset } from "../features/launchpad";
 
 // ─── GQL ──────────────────────────────────────────────────────────────────────
 
@@ -111,6 +113,7 @@ export function LaunchpadChat() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const bottomOffset = useLayoutBottomOffset();
   const [draft, setDraft] = useState("");
   const [isPollingPaused, setIsPollingPaused] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -240,7 +243,22 @@ export function LaunchpadChat() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
+    <div className="relative min-h-screen bg-background text-foreground flex flex-col overflow-x-hidden">
+      <div
+        className="fixed inset-x-0 top-0 pointer-events-none z-0"
+        style={{ bottom: `${bottomOffset}px` }}
+      >
+        <AsciiFireAnimation className="absolute inset-0" />
+        <div className="absolute inset-0 bg-background/82" />
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage:
+              "linear-gradient(hsl(var(--border) / 0.35) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border) / 0.35) 1px, transparent 1px)",
+            backgroundSize: "48px 48px",
+          }}
+        />
+      </div>
       <ChatHeader
         event={event}
         isHost={isHost}
@@ -249,7 +267,7 @@ export function LaunchpadChat() {
       />
 
       {/* Thread */}
-      <div className="flex-1 min-h-0 px-4 sm:px-6 lg:px-8 py-6 max-w-3xl mx-auto w-full">
+      <div className="relative z-10 flex-1 min-h-0 px-4 sm:px-6 lg:px-8 py-6 max-w-3xl mx-auto w-full">
         {messagesQuery.loading && messages.length === 0 ? (
           <div className="space-y-3">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -265,7 +283,7 @@ export function LaunchpadChat() {
             <p className="text-xs text-muted-foreground/40">Be the first to break the silence.</p>
           </div>
         ) : (
-          <div className="space-y-5">
+          <div className="space-y-5 border border-border/60 bg-background/55 backdrop-blur-sm rounded-lg p-3 sm:p-4">
             {grouped.map((group) => (
               <div key={group.day} className="space-y-2">
                 <div className="flex items-center gap-3">
@@ -281,6 +299,7 @@ export function LaunchpadChat() {
                     message={m}
                     isMine={m.author.id === user.id}
                     isHost={isHost}
+                    hostId={event.author.id}
                     onDelete={() => handleDelete(m.id)}
                   />
                 ))}
@@ -293,7 +312,7 @@ export function LaunchpadChat() {
 
       {/* Composer */}
       {event.isOpen ? (
-        <div className="sticky bottom-0 border-t border-border/60 bg-background/95 backdrop-blur-md">
+        <div className="relative z-20 sticky bottom-0 border-t border-border/60 bg-background/95 backdrop-blur-md">
           <form
             onSubmit={handleSend}
             className="px-4 sm:px-6 lg:px-8 py-3 max-w-3xl mx-auto w-full flex items-end gap-2"
@@ -308,7 +327,7 @@ export function LaunchpadChat() {
                 }
               }}
               placeholder={`Message ${event.projectName || event.title}…`}
-              className="min-h-[44px] max-h-32 resize-none font-mono text-sm"
+              className="min-h-[44px] max-h-32 resize-none font-mono text-sm rounded-md bg-background/80"
               rows={1}
               maxLength={MAX_BODY}
               disabled={sending}
@@ -316,7 +335,7 @@ export function LaunchpadChat() {
             <Button
               type="submit"
               size="sm"
-              className="h-11 px-4 gap-1.5"
+              className="h-11 px-4 gap-1.5 rounded-md font-mono"
               disabled={sending || !draft.trim()}
             >
               {sending
@@ -327,7 +346,7 @@ export function LaunchpadChat() {
           </form>
         </div>
       ) : (
-        <div className="sticky bottom-0 border-t border-border/60 bg-background/95 backdrop-blur-md">
+        <div className="relative z-20 sticky bottom-0 border-t border-border/60 bg-background/95 backdrop-blur-md">
           <div className="px-4 sm:px-6 lg:px-8 py-3 max-w-3xl mx-auto w-full flex items-center gap-2 text-sm text-muted-foreground/70">
             <Lock className="w-4 h-4" />
             This event is closed. New messages are disabled.
@@ -342,9 +361,9 @@ export function LaunchpadChat() {
 
 function ChatHeader({ event, isHost, onBack, eventId }: { event: EventSummary; isHost: boolean; onBack: () => void; eventId: string }) {
   return (
-    <div className="sticky top-16 z-30 border-b border-border/60 bg-background/95 backdrop-blur-md">
+    <div className="sticky top-16 z-30 border-b border-border/60 bg-background/90 backdrop-blur-md">
       <div className="px-4 sm:px-6 lg:px-8 py-3 max-w-3xl mx-auto w-full flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={onBack} className="gap-1.5 text-[11px] h-7 px-2 text-muted-foreground hover:text-foreground rounded-lg">
+        <Button variant="ghost" size="sm" onClick={onBack} className="gap-1.5 text-[11px] h-7 px-2 text-muted-foreground hover:text-foreground rounded-md font-mono">
           <ArrowLeft className="w-3.5 h-3.5" />
           launchpad
         </Button>
@@ -356,7 +375,7 @@ function ChatHeader({ event, isHost, onBack, eventId }: { event: EventSummary; i
           {event.title}
         </Link>
         <span className="text-muted-foreground/30">/</span>
-        <span className="text-[11px] font-semibold flex-shrink-0">chat</span>
+        <span className="text-[11px] font-mono font-semibold flex-shrink-0">[chat]</span>
         {isHost && (
           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold uppercase tracking-wider text-[9px] flex-shrink-0">
             <Sparkles className="w-2.5 h-2.5" /> host
@@ -389,11 +408,13 @@ function MessageBubble({
   message,
   isMine,
   isHost,
+  hostId,
   onDelete,
 }: {
   message: ChatMessage;
   isMine: boolean;
   isHost: boolean;
+  hostId: string;
   onDelete: () => void;
 }) {
   if (message.isSystem) {
@@ -416,7 +437,7 @@ function MessageBubble({
   }
 
   const canDelete = isMine || isHost;
-  const authorIsHost = isHost && message.author.id === isHost;
+  const authorIsHost = message.author.id === hostId;
 
   return (
     <div className={`flex items-start gap-2 group ${isMine ? "flex-row-reverse" : ""}`}>

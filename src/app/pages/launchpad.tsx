@@ -82,11 +82,11 @@ const SORT_OPTIONS: { id: SortKey; label: string; icon: typeof Clock }[] = [
 
 function EventCardSkeleton({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="rounded-2xl border border-border/50 overflow-hidden bg-card">
+    <div className="rounded-lg border border-border/60 overflow-hidden bg-background/70">
       <Skeleton className={cn("w-full", compact ? "aspect-[21/9]" : "aspect-[16/9]")} />
       <div className="p-4 space-y-3">
         <div className="flex items-center gap-3">
-          <Skeleton className="h-9 w-9 rounded-lg" />
+          <Skeleton className="h-9 w-9 rounded-md" />
           <div className="flex-1 space-y-1.5">
             <Skeleton className="h-3.5 w-3/4" />
             <Skeleton className="h-3 w-1/2" />
@@ -94,7 +94,7 @@ function EventCardSkeleton({ compact = false }: { compact?: boolean }) {
         </div>
         <Skeleton className="h-3 w-full" />
         <Skeleton className="h-3 w-5/6" />
-        <Skeleton className="h-1.5 w-full rounded-full" />
+          <Skeleton className="h-1.5 w-full rounded-sm" />
       </div>
     </div>
   );
@@ -124,11 +124,11 @@ function EventCard({ event, user, onJoin, onLeave, joining, onClick }: {
   return (
     <Card
       onClick={onClick}
-      className="group overflow-hidden border-border/50 hover:border-border hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 rounded-2xl bg-card cursor-pointer"
+      className="group overflow-hidden border-border/60 hover:border-orange-500/50 transition-all duration-300 rounded-lg bg-background/75 backdrop-blur-sm cursor-pointer shadow-none"
     >
       <CardContent className="p-0">
         {/* ── Screenshot banner ──────────────────────────────────────── */}
-        <div className="relative aspect-[16/9] overflow-hidden bg-muted">
+        <div className="relative aspect-[16/9] overflow-hidden bg-muted border-b border-border/60">
           {event.screenshotUrl ? (
             <img
               src={event.screenshotUrl}
@@ -143,9 +143,9 @@ function EventCard({ event, user, onJoin, onLeave, joining, onClick }: {
           <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
 
           {/* Type badge — top left */}
-          <Badge className={cn("absolute top-2.5 left-2.5 gap-1 backdrop-blur-md", cfg.bg, cfg.accent, cfg.border, "border")}>
+          <Badge className={cn("absolute top-2.5 left-2.5 gap-1 backdrop-blur-md rounded-sm font-mono uppercase tracking-wider", cfg.bg, cfg.accent, cfg.border, "border")}>
             <EventIcon className="w-3 h-3" strokeWidth={2.5} />
-            {cfg.short}
+            [{cfg.short}]
           </Badge>
 
           {/* Status badge — top right */}
@@ -156,7 +156,7 @@ function EventCard({ event, user, onJoin, onLeave, joining, onClick }: {
           )}
 
           {/* Author chip — bottom right */}
-          <div className="absolute bottom-2.5 right-2.5 flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10">
+          <div className="absolute bottom-2.5 right-2.5 flex items-center gap-1.5 px-2 py-1 rounded-sm bg-black/60 backdrop-blur-md border border-white/10">
             <Avatar className="w-4 h-4">
               {event.author?.avatarUrl && <AvatarImage src={event.author.avatarUrl} />}
               <AvatarFallback className="text-[8px]">
@@ -170,9 +170,13 @@ function EventCard({ event, user, onJoin, onLeave, joining, onClick }: {
 
         {/* ── Body ──────────────────────────────────────────────────── */}
         <div className="p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3 text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground">
+            <span>// launch cell</span>
+            <span>{event.projectStatus || "open"}</span>
+          </div>
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0 flex-1">
-              <h3 className="font-semibold text-sm leading-tight truncate">
+              <h3 className="font-semibold text-sm leading-tight truncate tracking-tight">
                 {event.projectName || event.title}
               </h3>
               {event.title && event.title !== event.projectName && (
@@ -193,7 +197,7 @@ function EventCard({ event, user, onJoin, onLeave, joining, onClick }: {
               {event.tags.slice(0, 3).map((t: any) => (
                 <span
                   key={t.name}
-                  className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground"
+                  className="text-[9px] font-mono px-1.5 py-0.5 rounded-sm border border-border/60 bg-muted/50 text-muted-foreground"
                 >
                   #{t.name}
                 </span>
@@ -202,7 +206,7 @@ function EventCard({ event, user, onJoin, onLeave, joining, onClick }: {
           )}
 
           {/* Meta row */}
-          <div className="flex items-center justify-between text-[11px]">
+          <div className="flex items-center justify-between text-[11px] font-mono">
             {dl && (
               <span
                 className={cn(
@@ -223,9 +227,9 @@ function EventCard({ event, user, onJoin, onLeave, joining, onClick }: {
 
           {/* Progress bar */}
           {spotsTotal !== null && (
-            <div className="h-1 rounded-full bg-muted overflow-hidden">
+            <div className="h-1 rounded-sm bg-muted overflow-hidden">
               <div
-                className={cn("h-full rounded-full transition-all duration-500", cfg.bar)}
+                className={cn("h-full rounded-sm transition-all duration-500", cfg.bar)}
                 style={{ width: `${pct}%` }}
               />
             </div>
@@ -241,16 +245,16 @@ function EventCard({ event, user, onJoin, onLeave, joining, onClick }: {
                 <Button
                   size="sm" variant="outline"
                   onClick={onClick}
-                  className="flex-1 h-8 gap-1.5 rounded-xl text-xs"
+                  className="flex-1 h-8 gap-1.5 rounded-md text-xs font-mono"
                 >
-                  <MessageSquare className="w-3.5 h-3.5" /> Manage
+                  <MessageSquare className="w-3.5 h-3.5" /> Open controls
                 </Button>
               </>
             ) : event.interestedByMe ? (
               <Button
                 size="sm"
                 onClick={onClick}
-                className={cn("w-full h-8 gap-1.5 rounded-xl text-xs", cfg.bg, cfg.accent, "hover:opacity-90")}
+                className={cn("w-full h-8 gap-1.5 rounded-md text-xs font-mono", cfg.bg, cfg.accent, "hover:opacity-90")}
               >
                 <MessageSquare className="w-3.5 h-3.5" /> Open
               </Button>
@@ -259,7 +263,7 @@ function EventCard({ event, user, onJoin, onLeave, joining, onClick }: {
                 size="sm"
                 onClick={onClick}
                 disabled={!user || isFull || isClosed}
-                className="w-full h-8 gap-1.5 rounded-xl text-xs"
+                className="w-full h-8 gap-1.5 rounded-md text-xs font-mono"
               >
                 <EventIcon className="w-3.5 h-3.5" />
                 {isClosed ? "Closed" : isFull ? "Full" : "View details"}
@@ -399,40 +403,55 @@ export function Launchpad() {
           className="absolute inset-0"
           style={{
             backgroundImage:
-              "radial-gradient(circle, hsl(var(--foreground) / 0.22) 1.5px, transparent 1.5px)",
-            backgroundSize: "32px 32px",
+              "linear-gradient(hsl(var(--border) / 0.4) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border) / 0.4) 1px, transparent 1px), radial-gradient(circle, hsl(var(--foreground) / 0.18) 1.2px, transparent 1.2px)",
+            backgroundSize: "48px 48px, 48px 48px, 24px 24px",
           }}
         />
       </div>
 
       <div className="relative z-10 container mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 max-w-7xl">
         {/* ── Header ── */}
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 flex items-center justify-center flex-shrink-0">
-              <Rocket className="w-5 h-5 sm:w-6 sm:h-6 text-primary" strokeWidth={2} />
+        <div className="border border-border/60 bg-background/70 backdrop-blur-sm rounded-lg p-4 sm:p-5 mb-5">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-md bg-orange-500/10 border border-orange-500/30 flex items-center justify-center flex-shrink-0">
+                <Rocket className="w-5 h-5 sm:w-6 sm:h-6 text-primary" strokeWidth={2} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-mono uppercase tracking-[0.28em] text-orange-500/80 mb-1">// launchpad control grid</p>
+                <h1 className="text-xl sm:text-2xl font-bold leading-tight tracking-tight">Launchpad</h1>
+                <p className="text-xs sm:text-sm text-muted-foreground max-w-2xl">
+                  Manage launches, joiner queues, updates, and event chat from one operational surface.
+                </p>
+              </div>
             </div>
-            <div className="min-w-0">
-              <h1 className="text-xl sm:text-2xl font-bold leading-tight tracking-tight">Launchpad</h1>
-              <p className="text-xs sm:text-sm text-muted-foreground">
-                Find beta testers, get feedback, launch products, hire collaborators.
-              </p>
-            </div>
+            {user && (
+              <Button
+                onClick={() => setShowWizard(true)}
+                className="gap-1.5 rounded-md font-mono"
+              >
+                <Plus className="w-4 h-4" />
+                Create Event
+              </Button>
+            )}
           </div>
-          {user && (
-            <Button
-              onClick={() => setShowWizard(true)}
-              className="gap-1.5 rounded-xl"
-            >
-              <Plus className="w-4 h-4" />
-              Create Event
-            </Button>
-          )}
+          <div className="grid grid-cols-3 gap-px bg-border/60 mt-5 border border-border/60 rounded-md overflow-hidden">
+            {[
+              ["events", events.length],
+              ["hosting", hostingCount],
+              ["joined", joinedCount],
+            ].map(([label, value]) => (
+              <div key={label} className="bg-background/80 px-3 py-2">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">[{label}]</div>
+                <div className="text-lg font-semibold tabular-nums">{value}</div>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* ── Scope tabs + count ── */}
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <div className="inline-flex p-1 bg-muted/60 rounded-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <div className="inline-flex p-1 bg-background/70 border border-border/60 rounded-lg w-fit">
             {([
               { id: "all",     label: "All",     count: events.length },
               ...(user ? [
@@ -444,9 +463,9 @@ export function Launchpad() {
                 key={s.id}
                 onClick={() => setScope(s.id)}
                 className={cn(
-                  "px-3 h-8 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5",
+                  "px-3 h-8 text-xs font-mono font-semibold rounded-md transition-colors flex items-center gap-1.5",
                   scope === s.id
-                    ? "bg-background text-foreground shadow-sm"
+                    ? "bg-foreground text-background shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
@@ -464,7 +483,7 @@ export function Launchpad() {
           {/* Sort dropdown */}
           <div className="flex items-center gap-1.5 text-xs">
             <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground" />
-            <div className="inline-flex p-0.5 bg-muted/40 rounded-lg">
+            <div className="inline-flex p-0.5 bg-background/70 border border-border/60 rounded-lg">
               {SORT_OPTIONS.map(o => {
                 const Icon = o.icon;
                 const active = sort === o.id;
@@ -473,9 +492,9 @@ export function Launchpad() {
                     key={o.id}
                     onClick={() => setSort(o.id)}
                     className={cn(
-                      "px-2 h-7 text-[11px] font-medium rounded-md flex items-center gap-1 transition-colors",
+                      "px-2 h-7 text-[11px] font-mono font-medium rounded-md flex items-center gap-1 transition-colors",
                       active
-                        ? "bg-background text-foreground shadow-sm"
+                        ? "bg-foreground text-background shadow-sm"
                         : "text-muted-foreground hover:text-foreground"
                     )}
                   >
@@ -489,14 +508,14 @@ export function Launchpad() {
         </div>
 
         {/* ── Filters + search ── */}
-        <div className="flex flex-col sm:flex-row gap-3 mb-6">
+        <div className="flex flex-col sm:flex-row gap-3 mb-6 border border-border/60 bg-background/60 backdrop-blur-sm rounded-lg p-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
             <Input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search events, projects, tags…"
-              className="pl-9 h-10 rounded-xl"
+              className="pl-9 h-10 rounded-md bg-background/70 font-mono text-sm"
             />
             {search && (
               <button
@@ -514,7 +533,7 @@ export function Launchpad() {
                 key={tab.id}
                 onClick={() => setFilter(tab.id)}
                 className={cn(
-                  "flex-shrink-0 px-3 h-9 rounded-xl text-xs font-semibold transition-colors",
+                  "flex-shrink-0 px-3 h-9 rounded-md text-xs font-mono font-semibold transition-colors",
                   filter === tab.id
                     ? "bg-foreground text-background"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
@@ -527,7 +546,7 @@ export function Launchpad() {
         </div>
 
         {error && (
-          <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive mb-6">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive mb-6">
             {error.message}
           </div>
         )}
@@ -550,14 +569,14 @@ export function Launchpad() {
 
           {showEmpty && (
             <div className="col-span-full">
-              <div className="border-2 border-dashed border-border rounded-2xl py-16 text-center">
-                <div className="w-16 h-16 rounded-2xl bg-primary/10 border-2 border-primary/20 flex items-center justify-center mx-auto mb-4">
+              <div className="border border-dashed border-border rounded-lg py-16 text-center bg-background/60">
+                <div className="w-16 h-16 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-4">
                   <Rocket className="w-8 h-8 text-primary" strokeWidth={1.5} />
                 </div>
                 <h3 className="font-bold text-lg mb-2">No launch events yet</h3>
                 <p className="text-sm text-muted-foreground mb-5">Be the first to share a launch or find collaborators.</p>
                 {user && (
-                  <Button onClick={() => setShowWizard(true)} className="gap-2 rounded-xl">
+                  <Button onClick={() => setShowWizard(true)} className="gap-2 rounded-md">
                     <Plus className="w-4 h-4" />Create Event
                   </Button>
                 )}
@@ -567,7 +586,7 @@ export function Launchpad() {
 
           {showNoMatch && (
             <div className="col-span-full">
-              <div className="border-2 border-dashed border-border rounded-2xl py-12 text-center">
+              <div className="border border-dashed border-border rounded-lg py-12 text-center bg-background/60">
                 <Filter className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
                 <h3 className="font-semibold text-sm mb-1">
                   {scope === "hosting"

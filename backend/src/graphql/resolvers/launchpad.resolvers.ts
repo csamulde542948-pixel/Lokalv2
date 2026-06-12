@@ -124,9 +124,13 @@ export const launchpadResolvers = {
       { user, prisma }: GraphQLContext
     ) => {
       if (!user) throw new Error("Unauthorized");
-      const event = await prisma.launchpadEvent.findUnique({ where: { id: eventId } });
+      const event = await prisma.launchpadEvent.findUnique({
+        where: { id: eventId },
+        include: { interests: { select: { profileId: true } } },
+      });
       if (!event) throw new Error("Event not found");
-      if (event.creatorId !== user.id) throw new Error("Forbidden");
+      const canRead = event.creatorId === user.id || event.interests.some((i) => i.profileId === user.id);
+      if (!canRead) throw new Error("Forbidden");
 
       return prisma.launchpadAnnouncement.findMany({
         where: { launchpadEventId: eventId },
@@ -316,32 +320,44 @@ export const launchpadResolvers = {
         throw new Error("Invalid email address");
       }
 
-      await prisma.launchpadInterest.upsert({
-        where: {
-          launchpadEventId_profileId: {
+      const updated = await prisma.$transaction(async (tx) => {
+        const existing = await tx.launchpadInterest.findUnique({
+          where: {
+            launchpadEventId_profileId: {
+              launchpadEventId,
+              profileId: user.id,
+            },
+          },
+          select: { id: true },
+        });
+
+        await tx.launchpadInterest.upsert({
+          where: {
+            launchpadEventId_profileId: {
+              launchpadEventId,
+              profileId: user.id,
+            },
+          },
+          create: {
             launchpadEventId,
             profileId: user.id,
+            commitmentEmail: commitmentEmail ?? null,
+            commitmentNote: commitmentNote ?? null,
           },
-        },
-        create: {
-          launchpadEventId,
-          profileId: user.id,
-          commitmentEmail: commitmentEmail ?? null,
-          commitmentNote: commitmentNote ?? null,
-        },
-        update: {
-          ...(commitmentEmail ? { commitmentEmail } : {}),
-          ...(commitmentNote ? { commitmentNote } : {}),
-        },
-      });
+          update: {
+            ...(commitmentEmail !== undefined ? { commitmentEmail: commitmentEmail ?? null } : {}),
+            ...(commitmentNote !== undefined ? { commitmentNote: commitmentNote ?? null } : {}),
+          },
+        });
 
-      const updated = await prisma.launchpadEvent.update({
-        where: { id: launchpadEventId },
-        data: { interestedCount: { increment: 1 } },
-        include: {
-          creator: { include: { rank: true } },
-          tags: { include: { tag: true } },
-        },
+        return tx.launchpadEvent.update({
+          where: { id: launchpadEventId },
+          data: existing ? {} : { interestedCount: { increment: 1 } },
+          include: {
+            creator: { include: { rank: true } },
+            tags: { include: { tag: true } },
+          },
+        });
       });
 
       return updated;
@@ -354,17 +370,26 @@ export const launchpadResolvers = {
     ) => {
       if (!user) throw new Error("Unauthorized");
 
-      await prisma.launchpadInterest.deleteMany({
-        where: { launchpadEventId, profileId: user.id },
-      });
+      return prisma.$transaction(async (tx) => {
+        const deleted = await tx.launchpadInterest.deleteMany({
+          where: { launchpadEventId, profileId: user.id },
+        });
 
-      return prisma.launchpadEvent.update({
-        where: { id: launchpadEventId },
-        data: { interestedCount: { decrement: 1 } },
-        include: {
-          creator: { include: { rank: true } },
-          tags: { include: { tag: true } },
-        },
+        if (deleted.count > 0) {
+          await tx.$executeRaw`
+            UPDATE launchpad_events
+            SET "interestedCount" = GREATEST(0, "interestedCount" - 1)
+            WHERE id = ${launchpadEventId}
+          `;
+        }
+
+        return tx.launchpadEvent.findUniqueOrThrow({
+          where: { id: launchpadEventId },
+          include: {
+            creator: { include: { rank: true } },
+            tags: { include: { tag: true } },
+          },
+        });
       });
     },
 
