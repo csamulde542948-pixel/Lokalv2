@@ -1,5 +1,10 @@
 const modernSecret = process.env.SUPABASE_SECRET_KEY;
 const legacyServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const authKey = process.env.SUPABASE_AUTH_KEY;
 
 export const supabaseAdminKey =
-  modernSecret?.startsWith("sb_secret_") ? modernSecret : legacyServiceRole!;
+  modernSecret?.startsWith("sb_secret_")
+    ? modernSecret
+    : legacyServiceRole?.startsWith("eyJ")
+      ? legacyServiceRole
+      : authKey!;
