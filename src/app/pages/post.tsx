@@ -141,6 +141,8 @@ export function PostPage() {
         <CommentModal
           postId={post.id}
           authorName={authorName}
+          authorUsername={post.author.username}
+          authorAvatarUrl={post.author.avatarUrl}
           content={post.content}
           initialCount={commentCount}
           onClose={() => setCommentModalOpen(false)}

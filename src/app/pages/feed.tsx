@@ -262,6 +262,8 @@ export function Feed() {
         <CommentModal
           postId={commentPost.id}
           authorName={commentPost.author.displayName ?? commentPost.author.name ?? commentPost.author.username}
+          authorUsername={commentPost.author.username}
+          authorAvatarUrl={commentPost.author.avatarUrl}
           content={commentPost.content}
           initialCount={commentPost.commentsCount}
           onClose={() => setCommentPost(null)}

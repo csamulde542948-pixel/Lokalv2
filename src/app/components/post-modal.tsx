@@ -402,6 +402,8 @@ export function PostModal({ postId, onClose, notifType }: PostModalProps) {
         <CommentModal
           postId={p.id}
           authorName={p.author?.displayName ?? p.author?.name ?? p.author?.username ?? "Post"}
+          authorUsername={p.author?.username}
+          authorAvatarUrl={p.author?.avatarUrl}
           content={p.content}
           initialCount={commentCount}
           onClose={() => setCommentModalOpen(false)}

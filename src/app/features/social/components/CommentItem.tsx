@@ -101,7 +101,7 @@ export function CommentItem({
   const rootCommentId = topLevelParentId ?? comment.id;
   const replyApiParentId = rootCommentId;
   // Direct replies are collapsed until the user opens them.
-  const [repliesExpanded, setRepliesExpanded] = useState(false);
+  const [repliesExpanded, setRepliesExpanded] = useState(depth === 0 && comment.replies.length > 0);
 
   const effectiveReplies = comment.replies;
 
