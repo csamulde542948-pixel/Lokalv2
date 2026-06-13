@@ -52,7 +52,7 @@ export function CookiePolicy() {
                   ["lokal_access_token", "HttpOnly cookie", "Authenticates backend requests without exposing the token to page scripts", "1 hour"],
                   ["lokal_refresh_token", "HttpOnly cookie", "Renews the backend session", "30 days"],
                   ["lokal_csrf_token", "Secure cookie / sessionStorage", "Protects authenticated mutations from cross-site requests", "Up to 30 days"],
-                  ["lokal-supabase-auth", "sessionStorage", "Supabase authentication session for the active tab", "Until the tab is closed"],
+                  ["lokal-supabase-auth-code-verifier", "sessionStorage", "One-time PKCE verifier used to complete an OAuth redirect; it contains no access or refresh token", "Removed after sign-in"],
                   ["lokal:pending_roast", "sessionStorage", "Temporarily stores roast data across redirect", "Browser session"],
                   ["lokal:pending_publish", "sessionStorage", "Tracks pending publish action across auth redirect", "Browser session"],
                   ["lokal:auth_redirect", "sessionStorage", "Saves redirect target for OAuth flows", "Browser session"],

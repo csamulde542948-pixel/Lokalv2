@@ -24,7 +24,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { useAuth } from "../../contexts/AuthContext";
-import { supabase } from "../../lib/supabase";
+import { uploadPublicFile } from "../../lib/signed-storage-upload";
 import { avatarSrc } from "../../lib/defaults";
 import { BACKEND_URL } from "../../lib/env";
 
@@ -276,26 +276,16 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
     const urls: string[] = [];
     for (const { file } of items) {
       const ext = file.name.split(".").pop() ?? "jpg";
-      const path = `posts/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error } = await supabase.storage
-        .from("post-images")
-        .upload(path, file, { cacheControl: "3600", contentType: file.type, upsert: false });
-      if (error) throw error;
-      const { data } = supabase.storage.from("post-images").getPublicUrl(path);
-      urls.push(data.publicUrl);
+      const path = `posts/${user!.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      urls.push(await uploadPublicFile({ bucket: "post-images", path, file }));
     }
     return urls;
   }
 
   async function uploadVideoToSupabase(item: NonNullable<VideoPreview>): Promise<string> {
     const ext = item.file.name.split(".").pop() ?? "mp4";
-    const path = `posts/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const { error } = await supabase.storage
-      .from("post-videos")
-      .upload(path, item.file, { cacheControl: "3600", contentType: item.file.type, upsert: false });
-    if (error) throw error;
-    const { data } = supabase.storage.from("post-videos").getPublicUrl(path);
-    return data.publicUrl;
+    const path = `posts/${user!.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    return uploadPublicFile({ bucket: "post-videos", path, file: item.file });
   }
 
   async function handlePost() {

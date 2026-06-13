@@ -51,26 +51,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
 
-    const loadInitialSession = async () => {
-      const { data } = await supabase.auth.getSession();
+    const loadCookieSession = async () => {
+      const cookieUser = await getSessionCookieUser().catch(() => null);
       if (cancelled) return;
-
-      if (data.session) {
-        await syncSessionCookie(data.session).catch(() => {});
-        if (cancelled) return;
-        setSession(data.session);
-        setUser(data.session.user);
-      } else {
-        const cookieUser = await getSessionCookieUser().catch(() => null);
-        if (cancelled) return;
-        setSession(null);
-        setUser(cookieUser);
-      }
-
+      setSession(null);
+      setUser(cookieUser);
       setLoading(false);
     };
 
-    loadInitialSession().catch(() => {
+    loadCookieSession().catch(() => {
       if (!cancelled) {
         setSession(null);
         setUser(null);
@@ -84,7 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (event === "INITIAL_SESSION") return;
 
-      setSession(newSession);
+      setSession(null);
       setUser(newSession?.user ?? null);
       setLoading(false);
 
@@ -104,14 +93,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Security: Clear state on sign-out
       if (event === "SIGNED_OUT") {
-        clearSessionCookie().catch(() => {});
         setSession(null);
         setUser(null);
       }
     });
 
+    const refreshCookieSession = () => {
+      if (document.visibilityState === "visible") {
+        loadCookieSession().catch(() => {});
+      }
+    };
+    const refreshTimer = window.setInterval(refreshCookieSession, 30 * 60 * 1000);
+    document.addEventListener("visibilitychange", refreshCookieSession);
+
     return () => {
       cancelled = true;
+      window.clearInterval(refreshTimer);
+      document.removeEventListener("visibilitychange", refreshCookieSession);
       subscription.unsubscribe();
     };
   }, []);
@@ -125,6 +123,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       if (data.session) {
         await syncSessionCookie(data.session);
+        setSession(null);
+        setUser(data.session.user);
       }
       return { error, session: data.session ?? null };
     },
@@ -149,6 +149,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       if (data.session) {
         await syncSessionCookie(data.session);
+        setSession(null);
+        setUser(data.session.user);
       }
       return { error, session: data.session ?? null };
     },
@@ -229,9 +231,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    const { error } = await supabase.auth.signOut();
     await clearSessionCookie().catch(() => {});
-    return { error };
+    setSession(null);
+    setUser(null);
+    return { error: null };
   }, []);
 
   return (

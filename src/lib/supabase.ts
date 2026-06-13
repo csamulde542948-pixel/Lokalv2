@@ -3,7 +3,7 @@ import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "./env";
 import {
   AUTH_STORAGE_KEY,
   clearLegacySupabaseAuthStorage,
-  secureAuthStorage,
+  pkceOnlyAuthStorage,
 } from "./secure-auth-storage";
 
 clearLegacySupabaseAuthStorage();
@@ -11,10 +11,10 @@ clearLegacySupabaseAuthStorage();
 export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
     flowType: "pkce",
-    autoRefreshToken: true,
+    autoRefreshToken: false,
     persistSession: true,
     detectSessionInUrl: false,
-    storage: secureAuthStorage,
+    storage: pkceOnlyAuthStorage,
     storageKey: AUTH_STORAGE_KEY,
   },
 });

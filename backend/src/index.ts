@@ -550,6 +550,20 @@ async function startServer() {
     next();
   }
 
+  function requireCookieCsrf(req: any, res: any, next: any) {
+    if (!req.user) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
+    const headerToken = req.headers["x-csrf-token"];
+    const cookieToken = readCookie(req, AUTH_CSRF_COOKIE);
+    if (!headerToken || typeof headerToken !== "string" || !cookieToken || headerToken !== cookieToken) {
+      return res.status(403).json({ error: "CSRF token mismatch" });
+    }
+
+    next();
+  }
+
   function enforceGraphqlMutationBatchLimit(req: any, res: any, next: any) {
     const analysis = analyzeGraphqlRequest(
       req.body?.query,
@@ -594,7 +608,14 @@ async function startServer() {
     }
   });
 
-  app.delete("/auth/session-cookie", sessionCookieRateLimiter, requireSameOrigin, (_req: any, res: any) => {
+  app.delete("/auth/session-cookie", sessionCookieRateLimiter, requireSameOrigin, async (req: any, res: any) => {
+    const accessToken = readCookie(req, AUTH_ACCESS_COOKIE);
+    if (accessToken) {
+      const { error } = await supabaseAdmin.auth.admin.signOut(accessToken, "global");
+      if (error) {
+        console.warn("[session-cookie:delete] Session revocation failed:", error.message);
+      }
+    }
     clearSessionCookies(res);
     res.set("Cache-Control", "no-store");
     return res.json({ ok: true });
@@ -692,26 +713,17 @@ async function startServer() {
    * since there’s no token when auth fails. We record failures via Supabase Auth Hooks
    * or accept the trade-off. Successful logins still update the counter reset correctly.
    */
-  app.post("/auth/record-login", authRateLimiter, requireSameOrigin, async (req: any, res: any) => {
+  app.post("/auth/record-login", authRateLimiter, requireSameOrigin, requireCookieCsrf, async (req: any, res: any) => {
     try {
-      // Verify a valid Supabase JWT before doing anything
-      const authHeader = req.headers.authorization as string | undefined;
-      const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-      if (!token) {
-        return res.status(401).json({ error: "Authorization header required" });
-      }
-
-      // Validate token against Supabase and extract the email claim
-      const { data: { user: sbUser }, error: sbError } = await supabaseAdmin.auth.getUser(token);
-      if (sbError || !sbUser) {
-        return res.status(401).json({ error: "Invalid or expired token" });
+      if (!req.user?.email) {
+        return res.status(401).json({ error: "Authentication required" });
       }
 
       const { email, success, provider } = req.body;
       if (!email) return res.status(400).json({ error: "Email required" });
 
       // Guard: only allow recording for the authenticated user’s own email
-      if (sbUser.email?.toLowerCase() !== email.toLowerCase()) {
+      if (req.user.email.toLowerCase() !== email.toLowerCase()) {
         return res.status(403).json({ error: "Forbidden" });
       }
 
@@ -726,6 +738,100 @@ async function startServer() {
       }
     } catch (err) {
       console.error("[record-login]", err);
+      return res.status(500).json({ error: "Internal error" });
+    }
+  });
+
+  const storageUploadRules: Record<
+    string,
+    { maxBytes: number; mimePrefix: string; pathForUser: (path: string, userId: string) => boolean }
+  > = {
+    avatars: {
+      maxBytes: 2 * 1024 * 1024,
+      mimePrefix: "image/",
+      pathForUser: (path, userId) =>
+        new RegExp(`^avatars/${userId}\\.(png|jpe?g|gif|webp)$`, "i").test(path),
+    },
+    covers: {
+      maxBytes: 5 * 1024 * 1024,
+      mimePrefix: "image/",
+      pathForUser: (path, userId) =>
+        new RegExp(`^covers/${userId}\\.(png|jpe?g|gif|webp)$`, "i").test(path),
+    },
+    "post-images": {
+      maxBytes: 5 * 1024 * 1024,
+      mimePrefix: "image/",
+      pathForUser: (path, userId) =>
+        new RegExp(`^posts/${userId}/[A-Za-z0-9._-]+$`).test(path),
+    },
+    "post-videos": {
+      maxBytes: 25 * 1024 * 1024,
+      mimePrefix: "video/",
+      pathForUser: (path, userId) =>
+        new RegExp(`^posts/${userId}/[A-Za-z0-9._-]+$`).test(path),
+    },
+  };
+
+  app.post("/storage/signed-upload", requireSameOrigin, requireCookieCsrf, async (req: any, res: any) => {
+    try {
+      const { bucket, path, contentType, size, upsert = false } = req.body ?? {};
+      const rule = typeof bucket === "string" ? storageUploadRules[bucket] : null;
+      const userId = req.user?.id;
+
+      if (
+        !rule ||
+        !userId ||
+        typeof path !== "string" ||
+        typeof contentType !== "string" ||
+        typeof size !== "number"
+      ) {
+        return res.status(400).json({ error: "Invalid upload request" });
+      }
+      if (
+        path.includes("..") ||
+        !rule.pathForUser(path, userId) ||
+        !contentType.toLowerCase().startsWith(rule.mimePrefix) ||
+        size <= 0 ||
+        size > rule.maxBytes
+      ) {
+        return res.status(400).json({ error: "Upload does not meet storage policy" });
+      }
+
+      const { data, error } = await supabaseAdmin.storage
+        .from(bucket)
+        .createSignedUploadUrl(path, { upsert: Boolean(upsert) });
+      if (error || !data) {
+        console.error("[storage:signed-upload]", error);
+        return res.status(502).json({ error: "Could not prepare upload" });
+      }
+
+      res.set("Cache-Control", "no-store");
+      return res.json({ path: data.path, token: data.token });
+    } catch (err) {
+      console.error("[storage:signed-upload]", err);
+      return res.status(500).json({ error: "Internal error" });
+    }
+  });
+
+  app.post("/auth/update-password", authRateLimiter, requireSameOrigin, requireCookieCsrf, async (req: any, res: any) => {
+    try {
+      const password = req.body?.password;
+      if (typeof password !== "string") {
+        return res.status(400).json({ error: "Password is required" });
+      }
+      const validation = validatePassword(password);
+      if (!validation.isValid) {
+        return res.status(400).json({ error: validation.errors.join(", ") });
+      }
+
+      const { error } = await supabaseAdmin.auth.admin.updateUserById(req.user.id, { password });
+      if (error) {
+        console.error("[auth:update-password]", error);
+        return res.status(502).json({ error: "Could not update password" });
+      }
+      return res.json({ ok: true });
+    } catch (err) {
+      console.error("[auth:update-password]", err);
       return res.status(500).json({ error: "Internal error" });
     }
   });

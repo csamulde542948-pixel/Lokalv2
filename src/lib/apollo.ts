@@ -4,7 +4,6 @@ import { createHttpLink } from "@apollo/client/link/http";
 import { setContext } from "@apollo/client/link/context";
 import { DocumentTransform } from "@apollo/client/utilities";
 import { separateOperations, OperationDefinitionNode, FragmentDefinitionNode, Kind, DocumentNode } from "graphql";
-import { supabase } from "./supabase";
 import { GRAPHQL_URL } from "./env";
 import { getSessionCsrfToken } from "./auth-session-cookie";
 
@@ -22,30 +21,14 @@ function readCookie(name: string): string | null {
   return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
 }
 
-// Cache the active-tab Supabase JWT in memory to avoid repeated storage reads.
-let cachedToken: string | null = null;
-supabase.auth.onAuthStateChange((_event, session) => {
-  cachedToken = session?.access_token ?? null;
-});
-// Seed on module load (in case session already exists)
-supabase.auth.getSession().then(({ data }) => {
-  cachedToken = data.session?.access_token ?? null;
-});
-
-// Attach the Supabase session JWT to every GraphQL request
-const authLink = setContext(async (_, { headers }) => {
-  // Always do a fresh getSession() from active-tab session storage.
-  // This prevents the race where cachedToken is still null on first load.
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token ?? cachedToken ?? null;
+// Authentication is supplied by HttpOnly cookies. Page JavaScript only reads
+// the non-secret CSRF token required for cookie-authenticated mutations.
+const authLink = setContext((_, { headers }) => {
   const csrfToken = getSessionCsrfToken() ?? readCookie("lokal_csrf_token");
-  // Keep cache in sync
-  cachedToken = token;
 
   return {
     headers: {
       ...headers,
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
     },
   };

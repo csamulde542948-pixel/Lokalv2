@@ -118,7 +118,7 @@ export function Login() {
       return;
     }
 
-    const { error, session } = await signInWithEmail(email, password, captchaToken);
+    const { error } = await signInWithEmail(email, password, captchaToken);
 
     resetCaptcha();
     setLoading(false);
@@ -128,10 +128,7 @@ export function Login() {
       return;
     }
 
-    const accessToken = session?.access_token;
-    if (accessToken) {
-      recordLoginAttempt(email, true, "email", accessToken).catch(() => {});
-    }
+    recordLoginAttempt(email, true, "email").catch(() => {});
 
     navigate(fromPath);
   };

@@ -65,19 +65,16 @@ export async function preLoginCheck(email: string): Promise<PreLoginCheckResult>
 export async function recordLoginAttempt(
   email: string,
   success: boolean,
-  provider: string = "email",
-  accessToken?: string
+  provider: string = "email"
 ): Promise<LoginRecordResult> {
   // Without a token we can’t safely record failures (would be abusable).
   // Successful logins always have a session, so those still get recorded.
-  if (!accessToken) return {};
   try {
     const res = await fetch(`${BACKEND_URL}/auth/record-login`, {
       method: "POST",
       credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({ email, success, provider }),
     });

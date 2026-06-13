@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { avatarSrc, DEFAULT_COVER } from "../../lib/defaults";
-import { supabase } from "../../lib/supabase";
+import { uploadPublicFile } from "../../lib/signed-storage-upload";
 import { toast } from "sonner";
 import {
   ALL_FRAGMENTS,
@@ -186,15 +186,16 @@ export function Profile() {
     try {
       const ext  = file.name.split(".").pop();
       const path = `avatars/${user.id}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, { upsert: true, contentType: file.type });
-      if (upErr) {
+      let publicUrl: string;
+      try {
+        publicUrl = await uploadPublicFile({ bucket: "avatars", path, file, upsert: true });
+      } catch (upErr: any) {
         if (upErr.message?.toLowerCase().includes("bucket")) {
           throw new Error("Storage bucket 'avatars' not found. Run migration 15 in the Supabase SQL editor.");
         }
         throw upErr;
       }
-      const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
-      const avatarUrl = `${urlData.publicUrl}?t=${Date.now()}`;
+      const avatarUrl = `${publicUrl}?t=${Date.now()}`;
       toast.loading("Saving profile...", { id: toastId });
       await updateProfile({ variables: { input: { avatarUrl } } });
       setLocalAvatarUrl(avatarUrl);
@@ -216,15 +217,16 @@ export function Profile() {
     try {
       const ext  = file.name.split(".").pop();
       const path = `covers/${user.id}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("covers").upload(path, file, { upsert: true, contentType: file.type });
-      if (upErr) {
+      let publicUrl: string;
+      try {
+        publicUrl = await uploadPublicFile({ bucket: "covers", path, file, upsert: true });
+      } catch (upErr: any) {
         if (upErr.message?.toLowerCase().includes("bucket")) {
           throw new Error("Storage bucket 'covers' not found. Run migration 15 in the Supabase SQL editor.");
         }
         throw upErr;
       }
-      const { data: urlData } = supabase.storage.from("covers").getPublicUrl(path);
-      const coverUrl = `${urlData.publicUrl}?t=${Date.now()}`;
+      const coverUrl = `${publicUrl}?t=${Date.now()}`;
       toast.loading("Saving cover...", { id: toastId });
       await updateProfile({ variables: { input: { coverUrl } } });
       setLocalCoverUrl(coverUrl);

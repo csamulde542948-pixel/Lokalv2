@@ -86,7 +86,7 @@ export function AuthCallback() {
 
       if (data.session.user?.email) {
         const provider = data.session.user.app_metadata?.provider || "oauth";
-        recordLoginAttempt(data.session.user.email, true, provider, data.session.access_token).catch(() => {});
+        recordLoginAttempt(data.session.user.email, true, provider).catch(() => {});
       }
 
       const redirectTo = sessionStorage.getItem("lokal:auth_redirect") || "/";

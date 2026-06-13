@@ -1,5 +1,6 @@
 import type { Session, User } from "@supabase/supabase-js";
 import { BACKEND_URL } from "./env";
+import { clearLegacySupabaseAuthStorage, clearPkceVerifier } from "./secure-auth-storage";
 
 const SESSION_SYNC_RETRY_COOLDOWN_MS = 30_000;
 const CSRF_STORAGE_KEY = "lokal-csrf-token";
@@ -90,6 +91,8 @@ export async function syncSessionCookie(session: Session | null): Promise<void> 
 
     const payload = await response.json().catch(() => null);
     storeCsrfToken(payload?.csrfToken);
+    clearLegacySupabaseAuthStorage();
+    clearPkceVerifier();
     lastSyncedFingerprint = fingerprint;
   })().finally(() => {
     if (inFlightFingerprint === fingerprint) {
@@ -125,6 +128,8 @@ export async function clearSessionCookie(): Promise<void> {
   inFlightFingerprint = null;
   inFlightPromise = null;
   clearCsrfToken();
+  clearLegacySupabaseAuthStorage();
+  clearPkceVerifier();
 
   await fetch(`${BACKEND_URL}/auth/session-cookie`, {
     method: "DELETE",

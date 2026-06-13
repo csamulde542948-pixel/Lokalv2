@@ -1,4 +1,5 @@
 const AUTH_STORAGE_KEY = "lokal-supabase-auth";
+const PKCE_VERIFIER_SUFFIX = "-code-verifier";
 
 function getSessionStorage(): Storage | null {
   if (typeof window === "undefined") return null;
@@ -9,51 +10,52 @@ function getSessionStorage(): Storage | null {
   }
 }
 
-function removeProviderTokens(value: string): string {
-  try {
-    const storedSession = JSON.parse(value);
-    if (!storedSession || typeof storedSession !== "object") return value;
-
-    delete storedSession.provider_token;
-    delete storedSession.provider_refresh_token;
-
-    if (storedSession.currentSession && typeof storedSession.currentSession === "object") {
-      delete storedSession.currentSession.provider_token;
-      delete storedSession.currentSession.provider_refresh_token;
-    }
-
-    return JSON.stringify(storedSession);
-  } catch {
-    return value;
-  }
-}
-
 export function clearLegacySupabaseAuthStorage(): void {
   if (typeof window === "undefined") return;
 
   try {
-    const keysToRemove: string[] = [];
-    for (let index = 0; index < window.localStorage.length; index += 1) {
-      const key = window.localStorage.key(index);
-      if (key?.startsWith("sb-") && key.includes("-auth-token")) {
-        keysToRemove.push(key);
+    for (const storage of [window.localStorage, window.sessionStorage]) {
+      const keysToRemove: string[] = [];
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index);
+        if (
+          key === AUTH_STORAGE_KEY ||
+          (key?.startsWith("sb-") && key.includes("-auth-token"))
+        ) {
+          keysToRemove.push(key);
+        }
+      }
+      for (const key of keysToRemove) {
+        storage.removeItem(key);
       }
     }
-    for (const key of keysToRemove) {
-      window.localStorage.removeItem(key);
-    }
   } catch {
-    // Privacy settings can disable browser storage. The auth client can still
-    // maintain its in-memory state for the current page.
+    // Browser privacy settings may disable storage.
   }
 }
 
-export const secureAuthStorage = {
+export function clearPkceVerifier(): void {
+  try {
+    getSessionStorage()?.removeItem(`${AUTH_STORAGE_KEY}${PKCE_VERIFIER_SUFFIX}`);
+  } catch {
+    // Browser privacy settings may disable storage.
+  }
+}
+
+// Persist only the one-time PKCE verifier needed across an OAuth redirect.
+// Supabase session objects are deliberately discarded.
+export const pkceOnlyAuthStorage = {
   getItem(key: string): string | null {
-    return getSessionStorage()?.getItem(key) ?? null;
+    return key.endsWith(PKCE_VERIFIER_SUFFIX)
+      ? getSessionStorage()?.getItem(key) ?? null
+      : null;
   },
   setItem(key: string, value: string): void {
-    getSessionStorage()?.setItem(key, removeProviderTokens(value));
+    if (key.endsWith(PKCE_VERIFIER_SUFFIX)) {
+      getSessionStorage()?.setItem(key, value);
+    } else {
+      getSessionStorage()?.removeItem(key);
+    }
   },
   removeItem(key: string): void {
     getSessionStorage()?.removeItem(key);

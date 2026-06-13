@@ -37,7 +37,9 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
-import { supabase } from "../../lib/supabase";
+import { uploadPublicFile } from "../../lib/signed-storage-upload";
+import { BACKEND_URL } from "../../lib/env";
+import { getSessionCsrfToken } from "../../lib/auth-session-cookie";
 import { avatarSrc, DEFAULT_COVER } from "../../lib/defaults";
 import { toast } from "sonner";
 
@@ -204,14 +206,13 @@ export function Settings() {
         toast.loading("Uploading avatar…", { id: toastId });
         const ext = avatarFile.name.split(".").pop();
         const path = `avatars/${user.id}.${ext}`;
-        const { error: uploadError } = await supabase.storage
-          .from("avatars")
-          .upload(path, avatarFile, { upsert: true, contentType: avatarFile.type });
-
-        if (uploadError) throw uploadError;
-
-        const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
-        avatarUrl = `${urlData.publicUrl}?t=${Date.now()}`;
+        const publicUrl = await uploadPublicFile({
+          bucket: "avatars",
+          path,
+          file: avatarFile,
+          upsert: true,
+        });
+        avatarUrl = `${publicUrl}?t=${Date.now()}`;
       }
 
       // Upload cover to Supabase Storage if a new one was picked
@@ -219,14 +220,13 @@ export function Settings() {
         toast.loading("Uploading cover photo…", { id: toastId });
         const ext = coverFile.name.split(".").pop();
         const path = `covers/${user.id}.${ext}`;
-        const { error: uploadError } = await supabase.storage
-          .from("covers")
-          .upload(path, coverFile, { upsert: true, contentType: coverFile.type });
-
-        if (uploadError) throw uploadError;
-
-        const { data: urlData } = supabase.storage.from("covers").getPublicUrl(path);
-        coverUrl = `${urlData.publicUrl}?t=${Date.now()}`;
+        const publicUrl = await uploadPublicFile({
+          bucket: "covers",
+          path,
+          file: coverFile,
+          upsert: true,
+        });
+        coverUrl = `${publicUrl}?t=${Date.now()}`;
       }
 
       toast.loading("Saving changes…", { id: toastId });
@@ -268,8 +268,17 @@ export function Settings() {
     }
     setPasswordSaving(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password: newPassword });
-      if (error) throw error;
+      const response = await fetch(`${BACKEND_URL}/auth/update-password`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": getSessionCsrfToken() ?? "",
+        },
+        body: JSON.stringify({ password: newPassword }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error ?? "Failed to update password.");
       toast.success("Password updated successfully.");
       setCurrentPassword("");
       setNewPassword("");
@@ -289,7 +298,6 @@ export function Settings() {
 
   // ── Sign out all sessions ──
   const handleSignOutAll = async () => {
-    await supabase.auth.signOut({ scope: "global" });
     await signOut();
     navigate("/login");
   };
