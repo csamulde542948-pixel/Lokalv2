@@ -1052,6 +1052,37 @@ async function startServer() {
       if (!response) return res.status(502).json({ error: "failed to fetch url" });
       const html = response.body.toString("utf8");
 
+      function decodeHtmlEntities(value: string | null): string | null {
+        if (!value) return null;
+        const named: Record<string, string> = {
+          amp: "&",
+          apos: "'",
+          gt: ">",
+          lt: "<",
+          quot: '"',
+        };
+        return value.replace(
+          /&(?:#(\d+)|#x([0-9a-f]+)|([a-z]+));/gi,
+          (entity, decimal, hexadecimal, name) => {
+            const codePoint = decimal
+              ? Number(decimal)
+              : hexadecimal
+                ? parseInt(hexadecimal, 16)
+                : null;
+            if (
+              codePoint !== null &&
+              Number.isInteger(codePoint) &&
+              codePoint >= 0 &&
+              codePoint <= 0x10ffff &&
+              (codePoint < 0xd800 || codePoint > 0xdfff)
+            ) {
+              return String.fromCodePoint(codePoint);
+            }
+            return named[String(name).toLowerCase()] ?? entity;
+          }
+        );
+      }
+
       function getMeta(property: string): string | null {
         // Match both og: and twitter: tags, property or name attr
         const re = new RegExp(
@@ -1059,14 +1090,14 @@ async function startServer() {
           "i"
         );
         const m = html.match(re);
-        return m ? (m[1] ?? m[2] ?? null) : null;
+        return m ? decodeHtmlEntities(m[1] ?? m[2] ?? null) : null;
       }
 
       function getTitle(): string | null {
         const og = getMeta("og:title") ?? getMeta("twitter:title");
         if (og) return og;
         const m = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-        return m ? m[1].trim() : null;
+        return m ? decodeHtmlEntities(m[1].trim()) : null;
       }
 
       function absoluteUrl(value: string | null): string | null {
