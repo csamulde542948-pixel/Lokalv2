@@ -48,17 +48,6 @@ const GET_RECENT_BRAND_ANALYSES = gql`
   }
 `;
 
-// Lightweight viewer-geo probe — returns the CDN-injected ISO country
-// code. Always resolves (falls back to "PH" server-side) so we can
-// safely default the roast language on first paint.
-const GET_VIEWER_GEO = gql`
-  query GetViewerGeo {
-    viewerGeo {
-      country
-    }
-  }
-`;
-
 // All-time platform totals — powers the rotating category counter
 // (shows "# 1.2k <noun> roasted & analyzed").
 const GET_ROAST_STATS = gql`
@@ -114,7 +103,7 @@ function writeSavedLanguage(lang: RoastLanguage) {
 
 /** Pick the default language from the viewer's country. */
 function defaultLanguageFor(country: string | null | undefined): RoastLanguage {
-  if (!country) return "taglish";
+  if (!country) return "english";
   return PH_COUNTRIES.has(country.toUpperCase()) ? "taglish" : "english";
 }
 
@@ -340,25 +329,50 @@ export function Roast() {
 
   // Roast language: defaults from viewer country (PH → taglish, else → english).
   // User override is persisted in localStorage so the choice survives reloads.
-  const [language, setLanguageState] = useState<RoastLanguage>(() => {
-    return readSavedLanguage() ?? "taglish";
-  });
-  const [languageAuto, setLanguageAuto] = useState<boolean>(() => readSavedLanguage() === null);
+  const savedLanguage = useMemo(() => readSavedLanguage(), []);
+  const [language, setLanguageState] = useState<RoastLanguage>(() => savedLanguage ?? "english");
+  const [languageAuto, setLanguageAuto] = useState<boolean>(() => savedLanguage === null);
+  const [viewerCountry, setViewerCountry] = useState<string | null>(null);
+  const [geoResolved, setGeoResolved] = useState(() => savedLanguage !== null);
 
-  const { data: geoData } = useQuery<{ viewerGeo: { country: string } }>(GET_VIEWER_GEO, {
-    fetchPolicy: "cache-first",
-  });
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetch("/api/viewer-geo", {
+      signal: controller.signal,
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    })
+      .then(async (response) => {
+        const contentType = response.headers.get("content-type") ?? "";
+        if (!response.ok || !contentType.includes("application/json")) {
+          throw new Error("Viewer geo endpoint unavailable");
+        }
+        return response.json() as Promise<{ country?: unknown }>;
+      })
+      .then(({ country }) => {
+        if (typeof country === "string" && /^[A-Z]{2}$/i.test(country)) {
+          setViewerCountry(country.toUpperCase());
+        }
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setGeoResolved(true);
+      });
+
+    return () => controller.abort();
+  }, []);
 
   // Once we know the viewer's country, auto-pick a default the first time
   // the user visits the page. We only auto-switch while the user hasn't
   // expressed an explicit preference (languageAuto = true).
   useEffect(() => {
-    if (!languageAuto) return;
-    const country = geoData?.viewerGeo?.country;
-    if (!country) return;
-    const next = defaultLanguageFor(country);
+    if (!languageAuto || !geoResolved) return;
+    const next = defaultLanguageFor(viewerCountry);
     if (next !== language) setLanguageState(next);
-  }, [geoData, languageAuto, language]);
+  }, [geoResolved, languageAuto, language, viewerCountry]);
 
   const setLanguage = (next: RoastLanguage) => {
     setLanguageState(next);
@@ -375,6 +389,7 @@ export function Roast() {
   useEffect(() => {
     if (ROAST_MAINTENANCE) return;
     if (authLoading) return;
+    if (languageAuto && !geoResolved) return;
     let url = searchParams.get("url");
     if (url) {
       if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
@@ -382,7 +397,7 @@ export function Roast() {
         navigate("/roast/result", { state: { projectUrl: url, tool: toolMode, language }, replace: true });
       }
     }
-  }, [authLoading, navigate, searchParams, toolMode, user, language]);
+  }, [authLoading, geoResolved, languageAuto, navigate, searchParams, toolMode, user, language]);
 
   const { data: recentData } = useQuery<{ recentRoastGenerations: RecentRoast[] }>(GET_RECENT_ROASTS, {
     fetchPolicy: "cache-and-network",
@@ -428,6 +443,7 @@ export function Roast() {
 
   const handleRoast = () => {
     if (ROAST_MAINTENANCE) return;
+    if (toolMode === "roast" && languageAuto && !geoResolved) return;
     let url = projectUrl.trim();
     if (!url) return;
     // Auto-prepend https:// if the user omitted the protocol (common on mobile)
@@ -541,13 +557,23 @@ export function Roast() {
               />
               <button
                 onClick={handleRoast}
-                disabled={ROAST_MAINTENANCE || !projectUrl.trim()}
+                disabled={
+                  ROAST_MAINTENANCE
+                  || !projectUrl.trim()
+                  || (toolMode === "roast" && languageAuto && !geoResolved)
+                }
                 className="bg-orange-600 hover:bg-orange-500 active:bg-orange-700 disabled:opacity-30 disabled:cursor-not-allowed text-white font-mono font-bold text-xs sm:text-sm px-3 sm:px-5 py-3.5 flex items-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap flex-shrink-0"
                 style={{ boxShadow: "0 0 18px rgba(234,88,12,0.35)" }}
               >
                 <Flame className="w-4 h-4" strokeWidth={2} />
                 <span className="hidden sm:inline">
-                  {ROAST_MAINTENANCE ? "MAINTENANCE" : toolMode === "brand" ? "ANALYZE BRAND" : "GET ROASTED"}
+                  {ROAST_MAINTENANCE
+                    ? "MAINTENANCE"
+                    : toolMode === "brand"
+                      ? "ANALYZE BRAND"
+                      : languageAuto && !geoResolved
+                        ? "DETECTING"
+                        : "GET ROASTED"}
                 </span>
               </button>
             </div>
@@ -563,9 +589,13 @@ export function Roast() {
                 <Languages className="w-3 h-3" />
                 <span>auto:</span>
                 <LanguageTag lang={language} />
-                {geoData?.viewerGeo?.country && (
+                {geoResolved && (
                   <span className="text-muted-foreground/40">
-                    ({languageAuto ? "detected" : "set"})
+                    ({languageAuto
+                      ? viewerCountry
+                        ? `${viewerCountry} detected`
+                        : "default"
+                      : "set"})
                   </span>
                 )}
                 <span className="text-muted-foreground/30">·</span>

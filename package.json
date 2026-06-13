@@ -8,6 +8,7 @@
     "build:staging": "vite build --mode staging",
     "build:production": "vite build --mode production",
     "build:vercel": "if [ \"$VITE_APP_ENV\" = 'staging' ]; then npm run build:staging; else npm run build:production; fi",
+    "test:geo": "node scripts/test-viewer-geo.mjs",
     "dev": "vite",
     "preview": "vite preview",
     "preview:staging": "vite preview --mode staging"
