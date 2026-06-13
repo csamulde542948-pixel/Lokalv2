@@ -194,9 +194,9 @@ recentRoastGenerations: async (
 
   Mutation: {
     /**
-     * generateRoast — scrape URL with Jina Reader, send to DeepSeek V4 Pro Nitro via
-     * OpenRouter, return structured preview.
-     * Auth and credits are required. Credits are checked before Firecrawl/OpenRouter
+     * generateRoast — scrape URL with Firecrawl, send to DeepSeek V4 Pro via
+     * NVIDIA NIM, return structured preview.
+     * Auth and credits are required. Credits are checked before Firecrawl/NVIDIA
      * work starts, then deducted only after the AI roast is generated successfully.
      */
     generateRoast: async (

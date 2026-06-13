@@ -1,5 +1,5 @@
 ﻿/**
- * Roast Engine — Firecrawl + DeepSeek V4 Pro Nitro via OpenRouter
+ * Roast Engine — Firecrawl + DeepSeek V4 Pro via NVIDIA NIM
  *
  * Flow:
  *   1. Scrape with Firecrawl — markdown + screenshot + full metadata (12s server-side cap)
@@ -581,16 +581,16 @@ export function buildBrandBrief(metadata: FirecrawlMetadata, projectName: string
   return lines.join("\n");
 }
 
-// ─── Step 3: Call DeepSeek via OpenRouter ────────────────────────────────────
+// ─── Step 3: Call DeepSeek via NVIDIA NIM ────────────────────────────────────
 
 async function callDeepSeek(
   scrapeResult: FirecrawlScrapeResult,
   projectName: string,
   language: RoastLanguage
 ): Promise<string> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey || apiKey.startsWith("sk-or-your")) {
-    throw new Error("OPENROUTER_API_KEY is not configured in backend/.env");
+  const apiKey = process.env.NVIDIA_API_KEY;
+  if (!apiKey) {
+    throw new Error("NVIDIA_API_KEY is not configured in backend/.env");
   }
 
   const brandBrief = buildBrandBrief(scrapeResult.metadata, projectName);
@@ -608,7 +608,7 @@ ${scrapeResult.markdown || "No content could be extracted from the page."}
 Write exactly 4 paragraphs in ${langLabel}. Follow the system prompt rules exactly. No labels. No markdown. The final paragraph must begin with "Final Verdict:" and must end with a complete sentence — never cut off.`;
 
   const body = JSON.stringify({
-    model: "deepseek/deepseek-v4-pro:nitro",
+    model: "deepseek-ai/deepseek-v4-pro",
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
@@ -618,6 +618,9 @@ Write exactly 4 paragraphs in ${langLabel}. Follow the system prompt rules exact
     // 4 paragraphs × 4 sentences × ~55 tokens = ~880 tokens minimum.
     // 2000 gives safe headroom so Final Verdict never gets clipped mid-sentence.
     max_tokens: 2000,
+    // Keep reasoning disabled so the response remains the same direct
+    // four-paragraph roast users already receive.
+    chat_template_kwargs: { thinking: false },
   });
 
   const headers = {
@@ -625,9 +628,11 @@ Write exactly 4 paragraphs in ${langLabel}. Follow the system prompt rules exact
     "Content-Type": "application/json",
     "HTTP-Referer": process.env.FRONTEND_URL ?? "https://lokalhost.club",
     "X-Title": "Lokal Roast Engine",
+    Accept: "application/json",
   } as const;
 
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const endpoint = "https://integrate.api.nvidia.com/v1/chat/completions";
+  const res = await fetch(endpoint, {
     method: "POST",
     headers,
     body,
@@ -636,19 +641,19 @@ Write exactly 4 paragraphs in ${langLabel}. Follow the system prompt rules exact
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`OpenRouter API error ${res.status}: ${err}`);
+    throw new Error(`NVIDIA NIM API error ${res.status}: ${err}`);
   }
 
   const data = (await res.json()) as any;
   const content = data?.choices?.[0]?.message?.content;
 
-  // OpenRouter / DeepSeek occasionally returns an empty choices array under load.
+  // DeepSeek may occasionally return an empty choices array under load.
   // Retry once before surfacing the error — this recovers ~95% of these cases.
   if (!content) {
-    console.warn("[roast] OpenRouter returned empty content — retrying once");
+    console.warn("[roast] NVIDIA DeepSeek returned empty content — retrying once");
     await new Promise((r) => setTimeout(r, 2000)); // brief back-off
 
-    const retry = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const retry = await fetch(endpoint, {
       method: "POST",
       headers,
       body,
@@ -657,7 +662,7 @@ Write exactly 4 paragraphs in ${langLabel}. Follow the system prompt rules exact
 
     if (!retry.ok) {
       const err = await retry.text();
-      throw new Error(`OpenRouter API error on retry ${retry.status}: ${err}`);
+      throw new Error(`NVIDIA NIM API error on retry ${retry.status}: ${err}`);
     }
 
     const retryData = (await retry.json()) as any;
