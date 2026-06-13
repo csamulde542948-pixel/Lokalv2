@@ -6,9 +6,10 @@ import {
   UserIcon as UserSolid,
   RocketLaunchIcon as RocketSolid,
 } from "@heroicons/react/24/solid";
-import { Search, Bell, MessageSquare, Menu, Code2, X, User, Users, BarChart3, Settings, LogOut, Shield, Briefcase, Coins } from "lucide-react";
+import { Search, Bell, MessageSquare, Menu, Code2, X, User, Users, BarChart3, Settings, LogOut, Shield, Briefcase, Coins, Flame } from "lucide-react";
 import { BrandLogo } from "./brand-logo";
 import { AvatarFrame } from "./avatar-frame";
+import { CreditSupportDialog } from "./credit-support-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
@@ -55,6 +56,8 @@ export function Layout() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+  const [showCreditSupport, setShowCreditSupport] = useState(false);
+  const [showSupportPrompt, setShowSupportPrompt] = useState(false);
   const { totalUnread } = useChat();
 
   // Global search
@@ -107,6 +110,22 @@ export function Layout() {
     fetchPolicy: "cache-and-network",
     pollInterval: 30_000,
   });
+  const creditBalance = creditError || (creditLoading && !creditData)
+    ? null
+    : creditData?.myCredits?.balance ?? 0;
+
+  useEffect(() => {
+    if (!user) {
+      setShowSupportPrompt(false);
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setShowSupportPrompt((current) => !current);
+    }, 5_000);
+
+    return () => window.clearInterval(interval);
+  }, [user]);
 
   // Seed badge count from the me query (keeps badge in sync between polls)
   useEffect(() => {
@@ -304,16 +323,24 @@ export function Layout() {
               {user && (
                 <button
                   type="button"
-                  onClick={() => navigate("/roast")}
-                  title="AI credits for Roast and Brand Analysis"
-                  className="h-9 inline-flex items-center gap-1.5 px-2.5 rounded-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  aria-label={`${creditData?.myCredits?.balance ?? 0} AI credits available`}
+                  onClick={() => setShowCreditSupport(true)}
+                  title="View AI credits and support Lokalhost.club"
+                  className="relative inline-flex h-9 w-[74px] items-center gap-1.5 overflow-hidden rounded-md border border-border bg-background px-2.5 text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted hover:text-foreground xl:w-[174px]"
+                  aria-label={`${creditBalance ?? 0} AI credits available. Open support QR code.`}
                 >
-                  <Coins className="w-4 h-4 text-orange-500" />
-                  <span className="text-xs font-mono font-semibold tabular-nums">
-                    {creditError || (creditLoading && !creditData) ? "—" : creditData?.myCredits?.balance ?? 0}
+                  <Coins className={`h-4 w-4 shrink-0 text-orange-500 ${showSupportPrompt ? "xl:hidden" : ""}`} />
+                  <span className={`text-xs font-mono font-semibold tabular-nums ${showSupportPrompt ? "xl:hidden" : ""}`}>
+                    {creditBalance == null ? "--" : creditBalance}
                   </span>
-                  <span className="hidden xl:inline text-[10px] font-mono uppercase tracking-wider">credits</span>
+                  <span className={showSupportPrompt ? "hidden" : "hidden text-[10px] font-mono uppercase xl:inline"}>credits</span>
+                  {showSupportPrompt && (
+                    <span className="hidden w-full animate-in items-center gap-2 fade-in slide-in-from-bottom-1 duration-200 xl:flex">
+                      <Flame className="h-4 w-4 shrink-0 fill-orange-500 text-orange-500" />
+                      <span className="truncate text-xs font-semibold text-foreground">
+                        Top up the roast
+                      </span>
+                    </span>
+                  )}
                 </button>
               )}
               <ThemeToggle />
@@ -383,6 +410,12 @@ export function Layout() {
           </div>
         </div>
       </header>
+
+      <CreditSupportDialog
+        open={showCreditSupport}
+        onOpenChange={setShowCreditSupport}
+        balance={creditBalance}
+      />
 
       {/* Mobile Menu Dropdown */}
       {showMobileMenu && (
