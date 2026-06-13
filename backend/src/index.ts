@@ -1028,20 +1028,28 @@ async function startServer() {
     }
 
     try {
-      const response = await fetchSafeExternalHtml(url, {
-        timeoutMs: 5_000,
-        maxBytes: 1_000_000,
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (compatible; LokalBot/1.0; +https://lokal.dev)",
-          Accept: "text/html,application/xhtml+xml",
-        },
-      });
+      let finalUrl = url;
+      let response;
+      for (let redirectCount = 0; redirectCount <= 3; redirectCount += 1) {
+        response = await fetchSafeExternalHtml(finalUrl, {
+          timeoutMs: 5_000,
+          maxBytes: 1_000_000,
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (compatible; LokalBot/1.0; +https://lokalhost.club)",
+            Accept: "text/html,application/xhtml+xml",
+          },
+        });
 
-      if (response.status >= 300 && response.status < 400) {
-        return res.status(400).json({ error: "redirects not allowed" });
+        if (response.status < 300 || response.status >= 400) break;
+        const location = response.headers.location;
+        if (!location || redirectCount === 3) {
+          return res.status(400).json({ error: "too many redirects" });
+        }
+        finalUrl = new URL(location, finalUrl).href;
       }
 
+      if (!response) return res.status(502).json({ error: "failed to fetch url" });
       const html = response.body.toString("utf8");
 
       function getMeta(property: string): string | null {
@@ -1061,7 +1069,16 @@ async function startServer() {
         return m ? m[1].trim() : null;
       }
 
-      const ogUrl = getMeta("og:url") ?? url;
+      function absoluteUrl(value: string | null): string | null {
+        if (!value) return null;
+        try {
+          return new URL(value, finalUrl).href;
+        } catch {
+          return null;
+        }
+      }
+
+      const ogUrl = absoluteUrl(getMeta("og:url")) ?? finalUrl;
       const domain = (() => {
         try { return new URL(ogUrl).hostname.replace(/^www\./, ""); } catch { return ""; }
       })();
@@ -1070,7 +1087,7 @@ async function startServer() {
         url: ogUrl,
         title: getTitle(),
         description: getMeta("og:description") ?? getMeta("twitter:description") ?? getMeta("description"),
-        image: getMeta("og:image") ?? getMeta("twitter:image"),
+        image: absoluteUrl(getMeta("og:image") ?? getMeta("twitter:image")),
         siteName: getMeta("og:site_name"),
         domain,
       };

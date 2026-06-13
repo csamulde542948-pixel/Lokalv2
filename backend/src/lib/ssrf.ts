@@ -264,7 +264,11 @@ export async function fetchSafeExternalHtml(
         method: "GET",
         headers: options.headers,
         servername: url.protocol === "https:" ? hostname : undefined,
-        lookup: (_host, _lookupOptions, callback) => {
+        lookup: (_host, lookupOptions, callback) => {
+          if (lookupOptions.all) {
+            callback(null, [{ address, family }]);
+            return;
+          }
           callback(null, address, family);
         },
       },

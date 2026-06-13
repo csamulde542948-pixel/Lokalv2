@@ -16,6 +16,7 @@ import { useAuth } from "../../../../contexts/AuthContext";
 import { extractRoastProjectMeta } from "../roastMeta";
 import { timeAgo } from "../time";
 import { LinkPreviewCard, extractFirstUrl } from "./LinkPreviewCard";
+import { LinkedPostText } from "./LinkedPostText";
 import { VerifiedBadge } from "./VerifiedBadge";
 
 const LIKE_POST = gql`
@@ -548,9 +549,16 @@ export function TimelinePost({
 
           {post.content && (
             <div className="mt-1">
-              <p className="whitespace-pre-wrap break-words text-[15px] leading-6 text-foreground/95">
-                {visibleContent}
-              </p>
+              {isRoastPost ? (
+                <p className="whitespace-pre-wrap break-words text-[15px] leading-6 text-foreground/95">
+                  {visibleContent}
+                </p>
+              ) : (
+                <LinkedPostText
+                  text={visibleContent}
+                  className="whitespace-pre-wrap break-words text-[15px] leading-6 text-foreground/95"
+                />
+              )}
               {shouldTruncate && (
                 <button
                   type="button"
@@ -566,7 +574,7 @@ export function TimelinePost({
             </div>
           )}
 
-          {linkUrl && (
+          {!isRoastPost && linkUrl && (
             <LinkPreviewCard
               url={linkUrl}
               withOuterSpacing={false}

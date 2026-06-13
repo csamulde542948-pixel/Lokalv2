@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { BACKEND_URL } from "../../../../lib/env";
+import { extractFirstUrl } from "./LinkedPostText";
 
 const OG_BASE = BACKEND_URL;
-const URL_REGEX = /https?:\/\/[^\s\)\]>"']+/gi;
 
 interface OgData {
   url: string;
@@ -13,10 +13,7 @@ interface OgData {
   domain: string;
 }
 
-export function extractFirstUrl(text: string): string | null {
-  const match = text.match(URL_REGEX);
-  return match ? match[0] : null;
-}
+export { extractFirstUrl };
 
 export function LinkPreviewCard({
   url,
@@ -31,41 +28,36 @@ export function LinkPreviewCard({
 }) {
   const [og, setOg] = useState<OgData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState(false);
   const spacingClass = withOuterSpacing ? "mx-4 mb-3" : "";
+  const fallbackDomain = (() => {
+    try {
+      return new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      return url;
+    }
+  })();
 
   useEffect(() => {
     setLoading(true);
-    setFailed(false);
     setOg(null);
     const controller = new AbortController();
     fetch(`${OG_BASE}/og?url=${encodeURIComponent(url)}`, { signal: controller.signal })
       .then((response) => (response.ok ? response.json() : Promise.reject(response)))
       .then((data: OgData) => {
-        if (!data.title && !data.image) {
-          setFailed(true);
-          return;
-        }
         setOg(data);
       })
-      .catch((error) => {
-        if (error?.name !== "AbortError") setFailed(true);
-      })
+      .catch(() => {})
       .finally(() => setLoading(false));
     return () => controller.abort();
   }, [url]);
-
-  if (failed) return null;
 
   if (loading) {
     return <div className={`${spacingClass} ${className} h-24 rounded-2xl border bg-muted/40 animate-pulse`.trim()} />;
   }
 
-  if (!og) return null;
-
   return (
     <a
-      href={og.url}
+      href={og?.url ?? url}
       target="_blank"
       rel="noopener noreferrer"
       onClick={(event) => {
@@ -73,7 +65,7 @@ export function LinkPreviewCard({
       }}
       className={`${spacingClass} ${className} group flex overflow-hidden rounded-2xl border bg-card hover:bg-muted/50 transition-colors`.trim()}
     >
-      {og.image && (
+      {og?.image && (
         <div className="w-28 flex-shrink-0 bg-muted">
           <img
             src={og.image}
@@ -86,22 +78,24 @@ export function LinkPreviewCard({
         </div>
       )}
       <div className="flex flex-col justify-center px-3 py-2.5 min-w-0 gap-0.5">
-        {(og.siteName || og.domain) && (
+        {(og?.siteName || og?.domain || fallbackDomain) && (
           <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide truncate">
-            {og.siteName ?? og.domain}
+            {og?.siteName ?? og?.domain ?? fallbackDomain}
           </span>
         )}
-        {og.title && (
+        {og?.title && (
           <span className="text-sm font-semibold leading-snug text-foreground line-clamp-2 group-hover:underline">
             {og.title}
           </span>
         )}
-        {og.description && (
+        {og?.description && (
           <span className="text-xs text-muted-foreground line-clamp-2 leading-relaxed mt-0.5">
             {og.description}
           </span>
         )}
-        <span className="text-[10px] text-muted-foreground truncate mt-0.5">{og.domain}</span>
+        <span className="text-[10px] text-sky-500 truncate mt-0.5">
+          {og?.domain ?? fallbackDomain}
+        </span>
       </div>
     </a>
   );

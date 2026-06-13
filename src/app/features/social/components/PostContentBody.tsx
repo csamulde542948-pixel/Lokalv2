@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { LinkPreviewCard, extractFirstUrl } from "./LinkPreviewCard";
+import { LinkedPostText } from "./LinkedPostText";
 import { MediaGrid } from "./MediaGrid";
 
 type PostContentBodyProps = {
@@ -39,7 +40,10 @@ export function PostContentBody({
     <>
       {clean && (
         <div className="px-4 pb-3 space-y-2.5">
-          <p className="whitespace-pre-wrap text-sm leading-relaxed break-words">{displayText}</p>
+          <LinkedPostText
+            text={displayText}
+            className="whitespace-pre-wrap text-sm leading-relaxed break-words"
+          />
           {needsReadMore && (
             <button
               onClick={() => setContentExpanded((value) => !value)}
