@@ -19,9 +19,11 @@ import {
   FolderPlus,
   Flag,
   Maximize2,
+  Heart,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { BrandLogo } from "../components/brand-logo";
+import { CreditSupportDialog } from "../components/credit-support-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 
 // ─── GraphQL ──────────────────────────────────────────────────────────────────
@@ -106,6 +108,21 @@ const SUBMIT_ROAST = gql`
 
 const ROAST_CACHE_KEY = "lokal:pending_roast";
 const ROAST_PUBLISH_KEY = "lokal:pending_publish";
+
+function findMiddleParagraphBreak(text: string) {
+  if (!text) return 0;
+
+  const target = text.length / 2;
+  const paragraphBreaks = Array.from(text.matchAll(/\n\s*\n/g), (match) => match.index ?? 0);
+  const lineBreaks = Array.from(text.matchAll(/\n/g), (match) => match.index ?? 0);
+  const candidates = paragraphBreaks.length > 0 ? paragraphBreaks : lineBreaks;
+
+  if (candidates.length === 0) return Math.floor(target);
+
+  return candidates.reduce((closest, current) =>
+    Math.abs(current - target) < Math.abs(closest - target) ? current : closest
+  );
+}
 
 function saveRoastToSession(roast: GeneratedRoast) {
   try { sessionStorage.setItem(ROAST_CACHE_KEY, JSON.stringify(roast)); } catch {}
@@ -1127,6 +1144,7 @@ export function RoastResult() {
   const [publishLoading,      setPublishLoading]    = useState(false);
   const [publishError,        setPublishError]      = useState<string | null>(null);
   const [showAuthModal,       setShowAuthModal]     = useState(false);
+  const [showCreditSupport,   setShowCreditSupport] = useState(false);
   const [roast,               setRoast]             = useState<GeneratedRoast | null>(() => {
     const incoming = location.state as IncomingState | null;
     return loadRoastFromSession(incoming?.projectUrl);
@@ -1303,6 +1321,17 @@ export function RoastResult() {
     ? brandAnalysis?.designMd ?? ""
     : roast?.fullRoast ?? "";
   const { displayed, done } = useTypewriter(outputText);
+  const roastDonationSplit = useMemo(
+    () => activeTool === "roast" ? findMiddleParagraphBreak(outputText) : 0,
+    [activeTool, outputText]
+  );
+  const showInlineDonation = activeTool === "roast" && displayed.length > roastDonationSplit;
+  const displayedBeforeDonation = showInlineDonation
+    ? displayed.slice(0, roastDonationSplit).trimEnd()
+    : displayed;
+  const displayedAfterDonation = showInlineDonation
+    ? displayed.slice(roastDonationSplit).trimStart()
+    : "";
   const brandMarkdown = brandAnalysis?.designMd ?? "";
   const brandColors = useMemo(() => extractBrandColors(brandMarkdown), [brandMarkdown]);
   const brandColorGroups = useMemo(() => {
@@ -1508,6 +1537,12 @@ export function RoastResult() {
   return (
     <>
       {showAuthModal && <AuthModal from={location} onClose={() => setShowAuthModal(false)} />}
+      <CreditSupportDialog
+        open={showCreditSupport}
+        onOpenChange={setShowCreditSupport}
+        balance={null}
+        showBalance={false}
+      />
 
       <div className="min-h-screen bg-background flex flex-col relative overflow-hidden">
 
@@ -1983,8 +2018,35 @@ export function RoastResult() {
                 ))}
               </div>
 
-              <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
-                {displayed}
+              <div className="text-sm text-foreground/90 leading-relaxed">
+                <div className="whitespace-pre-wrap">{displayedBeforeDonation}</div>
+                {showInlineDonation && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCreditSupport(true)}
+                    className="group my-5 w-full border border-orange-500/25 bg-orange-500/[0.04] px-4 py-4 text-left transition-colors hover:border-orange-500/45 hover:bg-orange-500/[0.07]"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center border border-orange-500/25 bg-orange-500/10 text-orange-400">
+                        <Heart className="h-4 w-4 transition-transform group-hover:scale-110" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-black uppercase tracking-[0.16em] text-orange-400">
+                          Top up the Roast Engine
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground/65">
+                          Help us keep improving Lokalhost.club and keep the indie dev chaos alive.
+                        </p>
+                      </div>
+                      <span className="mt-1 text-orange-400 transition-transform group-hover:translate-x-0.5">
+                        &rarr;
+                      </span>
+                    </div>
+                  </button>
+                )}
+                {showInlineDonation && (
+                  <div className="whitespace-pre-wrap">{displayedAfterDonation}</div>
+                )}
                 {!done && (
                   <span className="inline-block w-2 h-[1em] bg-orange-500 ml-0.5 animate-pulse align-middle" />
                 )}

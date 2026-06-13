@@ -12,12 +12,14 @@ interface CreditSupportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   balance: number | null;
+  showBalance?: boolean;
 }
 
 export function CreditSupportDialog({
   open,
   onOpenChange,
   balance,
+  showBalance = true,
 }: CreditSupportDialogProps) {
   const navigate = useNavigate();
 
@@ -37,12 +39,14 @@ export function CreditSupportDialog({
         </DialogHeader>
 
         <div className="space-y-4 px-5 py-5">
-          <div className="flex items-center justify-between border-b pb-3 text-xs">
-            <span className="text-muted-foreground">Your weekly AI balance</span>
-            <span className="font-mono font-semibold tabular-nums text-foreground">
-              {balance == null ? "--" : `${balance} credits`}
-            </span>
-          </div>
+          {showBalance && (
+            <div className="flex items-center justify-between border-b pb-3 text-xs">
+              <span className="text-muted-foreground">Your weekly AI balance</span>
+              <span className="font-mono font-semibold tabular-nums text-foreground">
+                {balance == null ? "--" : `${balance} credits`}
+              </span>
+            </div>
+          )}
 
           <div className="mx-auto w-full max-w-[340px] overflow-hidden rounded-md border bg-white p-2 shadow-sm">
             <img
