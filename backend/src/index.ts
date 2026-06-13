@@ -326,7 +326,6 @@ async function startServer() {
           "NVIDIA_API_KEY",
           "NVIDIA NIM API error",
           "DeepSeek returned empty content",
-          "Roast generation timed out",
           "NVIDIA returned empty brand analysis content",
           "Brand analysis timed out",
           // URL validation / reachability errors
