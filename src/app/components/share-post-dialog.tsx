@@ -56,7 +56,7 @@ export function SharePostDialog({ post, open, onOpenChange, onShared }: SharePos
 
   async function handleShare() {
     try {
-      const shareUrl = `${window.location.origin}/?post=${post.id}`;
+      const shareUrl = `${window.location.origin}/post/${post.id}`;
       const authorName = post.author.name || `@${post.author.username}`;
       const composedText = [message.trim(), `${authorName} posted on lokalhost.club`, truncate(post.content)]
         .filter(Boolean)

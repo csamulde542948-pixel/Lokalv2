@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { gql } from "@apollo/client/core";
 import { useQuery, useMutation } from "@apollo/client/react";
 import { useNavigate } from "react-router";
@@ -11,7 +11,7 @@ import {
   Loader2, Briefcase, CalendarClock,
 } from "lucide-react";
 import { avatarSrc } from "../../lib/defaults";
-import { PostModal } from "./post-modal";
+import { getNotificationTarget } from "./notification-navigation";
 
 /* ─── GQL ─────────────────────────────────────────────────────────────────── */
 const GET_NOTIFICATIONS = gql`
@@ -80,29 +80,6 @@ function timeAgo(iso: string) {
   return `${Math.floor(s / 86400)}d`;
 }
 
-function navTarget(type: NotifType, entityId?: string | null, actorUsername?: string | null, postId?: string | null): string | null {
-  // For post-related types use postId first, fall back to entityId
-  const postTarget = postId ?? entityId;
-  switch (type) {
-    case "LIKE":
-    case "COMMENT":
-    case "MENTION":
-    case "SHARE":
-    case "ROAST_REACTION":     return postTarget ? `/?post=${postTarget}` : "/";
-    case "FOLLOW":             return actorUsername ? `/profile/${actorUsername}` : null;
-    case "PROJECT_ROAST":      return entityId ? `/project/${entityId}` : null;
-    case "JOB_APPLICATION":    return entityId ? `/jobs/${entityId}` : "/jobs";
-    case "EVENT_REMINDER":     return entityId ? `/events/${entityId}` : "/events";
-    case "LAUNCHPAD_INTEREST": return `/launchpad`;
-    case "XP_LEVELUP":
-    case "EARNED_ROLE":        return null;
-    default:                   return null;
-  }
-}
-
-/** Notification types that should open the PostModal instead of navigating */
-const POST_MODAL_TYPES: NotifType[] = ["LIKE", "COMMENT", "MENTION", "SHARE", "ROAST_REACTION", "PROJECT_ROAST"];
-
 /** Returns the display message — uses stored message if set, else a type default */
 function displayMessage(type: NotifType, message?: string | null): string {
   if (message) return message;
@@ -135,8 +112,6 @@ export function NotificationsPopover({ isOpen, onClose, onUnreadCount }: Notific
   const navigate = useNavigate();
   const panelRef = useRef<HTMLDivElement>(null);
   const markedOpenRef = useRef(false);
-  const [modalPostId,   setModalPostId]   = useState<string | null>(null);
-  const [modalNotifType, setModalNotifType] = useState<string | null>(null);
 
   const { data, loading, refetch } = useQuery(GET_NOTIFICATIONS, {
     variables: { limit: 30, offset: 0 },
@@ -169,56 +144,27 @@ export function NotificationsPopover({ isOpen, onClose, onUnreadCount }: Notific
     refetch();
   }
 
-  async function handleClick(notif: any) {
+  function handleClick(notif: any) {
     if (!notif.isRead) {
-      await markRead({ variables: { notificationId: notif.id } });
+      markRead({ variables: { notificationId: notif.id } }).catch(console.error);
     }
 
-    if ((notif.type === "COMMENT" || notif.type === "LIKE") && notif.entityId) {
-      navigate(`/comment/${notif.entityId}`);
-      onClose();
-      return;
-    }
+    const target = getNotificationTarget({
+      type: notif.type,
+      entityId: notif.entityId,
+      postId: notif.postId,
+      actorUsername: notif.actor?.username,
+    });
+    if (!target) return;
 
-    if (POST_MODAL_TYPES.includes(notif.type)) {
-      // postId is the reliable feed-post id.
-      // For PROJECT_ROAST: backend now resolves postId even for legacy notifications.
-      // entityId on PROJECT_ROAST is the Roast record id — NOT a post id, skip it.
-      const postTarget = notif.postId ?? (notif.type === "PROJECT_ROAST" ? null : notif.entityId);
-
-      if (postTarget) {
-        setModalPostId(postTarget);
-        setModalNotifType(notif.type);
-        return;
-      }
-
-      // PROJECT_ROAST with no postId — still open the modal with a null postId
-      // so the user at least sees the notification type context.
-      // The modal will show a "could not load post" state but that's better than nothing.
-      if (notif.type === "PROJECT_ROAST") {
-        setModalPostId("__roast_no_post__");
-        setModalNotifType(notif.type);
-        return;
-      }
-    }
-
-    // No post to open — navigate to the relevant page
-    const target = navTarget(notif.type, notif.entityId, notif.actor?.username, notif.postId);
-    if (target) { navigate(target); onClose(); }
+    navigate(target);
+    onClose();
   }
 
   if (!isOpen) return null;
 
   return (
     <>
-      {/* Post modal — shown over the popover */}
-      {modalPostId && (
-        <PostModal
-          postId={modalPostId}
-          notifType={modalNotifType ?? undefined}
-          onClose={() => { setModalPostId(null); setModalNotifType(null); }}
-        />
-      )}
       {/* Backdrop */}
       <div className="fixed inset-0 z-40" onClick={onClose} />
 

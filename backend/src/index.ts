@@ -707,11 +707,10 @@ async function startServer() {
 
   /**
    * POST /auth/record-login
-   * Headers: Authorization: Bearer <supabase_access_token>
    * Body: { email: string, success: boolean, provider?: string }
    *
-   * Medium #16: Require a valid Supabase access token so that an unauthenticated
-   * attacker cannot POST `success: false` for an arbitrary email and lock out accounts.
+   * Requires the authenticated HttpOnly cookie session and a valid CSRF token
+   * so an unauthenticated attacker cannot lock out arbitrary accounts.
    *
    * Consequence: failed-login tracking (wrong password) can no longer be done here,
    * since there’s no token when auth fails. We record failures via Supabase Auth Hooks
