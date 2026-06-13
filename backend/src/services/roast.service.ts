@@ -608,7 +608,7 @@ ${scrapeResult.markdown || "No content could be extracted from the page."}
 Write exactly 4 paragraphs in ${langLabel}. Follow the system prompt rules exactly. No labels. No markdown. The final paragraph must begin with "Final Verdict:" and must end with a complete sentence — never cut off.`;
 
   const body = JSON.stringify({
-    model: "deepseek/deepseek-v4-flash",
+    model: "deepseek/deepseek-v4-pro",
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
