@@ -17,6 +17,7 @@ import { extractRoastProjectMeta } from "../roastMeta";
 import { timeAgo } from "../time";
 import { LinkPreviewCard, extractFirstUrl } from "./LinkPreviewCard";
 import { LinkedPostText } from "./LinkedPostText";
+import { ReactorListDialog } from "./ReactorListDialog";
 import { VerifiedBadge } from "./VerifiedBadge";
 
 const LIKE_POST = gql`
@@ -341,6 +342,7 @@ export function TimelinePost({
   const [pinnedToFeed, setPinnedToFeed] = useState(!!post.isPinnedToFeed);
   const [expanded, setExpanded] = useState(false);
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
+  const [reactorsOpen, setReactorsOpen] = useState(false);
 
   const [firePost] = useMutation(LIKE_POST);
   const [unfirePost] = useMutation(UNLIKE_POST);
@@ -359,6 +361,7 @@ export function TimelinePost({
     setPinnedToFeed(!!post.isPinnedToFeed);
     setExpanded(false);
     setFailedImages(new Set());
+    setReactorsOpen(false);
   }, [post]);
 
   async function handleFire() {
@@ -611,19 +614,36 @@ export function TimelinePost({
               <span className="tabular-nums">{commentCount}</span>
             </button>
 
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                handleFire();
-              }}
-              className={`inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-primary ${
+            <div
+              className={`inline-flex h-9 items-center gap-2 text-sm ${
                 fired ? "text-primary" : ""
               }`}
             >
-              <Flame className={`h-4 w-4 ${fired ? "fill-current" : ""}`} />
-              <span className="tabular-nums">{fireCount}</span>
-            </button>
+              <button
+                type="button"
+                aria-label={fired ? "Remove fire reaction" : "React with fire"}
+                title={fired ? "Remove fire reaction" : "React with fire"}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleFire();
+                }}
+                className="transition-colors hover:text-primary"
+              >
+                <Flame className={`h-4 w-4 ${fired ? "fill-current" : ""}`} />
+              </button>
+              <button
+                type="button"
+                disabled={fireCount === 0}
+                aria-label={`View ${fireCount} fire ${fireCount === 1 ? "reaction" : "reactions"}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setReactorsOpen(true);
+                }}
+                className="tabular-nums transition-colors enabled:hover:text-primary enabled:hover:underline disabled:cursor-default"
+              >
+                {fireCount}
+              </button>
+            </div>
 
             <button
               type="button"
@@ -660,6 +680,13 @@ export function TimelinePost({
 
         </div>
       </div>
+
+      <ReactorListDialog
+        open={reactorsOpen}
+        onOpenChange={setReactorsOpen}
+        targetId={post.id}
+        targetType="post"
+      />
     </article>
   );
 }

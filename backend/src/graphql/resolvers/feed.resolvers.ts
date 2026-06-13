@@ -939,6 +939,54 @@ export const feedResolvers = {
       });
     },
 
+    postReactors: async (
+      _: unknown,
+      { postId, limit = 50 }: { postId: string; limit?: number },
+      { prisma }: GraphQLContext
+    ) => {
+      const safeLimit = Math.min(Math.max(limit, 1), 100);
+      const reactions = await prisma.postLike.findMany({
+        where: {
+          postId,
+          post: {
+            visibility: "public",
+            moderationStatus: "approved",
+            isDeleted: false,
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: safeLimit,
+        include: { profile: true },
+      });
+
+      return reactions.map((reaction: any) => reaction.profile);
+    },
+
+    commentReactors: async (
+      _: unknown,
+      { commentId, limit = 50 }: { commentId: string; limit?: number },
+      { prisma }: GraphQLContext
+    ) => {
+      const safeLimit = Math.min(Math.max(limit, 1), 100);
+      const reactions = await prisma.commentLike.findMany({
+        where: {
+          commentId,
+          comment: {
+            post: {
+              visibility: "public",
+              moderationStatus: "approved",
+              isDeleted: false,
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: safeLimit,
+        include: { profile: true },
+      });
+
+      return reactions.map((reaction: any) => reaction.profile);
+    },
+
     /**
      * On-demand lazy loading of comment replies.
      * Called when the user clicks "View X replies" on a comment.

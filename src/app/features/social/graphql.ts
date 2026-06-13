@@ -77,6 +77,32 @@ export const UNLIKE_COMMENT = gql`
   }
 `;
 
+export const GET_POST_REACTORS = gql`
+  query GetPostReactors($postId: ID!, $limit: Int) {
+    postReactors(postId: $postId, limit: $limit) {
+      id
+      name
+      displayName
+      username
+      avatarUrl
+      isVerified
+    }
+  }
+`;
+
+export const GET_COMMENT_REACTORS = gql`
+  query GetCommentReactors($commentId: ID!, $limit: Int) {
+    commentReactors(commentId: $commentId, limit: $limit) {
+      id
+      name
+      displayName
+      username
+      avatarUrl
+      isVerified
+    }
+  }
+`;
+
 export const EDIT_COMMENT = gql`
   mutation EditComment($commentId: ID!, $content: String!) {
     editComment(commentId: $commentId, content: $content) {

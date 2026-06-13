@@ -853,6 +853,8 @@ export const typeDefs = gql`
     post(id: ID!): Post
     comment(id: ID!): PostComment
     userPosts(userId: ID!, limit: Int, offset: Int): FeedResult!
+    postReactors(postId: ID!, limit: Int = 50): [Profile!]!
+    commentReactors(commentId: ID!, limit: Int = 50): [Profile!]!
 
     # Projects
     projects(

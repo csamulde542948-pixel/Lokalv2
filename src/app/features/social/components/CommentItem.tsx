@@ -11,6 +11,7 @@ import {
 import { avatarSrc } from "../../../../lib/defaults";
 import { timeAgo } from "../time";
 import type { CommentData } from "../types";
+import { ReactorListDialog } from "./ReactorListDialog";
 
 function CommentText({ content }: { content: string }) {
   const parts = content.split(/(@[A-Za-z0-9_.-]+)/g);
@@ -66,6 +67,7 @@ export function CommentItem({
   const isOwn = comment.author?.id === currentUserId;
   const [localLiked, setLocalLiked] = useState(comment.likedByMe);
   const [localLikes, setLocalLikes] = useState(comment.likesCount);
+  const [reactorsOpen, setReactorsOpen] = useState(false);
   const fired = localLiked;
 
   // Edit state
@@ -83,6 +85,7 @@ export function CommentItem({
   useEffect(() => {
     setLocalLiked(comment.likedByMe);
     setLocalLikes(comment.likesCount);
+    setReactorsOpen(false);
   }, [comment.likedByMe, comment.likesCount, comment.myReaction]);
 
   function handleLike() {
@@ -278,18 +281,36 @@ export function CommentItem({
           {/* Action row */}
           {!isEditing && (
             <div className="mt-3 grid max-w-xs grid-cols-2 text-muted-foreground">
-              <button
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleLike();
-                }}
-                className={`inline-flex h-9 items-center gap-2 text-sm transition-colors hover:text-primary ${
+              <div
+                className={`inline-flex h-9 items-center gap-2 text-sm ${
                   fired ? "text-primary" : ""
                 }`}
               >
-                <Flame className={`h-4 w-4 ${fired ? "fill-current" : ""}`} />
-                <span className="tabular-nums">{localLikes}</span>
-              </button>
+                <button
+                  type="button"
+                  aria-label={fired ? "Remove fire reaction" : "React with fire"}
+                  title={fired ? "Remove fire reaction" : "React with fire"}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleLike();
+                  }}
+                  className="transition-colors hover:text-primary"
+                >
+                  <Flame className={`h-4 w-4 ${fired ? "fill-current" : ""}`} />
+                </button>
+                <button
+                  type="button"
+                  disabled={localLikes === 0}
+                  aria-label={`View ${localLikes} fire ${localLikes === 1 ? "reaction" : "reactions"}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setReactorsOpen(true);
+                  }}
+                  className="tabular-nums transition-colors enabled:hover:text-primary enabled:hover:underline disabled:cursor-default"
+                >
+                  {localLikes}
+                </button>
+              </div>
 
               {/* Reply — direct parent stored in DB; visual/topLevel ids route optimistic update */}
               <button
@@ -434,6 +455,13 @@ export function CommentItem({
           </div>
         </div>
       )}
+
+      <ReactorListDialog
+        open={reactorsOpen}
+        onOpenChange={setReactorsOpen}
+        targetId={comment.id}
+        targetType="comment"
+      />
     </>
   );
 }
