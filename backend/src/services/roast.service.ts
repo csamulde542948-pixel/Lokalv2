@@ -7,10 +7,12 @@
  *   3. Call DeepSeek — roast the gap between claim and reality
  *   4. Return structured RoastResult
  *
- * Timeout budget: Firecrawl 18s + DeepSeek 75s = 93s max
+ * Timeout budget: Firecrawl up to 30s + NVIDIA DeepSeek up to 170s
  */
 
 import { assertSafeExternalUrl } from "../lib/ssrf";
+
+const ROAST_NVIDIA_TIMEOUT_MS = 170_000;
 
 // ─── System Prompt ────────────────────────────────────────────────────────────
 
@@ -164,7 +166,7 @@ export interface FirecrawlBrandingProfile {
 const FIRECRAWL_BROWSERS_PER_KEY = 2; // Firecrawl free/starter browser limit per account
 const FIRECRAWL_MAX_QUEUE = 8;        // global queue cap — reject beyond this
 // Max time a request may wait in the queue for a free Firecrawl slot.
-// Budget: httpServer.timeout=125s, Firecrawl=30s, DeepSeek=75s → only 20s left for queuing.
+// Budget: httpServer.timeout=220s, Firecrawl=30s, DeepSeek=170s → only 20s left for queuing.
 const FIRECRAWL_QUEUE_TIMEOUT_MS = 18_000;
 
 class Semaphore {
@@ -583,6 +585,54 @@ export function buildBrandBrief(metadata: FirecrawlMetadata, projectName: string
 
 // ─── Step 3: Call DeepSeek via NVIDIA NIM ────────────────────────────────────
 
+export async function readNvidiaChatStream(response: Response): Promise<string> {
+  if (!response.body) return "";
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+
+  function processEvent(event: string) {
+    const dataLines = event
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim());
+
+    for (const payload of dataLines) {
+      if (!payload || payload === "[DONE]") continue;
+      try {
+        const parsed = JSON.parse(payload);
+        const delta = parsed?.choices?.[0]?.delta?.content;
+        if (typeof delta === "string") content += delta;
+      } catch {
+        // Ignore malformed provider events; later valid chunks can still finish.
+      }
+    }
+  }
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, "\n");
+      let boundary: number;
+      while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+        processEvent(buffer.slice(0, boundary).trim());
+        buffer = buffer.slice(boundary + 2);
+      }
+    }
+
+    buffer += decoder.decode().replace(/\r\n/g, "\n");
+    if (buffer.trim()) processEvent(buffer.trim());
+  } finally {
+    reader.releaseLock();
+  }
+
+  return content.trim();
+}
+
 async function callDeepSeek(
   scrapeResult: FirecrawlScrapeResult,
   projectName: string,
@@ -607,7 +657,7 @@ ${scrapeResult.markdown || "No content could be extracted from the page."}
 
 Write exactly 4 paragraphs in ${langLabel}. Follow the system prompt rules exactly. No labels. No markdown. The final paragraph must begin with "Final Verdict:" and must end with a complete sentence — never cut off.`;
 
-  const body = JSON.stringify({
+  const requestBody = {
     model: "deepseek-ai/deepseek-v4-pro",
     messages: [
       { role: "system", content: systemPrompt },
@@ -621,31 +671,50 @@ Write exactly 4 paragraphs in ${langLabel}. Follow the system prompt rules exact
     // Keep reasoning disabled so the response remains the same direct
     // four-paragraph roast users already receive.
     chat_template_kwargs: { thinking: false },
-  });
+    stream: true,
+  };
 
   const headers = {
     Authorization: `Bearer ${apiKey}`,
     "Content-Type": "application/json",
     "HTTP-Referer": process.env.FRONTEND_URL ?? "https://lokalhost.club",
     "X-Title": "Lokal Roast Engine",
-    Accept: "application/json",
+    Accept: "text/event-stream",
   } as const;
 
   const endpoint = "https://integrate.api.nvidia.com/v1/chat/completions";
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body,
-    signal: AbortSignal.timeout(75_000),
-  });
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`NVIDIA NIM API error ${res.status}: ${err}`);
+  async function requestRoast(): Promise<string> {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(ROAST_NVIDIA_TIMEOUT_MS),
+      });
+
+      if (!response.ok || !response.body) {
+        const err = response.body ? await response.text() : "(no response body)";
+        throw new Error(`NVIDIA NIM API error ${response.status}: ${err}`);
+      }
+
+      return await readNvidiaChatStream(response);
+    } catch (error: any) {
+      const message = String(error?.message ?? "");
+      const isTimeout =
+        error?.name === "TimeoutError" ||
+        error?.name === "AbortError" ||
+        /aborted.*timeout|timeout/i.test(message);
+      if (isTimeout) {
+        throw new Error(
+          "Roast generation timed out while waiting for NVIDIA DeepSeek. Please try again shortly."
+        );
+      }
+      throw error;
+    }
   }
 
-  const data = (await res.json()) as any;
-  const content = data?.choices?.[0]?.message?.content;
+  const content = await requestRoast();
 
   // DeepSeek may occasionally return an empty choices array under load.
   // Retry once before surfacing the error — this recovers ~95% of these cases.
@@ -653,20 +722,7 @@ Write exactly 4 paragraphs in ${langLabel}. Follow the system prompt rules exact
     console.warn("[roast] NVIDIA DeepSeek returned empty content — retrying once");
     await new Promise((r) => setTimeout(r, 2000)); // brief back-off
 
-    const retry = await fetch(endpoint, {
-      method: "POST",
-      headers,
-      body,
-      signal: AbortSignal.timeout(75_000),
-    });
-
-    if (!retry.ok) {
-      const err = await retry.text();
-      throw new Error(`NVIDIA NIM API error on retry ${retry.status}: ${err}`);
-    }
-
-    const retryData = (await retry.json()) as any;
-    const retryContent = retryData?.choices?.[0]?.message?.content;
+    const retryContent = await requestRoast();
     if (!retryContent) {
       throw new Error("DeepSeek returned empty content twice in a row — please try again shortly.");
     }
