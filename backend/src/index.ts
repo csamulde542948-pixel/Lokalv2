@@ -483,42 +483,55 @@ async function startServer() {
     return decodeURIComponent(cookie.slice(name.length + 1));
   }
 
-  function sessionCookieOptions(maxAge?: number) {
+  function isFirstPartyApiRequest(req: any) {
+    const forwardedHost = req.headers["x-forwarded-host"];
+    const rawHost = Array.isArray(forwardedHost)
+      ? forwardedHost[0]
+      : forwardedHost?.split(",")[0] ?? req.headers.host ?? "";
+    const hostname = String(rawHost).trim().split(":")[0].toLowerCase();
+    return hostname === "api.lokalhost.club";
+  }
+
+  function deployedSameSite(req: any) {
+    return isFirstPartyApiRequest(req) ? "lax" as const : "none" as const;
+  }
+
+  function sessionCookieOptions(req: any, maxAge?: number) {
     return {
       httpOnly: true,
       secure: IS_DEPLOYED,
-      sameSite: IS_DEPLOYED ? "none" as const : "lax" as const,
+      sameSite: IS_DEPLOYED ? deployedSameSite(req) : "lax" as const,
       path: "/",
       ...(maxAge ? { maxAge } : {}),
     };
   }
 
-  function csrfCookieOptions(maxAge?: number) {
+  function csrfCookieOptions(req: any, maxAge?: number) {
     return {
       httpOnly: false,
       secure: IS_DEPLOYED,
-      sameSite: IS_DEPLOYED ? "none" as const : "lax" as const,
+      sameSite: IS_DEPLOYED ? deployedSameSite(req) : "lax" as const,
       path: "/",
       ...(maxAge ? { maxAge } : {}),
     };
   }
 
-  function issueCsrfToken(res: any, maxAge: number) {
+  function issueCsrfToken(req: any, res: any, maxAge: number) {
     const token = randomBytes(24).toString("hex");
-    res.cookie(AUTH_CSRF_COOKIE, token, csrfCookieOptions(maxAge));
+    res.cookie(AUTH_CSRF_COOKIE, token, csrfCookieOptions(req, maxAge));
     return token;
   }
 
-  function setSessionCookies(res: any, accessToken: string, refreshToken: string) {
-    res.cookie(AUTH_ACCESS_COOKIE, accessToken, sessionCookieOptions(60 * 60 * 1000));
-    res.cookie(AUTH_REFRESH_COOKIE, refreshToken, sessionCookieOptions(30 * 24 * 60 * 60 * 1000));
-    return issueCsrfToken(res, 30 * 24 * 60 * 60 * 1000);
+  function setSessionCookies(req: any, res: any, accessToken: string, refreshToken: string) {
+    res.cookie(AUTH_ACCESS_COOKIE, accessToken, sessionCookieOptions(req, 60 * 60 * 1000));
+    res.cookie(AUTH_REFRESH_COOKIE, refreshToken, sessionCookieOptions(req, 30 * 24 * 60 * 60 * 1000));
+    return issueCsrfToken(req, res, 30 * 24 * 60 * 60 * 1000);
   }
 
-  function clearSessionCookies(res: any) {
-    res.clearCookie(AUTH_ACCESS_COOKIE, sessionCookieOptions());
-    res.clearCookie(AUTH_REFRESH_COOKIE, sessionCookieOptions());
-    res.clearCookie(AUTH_CSRF_COOKIE, csrfCookieOptions());
+  function clearSessionCookies(req: any, res: any) {
+    res.clearCookie(AUTH_ACCESS_COOKIE, sessionCookieOptions(req));
+    res.clearCookie(AUTH_REFRESH_COOKIE, sessionCookieOptions(req));
+    res.clearCookie(AUTH_CSRF_COOKIE, csrfCookieOptions(req));
   }
 
   function requireGraphqlMutationCsrf(req: any, res: any, next: any) {
@@ -588,22 +601,22 @@ async function startServer() {
     try {
       const { accessToken, refreshToken } = req.body ?? {};
       if (!accessToken || !refreshToken) {
-        clearSessionCookies(res);
+        clearSessionCookies(req, res);
         return res.status(400).json({ error: "Session tokens required" });
       }
 
       const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
       if (error || !user) {
-        clearSessionCookies(res);
+        clearSessionCookies(req, res);
         return res.status(401).json({ error: "Invalid session" });
       }
 
-      const csrfToken = setSessionCookies(res, accessToken, refreshToken);
+      const csrfToken = setSessionCookies(req, res, accessToken, refreshToken);
       res.set("Cache-Control", "no-store");
       return res.json({ ok: true, user, csrfToken });
     } catch (err) {
       console.error("[session-cookie]", err);
-      clearSessionCookies(res);
+      clearSessionCookies(req, res);
       return res.status(500).json({ error: "Internal error" });
     }
   });
@@ -616,7 +629,7 @@ async function startServer() {
         console.warn("[session-cookie:delete] Session revocation failed:", error.message);
       }
     }
-    clearSessionCookies(res);
+    clearSessionCookies(req, res);
     res.set("Cache-Control", "no-store");
     return res.json({ ok: true });
   });
@@ -632,9 +645,9 @@ async function startServer() {
         if (!error && user) {
           let csrfToken = readCookie(req, AUTH_CSRF_COOKIE);
           if (refreshToken && !readCookie(req, AUTH_CSRF_COOKIE)) {
-            csrfToken = setSessionCookies(res, accessToken, refreshToken);
+            csrfToken = setSessionCookies(req, res, accessToken, refreshToken);
           } else if (!csrfToken) {
-            csrfToken = issueCsrfToken(res, 60 * 60 * 1000);
+            csrfToken = issueCsrfToken(req, res, 60 * 60 * 1000);
           }
           return res.json({ authenticated: true, user, csrfToken });
         }
@@ -643,16 +656,16 @@ async function startServer() {
       if (refreshToken) {
         const { data, error } = await supabaseAdmin.auth.refreshSession({ refresh_token: refreshToken });
         if (!error && data.session?.access_token && data.session.refresh_token && data.user) {
-          const csrfToken = setSessionCookies(res, data.session.access_token, data.session.refresh_token);
+          const csrfToken = setSessionCookies(req, res, data.session.access_token, data.session.refresh_token);
           return res.json({ authenticated: true, user: data.user, csrfToken });
         }
       }
 
-      clearSessionCookies(res);
+      clearSessionCookies(req, res);
       return res.json({ authenticated: false, user: null });
     } catch (err) {
       console.error("[session-cookie:get]", err);
-      clearSessionCookies(res);
+      clearSessionCookies(req, res);
       return res.status(500).json({ error: "Internal error" });
     }
   });
