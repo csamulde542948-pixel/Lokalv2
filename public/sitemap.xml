@@ -36,6 +36,31 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://lokalhost.club/blog</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://lokalhost.club/blog/website-roast-checklist</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://lokalhost.club/blog/first-100-users-without-paid-ads</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://lokalhost.club/blog/indie-builder-launch-checklist</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://lokalhost.club/blog/vibe-coding-is-not-the-problem</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://app.lokalhost.club/leaderboard</loc>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>

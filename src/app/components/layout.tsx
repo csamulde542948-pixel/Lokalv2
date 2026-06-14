@@ -6,7 +6,7 @@ import {
   UserIcon as UserSolid,
   RocketLaunchIcon as RocketSolid,
 } from "@heroicons/react/24/solid";
-import { Search, Bell, MessageSquare, Menu, Code2, X, User, Users, BarChart3, Settings, LogOut, Shield, Briefcase, Coins, Flame } from "lucide-react";
+import { Search, Bell, MessageSquare, Menu, Code2, X, User, Users, BarChart3, Settings, LogOut, Shield, Briefcase, Coins, Flame, BookOpen } from "lucide-react";
 import { BrandLogo } from "./brand-logo";
 import { AvatarFrame } from "./avatar-frame";
 import { CreditSupportDialog } from "./credit-support-dialog";
@@ -497,6 +497,18 @@ export function Layout() {
                   <span className="text-sm">Roast My Code</span>
                 </Link>
                 <Link
+                  to="/blog"
+                  onClick={() => setShowMobileMenu(false)}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
+                    isActive("/blog")
+                      ? "bg-primary/10 text-primary font-medium"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  <BookOpen className="w-5 h-5" strokeWidth={2} />
+                  <span className="text-sm">Blog</span>
+                </Link>
+                <Link
                   to="/leaderboard"
                   onClick={() => setShowMobileMenu(false)}
                   className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
@@ -567,7 +579,7 @@ export function Layout() {
       )}
 
       {/* Main Content — pb-16 on mobile for bottom tab bar clearance, pb-12 on desktop for fixed footer */}
-      <main className="flex-1 pb-16 lg:pb-12">
+      <main className="min-w-0 w-full flex-1 pb-16 lg:pb-12">
         <Outlet />
       </main>
 

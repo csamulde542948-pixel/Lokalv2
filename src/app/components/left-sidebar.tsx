@@ -2,7 +2,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { AvatarFrame } from "./avatar-frame";
 import { avatarSrc } from "../../lib/defaults";
 import { Skeleton } from "./ui/skeleton";
-import { User, Users, FolderKanban, BarChart3, Settings, Flame, Trophy, Sparkles, Shield, Briefcase, Calendar, Rocket } from "lucide-react";
+import { User, Users, FolderKanban, BarChart3, Settings, Flame, Trophy, Sparkles, Shield, Briefcase, Calendar, Rocket, BookOpen } from "lucide-react";
 import { Link, useLocation } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useQuery } from "@apollo/client/react";
@@ -45,6 +45,16 @@ const featuredItems = [
     iconColor: "text-orange-500",
     bgColor: "bg-orange-500/10",
     hoverBg: "hover:bg-orange-500/20",
+  },
+  {
+    icon: BookOpen,
+    label: "Blog",
+    description: "Builder field notes",
+    path: "/blog",
+    gradient: "from-cyan-500 to-blue-500",
+    iconColor: "text-cyan-500",
+    bgColor: "bg-cyan-500/10",
+    hoverBg: "hover:bg-cyan-500/20",
   },
   {
     icon: Trophy,

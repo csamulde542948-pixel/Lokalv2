@@ -64,6 +64,8 @@ const RefundPolicy  = lazyRoute(() => import("./pages/refund-policy").then(m => 
 const AuthCallback  = lazyRoute(() => import("./pages/auth-callback").then(m => ({ default: m.AuthCallback })));
 const NotFound      = lazyRoute(() => import("./pages/not-found").then(m => ({ default: m.NotFound })));
 const Landing       = lazyRoute(() => import("./pages/landing").then(m => ({ default: m.Landing })));
+const Blog          = lazyRoute(() => import("./pages/blog").then(m => ({ default: m.Blog })));
+const BlogArticle   = lazyRoute(() => import("./pages/blog-article").then(m => ({ default: m.BlogArticle })));
 
 // Page-level loading skeleton shown while chunks download
 function PageSkeleton() {
@@ -173,6 +175,8 @@ const routes = [
     Component: Layout,
     children: [
       { path: "roast", Component: withSuspense(Roast) },
+      { path: "blog", Component: withSuspense(Blog) },
+      { path: "blog/:slug", Component: withSuspense(BlogArticle) },
     ],
   },
   // Roast result — fully standalone, no navbar/sidebar
