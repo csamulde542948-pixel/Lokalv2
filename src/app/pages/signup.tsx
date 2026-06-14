@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { CheckCircle2, Eye, EyeOff, Github, Wallet } from "lucide-react";
@@ -13,6 +13,28 @@ import { PasswordStrength } from "../components/password-strength";
 import { TurnstileCaptcha } from "../components/turnstile-captcha";
 import { useAuth } from "../../contexts/AuthContext";
 import { isValidEmail, isValidUsername, validatePassword } from "../../lib/auth-security";
+import {
+  EMAIL_SIGNUP_COOLDOWN_MS,
+  getCooldownMinutesRemaining,
+  isEmailSendRateLimitError,
+} from "../../lib/signup-rate-limit";
+
+const EMAIL_SIGNUP_COOLDOWN_KEY = "lokal:email-signup-cooldown";
+
+function readEmailSignupCooldown(): number {
+  try {
+    const value = Number(window.localStorage.getItem(EMAIL_SIGNUP_COOLDOWN_KEY));
+    return Number.isFinite(value) && value > Date.now() ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function saveEmailSignupCooldown(cooldownUntil: number) {
+  try {
+    window.localStorage.setItem(EMAIL_SIGNUP_COOLDOWN_KEY, String(cooldownUntil));
+  } catch {}
+}
 
 export function Signup() {
   const { signUpWithEmail, signInWithGoogle, signInWithGithub, signInWithWeb3 } = useAuth();
@@ -45,7 +67,18 @@ export function Signup() {
   const [web3Loading, setWeb3Loading] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaResetSignal, setCaptchaResetSignal] = useState(0);
+  const [emailCooldownUntil, setEmailCooldownUntil] = useState(readEmailSignupCooldown);
+  const [currentTime, setCurrentTime] = useState(Date.now);
   const hasCaptchaToken = !!captchaToken;
+  const emailCooldownMinutes = getCooldownMinutesRemaining(emailCooldownUntil, currentTime);
+  const emailSignupPaused = emailCooldownMinutes > 0;
+
+  useEffect(() => {
+    if (!emailSignupPaused) return;
+
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [emailSignupPaused]);
 
   const resetCaptcha = () => {
     setCaptchaToken(null);
@@ -91,6 +124,13 @@ export function Signup() {
       return;
     }
 
+    if (emailSignupPaused) {
+      toast.error(
+        `Email verification is temporarily at capacity. Try again in about ${emailCooldownMinutes} minute(s), or continue with Google or GitHub.`
+      );
+      return;
+    }
+
     setLoading(true);
     const { error } = await signUpWithEmail(
       formData.email,
@@ -105,7 +145,15 @@ export function Signup() {
     setLoading(false);
 
     if (error) {
-      if (error.message.includes("already registered")) {
+      if (isEmailSendRateLimitError(error)) {
+        const cooldownUntil = Date.now() + EMAIL_SIGNUP_COOLDOWN_MS;
+        saveEmailSignupCooldown(cooldownUntil);
+        setCurrentTime(Date.now());
+        setEmailCooldownUntil(cooldownUntil);
+        toast.error(
+          "Email verification is temporarily at capacity. Please use Google or GitHub, or try email signup again later."
+        );
+      } else if (error.message.includes("already registered")) {
         toast.error("An account with this email already exists. Try logging in instead.");
       } else {
         toast.error(error.message);
@@ -413,7 +461,12 @@ export function Signup() {
                 resetSignal={captchaResetSignal}
               />
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                {hasCaptchaToken ? (
+                {emailSignupPaused ? (
+                  <span className="text-amber-500">
+                    Email signup is temporarily paused for about {emailCooldownMinutes} minute(s).
+                    Google and GitHub signup are still available.
+                  </span>
+                ) : hasCaptchaToken ? (
                   <>
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
                     <span>Security check complete. You can continue.</span>
@@ -423,8 +476,16 @@ export function Signup() {
                 )}
               </div>
 
-              <Button type="submit" className="w-full h-11" disabled={loading || !hasCaptchaToken}>
-                {loading ? "Creating account..." : "Create account"}
+              <Button
+                type="submit"
+                className="w-full h-11"
+                disabled={loading || !hasCaptchaToken || emailSignupPaused}
+              >
+                {loading
+                  ? "Creating account..."
+                  : emailSignupPaused
+                    ? `Try email again in ${emailCooldownMinutes}m`
+                    : "Create account"}
               </Button>
             </form>
           </CardContent>
