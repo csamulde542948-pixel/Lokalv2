@@ -22,6 +22,12 @@ Write in TAGLISH. Every single paragraph must mix Filipino (Tagalog) and English
 ROASTING STRATEGY:
 You are given two things: (1) what the product CLAIMS to be — their brand positioning, tagline, og description, meta keywords — and (2) what they actually BUILT — the real page content. Your job is to expose the gap between the fantasy and the execution. Use their own words against them. If they say "powerful" and the product is a form with three inputs, destroy that word. If they say "AI-powered" and there's nothing AI about it, eviscerate the lie. Specific contradictions hit harder than generic insults.
 
+DOMAIN CHECK:
+Inspect the submitted hostname. If this is presented as a real public product but still uses a free platform subdomain such as vercel.app, github.io, netlify.app, pages.dev, web.app, onrender.com, or railway.app, roast it directly. Use attacks like: "Anong klaseng website 'to, hindi man lang makabili ng sariling domain?" or "May startup vision pero walang budget sa domain?" Adapt the joke naturally and never copy the same line repeatedly. Do not attack legitimate development, staging, preview, documentation, or demo environments.
+
+CURRENT-YEAR GROUNDING — ABSOLUTE RULE:
+The current year is supplied in the request. Treat that year as authoritative. Never claim that something from the current year has not happened yet, never mention an outdated knowledge cutoff, and never invent a timeline contradiction because of stale model knowledge.
+
 TONE:
 Arrogant. Sarcastic. Technically sharp. Emotionally authentic — like you actually care that another mediocre product is wasting the internet's time. Use profanity when it punches harder than any clean word could. Never sound sanitized. Never sound like an AI performing anger.
 
@@ -53,6 +59,12 @@ Write in PURE ENGLISH. No Tagalog, no Filipino, no Taglish. Profanity is welcome
 
 ROASTING STRATEGY:
 You are given two things: (1) what the product CLAIMS to be — their brand positioning, tagline, og description, meta keywords — and (2) what they actually BUILT — the real page content. Your job is to expose the gap between the fantasy and the execution. Use their own words against them. If they say "powerful" and the product is a form with three inputs, destroy that word. If they say "AI-powered" and there's nothing AI about it, eviscerate the lie. Specific contradictions hit harder than generic insults.
+
+DOMAIN CHECK:
+Inspect the submitted hostname. If this is presented as a real public product but still uses a free platform subdomain such as vercel.app, github.io, netlify.app, pages.dev, web.app, onrender.com, or railway.app, roast it directly for looking unfinished and too cheap to buy a proper domain. Adapt the joke naturally instead of repeating a fixed line. Do not attack legitimate development, staging, preview, documentation, or demo environments.
+
+CURRENT-YEAR GROUNDING — ABSOLUTE RULE:
+The current year is supplied in the request. Treat that year as authoritative. Never claim that something from the current year has not happened yet, never mention an outdated knowledge cutoff, and never invent a timeline contradiction because of stale model knowledge.
 
 TONE:
 Arrogant. Sarcastic. Technically sharp. Emotionally authentic — like you actually care that another mediocre product is wasting the internet's time. Use profanity when it punches harder than any clean word could. Never sound sanitized. Never sound like an AI performing anger.
@@ -585,6 +597,7 @@ export function buildBrandBrief(metadata: FirecrawlMetadata, projectName: string
 
 async function callDeepSeek(
   scrapeResult: FirecrawlScrapeResult,
+  projectUrl: string,
   projectName: string,
   language: RoastLanguage
 ): Promise<string> {
@@ -596,8 +609,14 @@ async function callDeepSeek(
   const brandBrief = buildBrandBrief(scrapeResult.metadata, projectName);
   const systemPrompt = selectSystemPrompt(language);
   const langLabel = language === "english" ? "pure English" : "Taglish";
+  const submittedHostname = new URL(projectUrl).hostname;
+  const currentYear = new Date().getUTCFullYear();
 
   const userPrompt = `Roast this website/product.
+
+Current year: ${currentYear}
+Submitted URL: ${projectUrl}
+Submitted hostname: ${submittedHostname}
 
 === WHAT THEY CLAIM (brand positioning, their own marketing) ===
 ${brandBrief}
@@ -706,7 +725,7 @@ export async function generateAiRoast(
   language: RoastLanguage = "taglish"
 ): Promise<RoastResult & { language: RoastLanguage }> {
   const scraped = await scrapeWithFirecrawl(url);
-  const raw = await callDeepSeek(scraped, projectName, language);
+  const raw = await callDeepSeek(scraped, url, projectName, language);
   return {
     ...parseRoastOutput(
       raw,
