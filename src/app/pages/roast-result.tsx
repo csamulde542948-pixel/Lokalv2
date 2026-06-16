@@ -1140,7 +1140,6 @@ export function RoastResult() {
   const websiteDetailsRef = useRef<HTMLDivElement>(null);
 
   const [copied,              setCopied]            = useState(false);
-  const [shareCopied,         setShareCopied]       = useState(false);
   const [published,           setPublished]         = useState(false);
   const [publishLoading,      setPublishLoading]    = useState(false);
   const [publishError,        setPublishError]      = useState<string | null>(null);
@@ -1328,6 +1327,26 @@ export function RoastResult() {
     }
     return "";
   }, [activeTool, brandAnalysis?.id, roast?.generationId]);
+  const shareTitle = subject
+    ? activeTool === "brand"
+      ? `${subject.projectName} Brand Analysis`
+      : `${subject.projectName} Got Roasted`
+    : "Lokalhost.club AI result";
+  const shareText = subject
+    ? activeTool === "brand"
+      ? `Lokalhost.club brand analysis for ${subject.projectName}`
+      : roast?.quickRoast || `Lokalhost.club roast for ${subject.projectName}`
+    : "Check this Lokalhost.club result";
+  const xShareUrl = useMemo(() => {
+    if (!shareUrl) return "";
+    const params = new URLSearchParams({ text: shareText, url: shareUrl });
+    return `https://twitter.com/intent/tweet?${params.toString()}`;
+  }, [shareText, shareUrl]);
+  const facebookShareUrl = useMemo(() => {
+    if (!shareUrl) return "";
+    const params = new URLSearchParams({ u: shareUrl, quote: shareText });
+    return `https://www.facebook.com/sharer/sharer.php?${params.toString()}`;
+  }, [shareText, shareUrl]);
   const outputText = activeTool === "brand"
     ? brandAnalysis?.designMd ?? ""
     : roast?.fullRoast ?? "";
@@ -1397,32 +1416,6 @@ export function RoastResult() {
     navigator.clipboard.writeText(outputText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleShareResult = async () => {
-    if (!shareUrl || !subject) return;
-
-    const title = activeTool === "brand"
-      ? `${subject.projectName} Brand Analysis`
-      : `${subject.projectName} Got Roasted`;
-    const text = activeTool === "brand"
-      ? `Lokalhost.club brand analysis for ${subject.projectName}`
-      : roast?.quickRoast || `Lokalhost.club roast for ${subject.projectName}`;
-
-    try {
-      if (navigator.share) {
-        await navigator.share({ title, text, url: shareUrl });
-        return;
-      }
-      await navigator.clipboard.writeText(shareUrl);
-      setShareCopied(true);
-      setTimeout(() => setShareCopied(false), 2000);
-    } catch (error) {
-      if ((error as Error)?.name === "AbortError") return;
-      await navigator.clipboard.writeText(shareUrl);
-      setShareCopied(true);
-      setTimeout(() => setShareCopied(false), 2000);
-    }
   };
 
   const handlePublish = async () => {
@@ -1849,8 +1842,8 @@ export function RoastResult() {
                   style={{ background: "linear-gradient(135deg,#ea580c,#dc2626)", boxShadow: "0 0 16px rgba(234,88,12,0.35)" }}
                 >
                   {publishLoading
-                    ? <><Zap className="w-3.5 h-3.5 animate-pulse" />PUBLISHING...</>
-                    : <><Share2 className="w-3.5 h-3.5" />PUBLISH &amp; SHARE</>}
+                    ? <><Zap className="w-3.5 h-3.5 animate-pulse" />POSTING...</>
+                    : <><Share2 className="w-3.5 h-3.5" />POST TO FEED</>}
                 </button>
               </div>
             )}
@@ -1858,29 +1851,39 @@ export function RoastResult() {
             {activeTool === "roast" && done && published && (
               <div className="border-t border-green-500/20 bg-green-500/[0.04] px-5 py-3 flex items-center gap-2">
                 <Check className="w-3.5 h-3.5 text-green-500" />
-                <span className="text-[11px] font-black uppercase tracking-widest text-green-400 font-mono">PUBLISHED TO FEED!</span>
+                <span className="text-[11px] font-black uppercase tracking-widest text-green-400 font-mono">POSTED TO FEED!</span>
               </div>
             )}
 
             <div className="border-t border-border/30 bg-card/20 px-5 py-4 space-y-4">
               {done && shareUrl && (
-                <button
-                  type="button"
-                  onClick={handleShareResult}
-                  className="flex h-10 w-full items-center justify-center gap-2 border border-border/50 bg-background/40 text-[11px] font-black uppercase tracking-widest text-muted-foreground/70 transition-colors hover:border-orange-500/40 hover:text-foreground"
-                >
-                  {shareCopied ? (
-                    <>
-                      <Check className="h-3.5 w-3.5 text-green-500" />
-                      Link copied
-                    </>
-                  ) : (
-                    <>
-                      <Share2 className="h-3.5 w-3.5" />
-                      Share result card
-                    </>
-                  )}
-                </button>
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground/45">
+                    Share this result card
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <a
+                      href={xShareUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={`Share ${shareTitle} on X`}
+                      className="flex h-10 items-center justify-center gap-2 border border-border/50 bg-background/40 text-[11px] font-black uppercase tracking-widest text-muted-foreground/70 transition-colors hover:border-orange-500/40 hover:text-foreground"
+                    >
+                      <span className="text-sm leading-none">X</span>
+                      Share to X
+                    </a>
+                    <a
+                      href={facebookShareUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={`Share ${shareTitle} on Facebook`}
+                      className="flex h-10 items-center justify-center gap-2 border border-border/50 bg-background/40 text-[11px] font-black uppercase tracking-widest text-muted-foreground/70 transition-colors hover:border-blue-500/40 hover:text-foreground"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Facebook
+                    </a>
+                  </div>
+                </div>
               )}
 
               <div className="flex items-start justify-between gap-3">
