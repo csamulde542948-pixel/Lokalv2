@@ -21,6 +21,8 @@ import {
   Maximize2,
   Heart,
 } from "lucide-react";
+import FacebookIcon from "@mui/icons-material/Facebook";
+import XPlatformIcon from "@mui/icons-material/X";
 import { Button } from "../components/ui/button";
 import { BrandLogo } from "../components/brand-logo";
 import { CreditSupportDialog } from "../components/credit-support-dialog";
@@ -1140,6 +1142,7 @@ export function RoastResult() {
   const websiteDetailsRef = useRef<HTMLDivElement>(null);
 
   const [copied,              setCopied]            = useState(false);
+  const [shareCopied,         setShareCopied]       = useState(false);
   const [published,           setPublished]         = useState(false);
   const [publishLoading,      setPublishLoading]    = useState(false);
   const [publishError,        setPublishError]      = useState<string | null>(null);
@@ -1416,6 +1419,13 @@ export function RoastResult() {
     navigator.clipboard.writeText(outputText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyShareLink = async () => {
+    if (!shareUrl) return;
+    await navigator.clipboard.writeText(shareUrl);
+    setShareCopied(true);
+    setTimeout(() => setShareCopied(false), 2000);
   };
 
   const handlePublish = async () => {
@@ -1861,7 +1871,16 @@ export function RoastResult() {
                   <p className="text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground/45">
                     Share this result card
                   </p>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <button
+                      type="button"
+                      onClick={handleCopyShareLink}
+                      title={`Copy ${shareTitle} share link`}
+                      className="flex h-10 items-center justify-center gap-2 border border-border/50 bg-background/40 text-[11px] font-black uppercase tracking-widest text-muted-foreground/70 transition-colors hover:border-green-500/40 hover:text-foreground"
+                    >
+                      {shareCopied ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
+                      {shareCopied ? "Copied" : "Copy Link"}
+                    </button>
                     <a
                       href={xShareUrl}
                       target="_blank"
@@ -1869,7 +1888,7 @@ export function RoastResult() {
                       title={`Share ${shareTitle} on X`}
                       className="flex h-10 items-center justify-center gap-2 border border-border/50 bg-background/40 text-[11px] font-black uppercase tracking-widest text-muted-foreground/70 transition-colors hover:border-orange-500/40 hover:text-foreground"
                     >
-                      <span className="text-sm leading-none">X</span>
+                      <XPlatformIcon className="h-3.5 w-3.5" />
                       Share to X
                     </a>
                     <a
@@ -1879,7 +1898,7 @@ export function RoastResult() {
                       title={`Share ${shareTitle} on Facebook`}
                       className="flex h-10 items-center justify-center gap-2 border border-border/50 bg-background/40 text-[11px] font-black uppercase tracking-widest text-muted-foreground/70 transition-colors hover:border-blue-500/40 hover:text-foreground"
                     >
-                      <ExternalLink className="h-3.5 w-3.5" />
+                      <FacebookIcon className="h-3.5 w-3.5" />
                       Facebook
                     </a>
                   </div>
