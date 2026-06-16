@@ -1889,7 +1889,7 @@ export function RoastResult() {
                       className="flex h-10 items-center justify-center gap-2 border border-border/50 bg-background/40 text-[11px] font-black uppercase tracking-widest text-muted-foreground/70 transition-colors hover:border-orange-500/40 hover:text-foreground"
                     >
                       <XPlatformIcon className="h-3.5 w-3.5" />
-                      Share to X
+                      X
                     </a>
                     <a
                       href={facebookShareUrl}

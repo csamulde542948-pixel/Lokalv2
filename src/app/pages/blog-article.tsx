@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { ArrowLeft, Clock, Flame } from "lucide-react";
+import { ArrowLeft, ArrowRight, Clock, Flame } from "lucide-react";
 import { Link, Navigate, useParams } from "react-router";
 import { getBlogArticle } from "../features/blog/blog-data";
 
@@ -13,8 +13,8 @@ export function BlogArticle() {
     const previousTitle = document.title;
     const description = document.querySelector('meta[name="description"]');
     const previousDescription = description?.getAttribute("content");
-    document.title = `${article.title} | Lokalhost Blog`;
-    description?.setAttribute("content", article.excerpt);
+    document.title = `${article.metaTitle} | Lokalhost Blog`;
+    description?.setAttribute("content", article.metaDescription);
     const existingCanonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
     const previousCanonical = existingCanonical?.href;
     const canonical = existingCanonical ?? document.createElement("link");
@@ -30,10 +30,10 @@ export function BlogArticle() {
       "@context": "https://schema.org",
       "@type": "BlogPosting",
       headline: article.title,
-      description: article.excerpt,
+      description: article.metaDescription,
       image: `https://lokalhost.club${article.image}`,
-      datePublished: "2026-06-14",
-      dateModified: "2026-06-14",
+      datePublished: article.publishedIso,
+      dateModified: article.updatedIso,
       author: {
         "@type": "Organization",
         name: article.author,
@@ -45,7 +45,29 @@ export function BlogArticle() {
       },
       mainEntityOfPage: `https://lokalhost.club/blog/${article.slug}`,
     });
+    const breadcrumbData = document.createElement("script");
+    breadcrumbData.type = "application/ld+json";
+    breadcrumbData.dataset.lokalBlogBreadcrumbSchema = "true";
+    breadcrumbData.text = JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        {
+          "@type": "ListItem",
+          position: 1,
+          name: "Blog",
+          item: "https://lokalhost.club/blog",
+        },
+        {
+          "@type": "ListItem",
+          position: 2,
+          name: article.title,
+          item: `https://lokalhost.club/blog/${article.slug}`,
+        },
+      ],
+    });
     document.head.appendChild(structuredData);
+    document.head.appendChild(breadcrumbData);
 
     return () => {
       document.title = previousTitle;
@@ -56,6 +78,7 @@ export function BlogArticle() {
         canonical.remove();
       }
       structuredData.remove();
+      breadcrumbData.remove();
     };
   }, [article]);
 
@@ -78,6 +101,7 @@ export function BlogArticle() {
           <div className="mt-6 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
             <span>{article.author}</span>
             <span>{article.publishedAt}</span>
+            <span>Updated {article.updatedAt}</span>
             <span className="inline-flex items-center gap-1">
               <Clock className="h-3.5 w-3.5" />
               {article.readTime}
@@ -126,6 +150,33 @@ export function BlogArticle() {
               )}
             </section>
           ))}
+
+          <section className="mt-8 border border-orange-500/30 bg-orange-500/[0.05] px-5 py-6">
+            <p className="font-mono text-xs font-bold uppercase tracking-[0.16em] text-orange-500">
+              Next move
+            </p>
+            <h2 className="mt-2 text-2xl font-black">Turn the guide into feedback.</h2>
+            <p className="mt-3 leading-7 text-muted-foreground">
+              The useful part is not reading advice forever. Post the project, get feedback, fix the confusing parts,
+              and ship the next version with fewer blind spots.
+            </p>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <Link
+                to="/roast"
+                className="inline-flex items-center justify-center gap-2 bg-orange-500 px-4 py-2.5 text-sm font-bold text-black hover:bg-orange-400"
+              >
+                <Flame className="h-4 w-4" />
+                Get roasted
+              </Link>
+              <Link
+                to="/feed"
+                className="inline-flex items-center justify-center gap-2 border border-border bg-background px-4 py-2.5 text-sm font-bold hover:border-orange-500/50"
+              >
+                Join the feed
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          </section>
         </div>
 
         <aside className="h-fit border-t border-border pt-5 lg:sticky lg:top-24">
@@ -141,6 +192,23 @@ export function BlogArticle() {
             <Flame className="h-4 w-4" />
             Get roasted
           </Link>
+          <div className="mt-6 border-t border-border pt-5">
+            <p className="font-mono text-[10px] font-bold uppercase text-muted-foreground">Useful links</p>
+            <div className="mt-3 space-y-2 text-sm">
+              <Link to="/feed" className="flex items-center justify-between text-muted-foreground hover:text-foreground">
+                Community feed
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+              <Link to="/launchpad" className="flex items-center justify-between text-muted-foreground hover:text-foreground">
+                Launchpad
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+              <Link to="/blog" className="flex items-center justify-between text-muted-foreground hover:text-foreground">
+                More guides
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+          </div>
         </aside>
       </div>
     </article>
