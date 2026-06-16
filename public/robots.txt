@@ -9,4 +9,4 @@ Disallow: /analytics
 Disallow: /auth-callback
 Disallow: /launchpad/manage
 
-Sitemap: https://app.lokalhost.club/sitemap.xml
+Sitemap: https://lokalhost.club/sitemap.xml

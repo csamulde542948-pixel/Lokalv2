@@ -2,6 +2,10 @@
   "buildCommand": "npm run build:vercel",
   "rewrites": [
     {
+      "source": "/share/:type/:id",
+      "destination": "/api/share?type=:type&id=:id"
+    },
+    {
       "source": "/((?!api|assets|defaults|favicon|og-card|apple-touch-icon|site.webmanifest|robots.txt|sitemap.xml).*)",
       "destination": "/index.html"
     }

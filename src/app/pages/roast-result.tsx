@@ -1140,6 +1140,7 @@ export function RoastResult() {
   const websiteDetailsRef = useRef<HTMLDivElement>(null);
 
   const [copied,              setCopied]            = useState(false);
+  const [shareCopied,         setShareCopied]       = useState(false);
   const [published,           setPublished]         = useState(false);
   const [publishLoading,      setPublishLoading]    = useState(false);
   const [publishError,        setPublishError]      = useState<string | null>(null);
@@ -1317,6 +1318,16 @@ export function RoastResult() {
   }, [user, roast]);
 
   const subject = roast ?? brandAnalysis;
+  const shareUrl = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    if (activeTool === "brand" && brandAnalysis?.id) {
+      return `${window.location.origin}/share/brand/${brandAnalysis.id}`;
+    }
+    if (activeTool === "roast" && roast?.generationId) {
+      return `${window.location.origin}/share/roast/${roast.generationId}`;
+    }
+    return "";
+  }, [activeTool, brandAnalysis?.id, roast?.generationId]);
   const outputText = activeTool === "brand"
     ? brandAnalysis?.designMd ?? ""
     : roast?.fullRoast ?? "";
@@ -1386,6 +1397,32 @@ export function RoastResult() {
     navigator.clipboard.writeText(outputText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleShareResult = async () => {
+    if (!shareUrl || !subject) return;
+
+    const title = activeTool === "brand"
+      ? `${subject.projectName} Brand Analysis`
+      : `${subject.projectName} Got Roasted`;
+    const text = activeTool === "brand"
+      ? `Lokalhost.club brand analysis for ${subject.projectName}`
+      : roast?.quickRoast || `Lokalhost.club roast for ${subject.projectName}`;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, text, url: shareUrl });
+        return;
+      }
+      await navigator.clipboard.writeText(shareUrl);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch (error) {
+      if ((error as Error)?.name === "AbortError") return;
+      await navigator.clipboard.writeText(shareUrl);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    }
   };
 
   const handlePublish = async () => {
@@ -1826,6 +1863,26 @@ export function RoastResult() {
             )}
 
             <div className="border-t border-border/30 bg-card/20 px-5 py-4 space-y-4">
+              {done && shareUrl && (
+                <button
+                  type="button"
+                  onClick={handleShareResult}
+                  className="flex h-10 w-full items-center justify-center gap-2 border border-border/50 bg-background/40 text-[11px] font-black uppercase tracking-widest text-muted-foreground/70 transition-colors hover:border-orange-500/40 hover:text-foreground"
+                >
+                  {shareCopied ? (
+                    <>
+                      <Check className="h-3.5 w-3.5 text-green-500" />
+                      Link copied
+                    </>
+                  ) : (
+                    <>
+                      <Share2 className="h-3.5 w-3.5" />
+                      Share result card
+                    </>
+                  )}
+                </button>
+              )}
+
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-2.5 min-w-0">
                   <AlertTriangle className="w-3.5 h-3.5 text-muted-foreground/30 flex-shrink-0 mt-0.5" strokeWidth={2} />
