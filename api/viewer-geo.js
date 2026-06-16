@@ -8,9 +8,24 @@ export function normalizeCountry(value) {
   return COUNTRY_CODE_PATTERN.test(normalized) ? normalized : null;
 }
 
+function readHeader(headers, name) {
+  if (!headers) return null;
+
+  if (typeof headers.get === "function") {
+    return headers.get(name) ?? headers.get(name.toLowerCase()) ?? headers.get(name.toUpperCase());
+  }
+
+  const direct = headers[name] ?? headers[name.toLowerCase()] ?? headers[name.toUpperCase()];
+  if (direct !== undefined) return direct;
+
+  const lowerName = name.toLowerCase();
+  const match = Object.keys(headers).find((key) => key.toLowerCase() === lowerName);
+  return match ? headers[match] : null;
+}
+
 export function resolveViewerCountry(headers) {
-  const vercelCountry = headers?.["x-vercel-ip-country"];
-  const cloudflareCountry = headers?.["cf-ipcountry"];
+  const vercelCountry = readHeader(headers, "x-vercel-ip-country");
+  const cloudflareCountry = readHeader(headers, "cf-ipcountry");
   return normalizeCountry(vercelCountry ?? cloudflareCountry);
 }
 

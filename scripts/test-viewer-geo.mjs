@@ -5,7 +5,9 @@ assert.equal(normalizeCountry("de"), "DE");
 assert.equal(normalizeCountry(" PH "), "PH");
 assert.equal(normalizeCountry("Germany"), null);
 assert.equal(resolveViewerCountry({ "x-vercel-ip-country": "DE" }), "DE");
+assert.equal(resolveViewerCountry({ "X-Vercel-IP-Country": "US" }), "US");
 assert.equal(resolveViewerCountry({ "cf-ipcountry": "PH" }), "PH");
+assert.equal(resolveViewerCountry(new Headers({ "x-vercel-ip-country": "JP" })), "JP");
 assert.equal(resolveViewerCountry({}), null);
 
 const languageFor = (country) => country === "PH" ? "taglish" : "english";

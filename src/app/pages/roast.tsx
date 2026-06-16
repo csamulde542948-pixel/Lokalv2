@@ -268,28 +268,48 @@ function BrandMarqueeCard({ analysis }: { analysis: RecentBrandAnalysis }) {
 
 // ─── Animated Scramble Headline ──────────────────────────────────────────────
 
-const HEADLINE_SETS: [string, string, string?][] = [
-  ["MUKHANG SILICON VALLEY.", "PERO GALAWANG RECTO FREELANCER.", "LET'S ROAST IT."],
-  ["PASTE MOYUNG WEBSITE MO.", "SIRAIN NAMIN YUNG EGO MO."],
-  ["MUKHANG MAY VISION.", "PERO WALANG DIREKSYON."],
-  ["MAS MALINIS PA YUNG UI", "KESA SA BUSINESS MODEL MO."],
-  ["MUKHANG PINAGISIPAN.", "PERO HINDI SOBRA."],
-];
+const HEADLINE_SETS: Record<RoastLanguage, [string, string, string?][]> = {
+  taglish: [
+    ["MUKHANG SILICON VALLEY.", "PERO GALAWANG RECTO FREELANCER.", "LET'S ROAST IT."],
+    ["PASTE MO YUNG WEBSITE MO.", "SIRAIN NAMIN YUNG EGO MO."],
+    ["MUKHANG MAY VISION.", "PERO WALANG DIREKSYON."],
+    ["MAS MALINIS PA YUNG UI", "KESA SA BUSINESS MODEL MO."],
+    ["MUKHANG PINAGISIPAN.", "PERO HINDI SOBRA."],
+  ],
+  english: [
+    ["LOOKS LIKE SILICON VALLEY.", "BUILT LIKE A WEEKEND SIDE QUEST.", "LET'S ROAST IT."],
+    ["PASTE YOUR WEBSITE.", "WE'LL FIND WHAT USERS WON'T TELL YOU."],
+    ["IT LOOKS AMBITIOUS.", "BUT THE DIRECTION IS MISSING."],
+    ["YOUR UI LOOKS CLEANER", "THAN YOUR BUSINESS MODEL."],
+    ["IT LOOKS INTENTIONAL.", "JUST NOT INTENTIONAL ENOUGH."],
+  ],
+};
 
-function AnimatedHeadline() {
+const HERO_TAGLINES: Record<RoastLanguage, string> = {
+  taglish: "WE ROAST STARTUPS, PORTFOLIOS, AT MGA DELUSIONAL FOUNDER.",
+  english: "WE ROAST STARTUPS, PORTFOLIOS, AND BEAUTIFULLY DELUSIONAL FOUNDER PAGES.",
+};
+
+function AnimatedHeadline({ language }: { language: RoastLanguage }) {
   const [setIdx, setSetIdx] = useState(0);
   const [trigger, setTrigger] = useState(0);
+  const headlineSets = HEADLINE_SETS[language];
 
   useEffect(() => {
     // Hold each tagline for 9s, then scramble to next
     const id = setInterval(() => {
-      setSetIdx((i) => (i + 1) % HEADLINE_SETS.length);
+      setSetIdx((i) => (i + 1) % headlineSets.length);
       setTrigger((t) => t + 1);
     }, 9000);
     return () => clearInterval(id);
-  }, []);
+  }, [headlineSets.length]);
 
-  const [line1, line2, line3] = HEADLINE_SETS[setIdx];
+  useEffect(() => {
+    setSetIdx(0);
+    setTrigger((t) => t + 1);
+  }, [language]);
+
+  const [line1, line2, line3] = headlineSets[setIdx] ?? headlineSets[0];
 
   return (
     <h1 className="font-mono font-black uppercase leading-[1.08] tracking-tight mb-4 sm:mb-6 w-full">
@@ -497,11 +517,11 @@ export function Roast() {
         <div className="relative z-[3] flex-1 flex flex-col items-center justify-center py-6 sm:py-10 w-full px-4 sm:px-6 max-w-5xl mx-auto">
 
           {/* Big animated scramble headline */}
-          <AnimatedHeadline />
+          <AnimatedHeadline language={language} />
 
           {/* Static tagline */}
           <p className="font-mono text-[10px] sm:text-xs text-muted-foreground/50 uppercase tracking-wider sm:tracking-widest mb-5 sm:mb-8 leading-relaxed text-center px-2">
-            WE ROAST STARTUPS, PORTFOLIOS, AT MGA DELUSIONAL FOUNDER.
+            {HERO_TAGLINES[language]}
           </p>
 
           {/* ── URL Input row ── */}
