@@ -51,8 +51,8 @@ import { adaptProjectAvatar } from "../../lib/defaults";
 // ─── GraphQL ──────────────────────────────────────────────────────────────────
 
 const GET_PROJECTS_PAGE = gql`
-  query GetProjectsPage($filter: ProjectFilter, $category: ProjectCategory, $search: String, $limit: Int) {
-    projects(filter: $filter, category: $category, search: $search, limit: $limit) {
+  query GetProjectsPage($filter: ProjectFilter, $category: ProjectCategory, $search: String, $limit: Int, $offset: Int) {
+    projects(filter: $filter, category: $category, search: $search, limit: $limit, offset: $offset) {
       id
       name
       tagline
@@ -79,6 +79,8 @@ const GET_PROJECTS_PAGE = gql`
     }
   }
 `;
+
+const PROJECT_PAGE_SIZE = 24;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -159,6 +161,8 @@ export function Projects() {
   );
 
   const [searchInput, setSearchInput] = useState(search);
+  const [loadedProjects, setLoadedProjects] = useState<any[]>([]);
+  const [hasMoreProjects, setHasMoreProjects] = useState(false);
 
   // Filter updates flush to URL (replace, not push — no history spam)
   const setCategory = (c: Category) => {
@@ -188,22 +192,54 @@ export function Projects() {
 
   const filter = quick.has("FEATURED")
     ? "FEATURED"
+    : quick.has("TRENDING")
+      ? "TRENDING"
     : quick.has("GITHUB")
       ? "GITHUB"
       : "ALL";
 
+  const queryVariables = useMemo(() => ({
+    filter,
+    category: category === "ALL" ? null : category,
+    search: search.trim() || null,
+    limit: PROJECT_PAGE_SIZE + 1,
+    offset: 0,
+  }), [filter, category, search]);
+
   const { data, loading, error, fetchMore } = useQuery(GET_PROJECTS_PAGE, {
-    variables: {
-      filter,
-      category: category === "ALL" ? null : category,
-      search: search.trim() || null,
-      limit: 24,
-    },
+    variables: queryVariables,
     fetchPolicy: "cache-and-network",
     notifyOnNetworkStatusChange: true,
   });
 
-  const projects: any[] = data?.projects ?? [];
+  useEffect(() => {
+    setLoadedProjects([]);
+    setHasMoreProjects(false);
+  }, [queryVariables]);
+
+  useEffect(() => {
+    const page: any[] = data?.projects ?? [];
+    setLoadedProjects(page.slice(0, PROJECT_PAGE_SIZE));
+    setHasMoreProjects(page.length > PROJECT_PAGE_SIZE);
+  }, [data]);
+
+  async function loadMoreProjects() {
+    if (loading || !hasMoreProjects) return;
+    const result = await fetchMore({
+      variables: {
+        ...queryVariables,
+        offset: loadedProjects.length,
+      },
+    });
+    const nextPage: any[] = result.data?.projects ?? [];
+    setLoadedProjects((current) => [
+      ...current,
+      ...nextPage.slice(0, PROJECT_PAGE_SIZE),
+    ]);
+    setHasMoreProjects(nextPage.length > PROJECT_PAGE_SIZE);
+  }
+
+  const projects = loadedProjects;
   const trending = useMemo(
     () => projects.filter((p) => p.isTrending || p.isFeatured).slice(0, 6),
     [projects]
@@ -286,7 +322,8 @@ export function Projects() {
                 error={error}
                 projects={rest}
                 totalShown={projects.length}
-                onLoadMore={() => fetchMore({ variables: { limit: (projects.length ?? 0) + 24 } })}
+                hasMore={hasMoreProjects}
+                onLoadMore={loadMoreProjects}
               />
             </div>
           </div>
@@ -772,12 +809,14 @@ function ProjectGrid({
   error,
   projects,
   totalShown,
+  hasMore,
   onLoadMore,
 }: {
   loading: boolean;
   error: any;
   projects: any[];
   totalShown: number;
+  hasMore: boolean;
   onLoadMore: () => void;
 }) {
   if (error) {
@@ -803,6 +842,29 @@ function ProjectGrid({
     );
   }
 
+  if (projects.length === 0 && totalShown > 0) {
+    return (
+      <section className="px-4 sm:px-6 mt-2">
+        {hasMore && (
+          <div className="mt-8 flex justify-center">
+            <button
+              onClick={onLoadMore}
+              disabled={loading}
+              className="text-xs font-mono text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 px-4 py-2 rounded border border-border hover:border-primary/40 disabled:opacity-50 disabled:cursor-wait"
+            >
+              {loading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Plus className="w-3.5 h-3.5" />
+              )}
+              load more
+            </button>
+          </div>
+        )}
+      </section>
+    );
+  }
+
   if (projects.length === 0) {
     return (
       <EmptyState
@@ -822,15 +884,22 @@ function ProjectGrid({
         ))}
       </div>
 
-      {/* Load more sentinel */}
-      <div className="mt-8 flex justify-center">
-        <button
-          onClick={onLoadMore}
-          className="text-xs font-mono text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 px-4 py-2 rounded border border-border hover:border-primary/40"
-        >
-          <Plus className="w-3.5 h-3.5" /> load more
-        </button>
-      </div>
+      {hasMore && (
+        <div className="mt-8 flex justify-center">
+          <button
+            onClick={onLoadMore}
+            disabled={loading}
+            className="text-xs font-mono text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 px-4 py-2 rounded border border-border hover:border-primary/40 disabled:opacity-50 disabled:cursor-wait"
+          >
+            {loading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Plus className="w-3.5 h-3.5" />
+            )}
+            load more
+          </button>
+        </div>
+      )}
     </section>
   );
 }
