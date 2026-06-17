@@ -235,7 +235,7 @@ export function CreateEventWizard({ open, onClose, onCreated }: CreateEventWizar
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
       <DialogContent
         showCloseButton={false}
-        className="w-[calc(100vw-0.75rem)] max-w-7xl max-h-[calc(100dvh-0.75rem)] sm:max-h-[calc(100dvh-1.25rem)] gap-0 p-0 overflow-hidden rounded-lg border-border/70 bg-background shadow-2xl"
+        className="!w-[calc(100vw-0.75rem)] !max-w-none sm:!w-[min(96vw,88rem)] sm:!max-w-[88rem] max-h-[calc(100dvh-0.75rem)] sm:max-h-[calc(100dvh-1.25rem)] gap-0 p-0 overflow-hidden rounded-lg border-border/70 bg-background shadow-2xl"
       >
         <div
           className="pointer-events-none absolute inset-0 opacity-50"
