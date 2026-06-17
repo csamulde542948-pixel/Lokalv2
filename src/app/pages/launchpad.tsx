@@ -171,7 +171,6 @@ function EventCard({ event, user, onJoin, onLeave, joining, onClick }: {
         {/* ── Body ──────────────────────────────────────────────────── */}
         <div className="p-4 space-y-3">
           <div className="flex items-center justify-between gap-3 text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground">
-            <span>// launch cell</span>
             <span>{event.projectStatus || "open"}</span>
           </div>
           <div className="flex items-start justify-between gap-2">
@@ -417,8 +416,9 @@ export function Launchpad() {
                   <Rocket className="w-5 h-5 text-orange-500" strokeWidth={2} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[10px] font-mono uppercase tracking-[0.28em] text-orange-500/80 mb-1">// launch operations</p>
-                  <h1 className="text-2xl sm:text-3xl font-bold leading-tight tracking-tight">Launchpad</h1>
+                  <h1 className="text-2xl sm:text-3xl font-bold leading-tight tracking-tight">
+                    Launch<span className="text-orange-500">.pad</span>
+                  </h1>
                   <p className="text-sm text-muted-foreground max-w-2xl mt-2 leading-relaxed">
                     Find contributors, organize joiners, publish updates, and keep every launch conversation in one place.
                   </p>

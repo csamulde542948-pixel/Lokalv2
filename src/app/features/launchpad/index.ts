@@ -210,5 +210,4 @@ export const FILTER_TABS: FilterTab[] = [
   { id: "LAUNCH", label: "Launches" },
   { id: "FEEDBACK", label: "Feedback" },
   { id: "COLLABORATION", label: "Collab" },
-  { id: "HIRING", label: "Hiring" },
 ];
