@@ -345,7 +345,7 @@ export function LaunchpadChat() {
   const dl = deadlineLabel(event.deadline);
 
   return (
-    <div className="relative min-h-screen bg-muted/20 text-foreground overflow-x-hidden">
+    <div className="relative h-[calc(100dvh-8rem)] lg:h-[calc(100dvh-7rem)] min-h-0 bg-muted/20 text-foreground overflow-hidden flex flex-col">
       <div
         className="fixed inset-x-0 top-0 pointer-events-none z-0"
         style={{ bottom: `${bottomOffset}px` }}
@@ -361,7 +361,7 @@ export function LaunchpadChat() {
         />
       </div>
 
-      <div className="relative z-10 border-b border-border/60 bg-background/92 backdrop-blur-md sticky top-16">
+      <div className="relative z-10 flex-shrink-0 border-b border-border/60 bg-background/92 backdrop-blur-md">
         <div className="px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <Button variant="ghost" size="sm" onClick={() => navigate(`/launchpad/${id}`)} className="h-8 px-2 gap-1.5 rounded-md">
@@ -398,9 +398,9 @@ export function LaunchpadChat() {
         </div>
       </div>
 
-      <main className="relative z-10 p-3 sm:p-4 lg:p-5">
-        <div className="mx-auto max-w-[1500px] grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)_340px] gap-3 lg:gap-4 min-h-[calc(100vh-8.5rem)]">
-          <aside className="hidden lg:flex flex-col rounded-lg border border-border/60 bg-background/88 backdrop-blur-sm overflow-hidden">
+      <main className="relative z-10 flex-1 min-h-0 p-3 sm:p-4 lg:p-5">
+        <div className="mx-auto max-w-[1500px] h-full min-h-0 grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)_340px] gap-3 lg:gap-4">
+          <aside className="hidden min-h-0 lg:flex flex-col rounded-lg border border-border/60 bg-background/88 backdrop-blur-sm overflow-hidden">
             <EventInbox event={event} cfg={cfg} latestMessage={latestMessage} />
             <div className="border-t border-border/60 p-3">
               <div className="flex items-center justify-between mb-2">
@@ -415,7 +415,7 @@ export function LaunchpadChat() {
             </div>
           </aside>
 
-          <section className="min-h-[72vh] rounded-lg border border-border/60 bg-background/90 backdrop-blur-sm overflow-hidden flex flex-col">
+          <section className="min-h-0 rounded-lg border border-border/60 bg-background/90 backdrop-blur-sm overflow-hidden flex flex-col">
             <ChatThreadHeader
               event={event}
               cfg={cfg}
@@ -462,7 +462,7 @@ export function LaunchpadChat() {
             />
           </section>
 
-          <aside className="rounded-lg border border-border/60 bg-background/88 backdrop-blur-sm overflow-hidden">
+          <aside className="hidden lg:block min-h-0 rounded-lg border border-border/60 bg-background/88 backdrop-blur-sm overflow-hidden">
             {isHost ? (
               <HostDashboard
                 event={event}
