@@ -68,10 +68,31 @@ const FEELING_CATEGORIES = [
 type Feeling = { label: string; Icon: LucideIcon } | null;
 type MediaImage = { file: File; preview: string };
 type VideoPreview = { file: File; preview: string } | null;
+type LaunchpadEventOption = {
+  id: string;
+  title: string;
+  projectName: string;
+  projectTagline?: string | null;
+  eventType: string;
+  interestedCount: number;
+};
 
 const GET_ME_AVATAR = gql`
   query GetMeAvatar {
     me { id name displayName username avatarUrl }
+  }
+`;
+
+const GET_MY_LAUNCHPAD_EVENTS = gql`
+  query GetMyLaunchpadEventsForPost {
+    myLaunchpadEvents {
+      id
+      title
+      projectName
+      projectTagline
+      eventType
+      interestedCount
+    }
   }
 `;
 
@@ -136,6 +157,10 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
     skip: !user,
     fetchPolicy: "cache-first",
   });
+  const { data: launchpadData, loading: launchpadLoading } = useQuery(GET_MY_LAUNCHPAD_EVENTS, {
+    skip: !user,
+    fetchPolicy: "cache-and-network",
+  });
 
   const [content, setContent] = useState("");
   const [images, setImages] = useState<MediaImage[]>([]);
@@ -145,6 +170,8 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
   const [feeling, setFeeling] = useState<Feeling>(null);
   const [showFeelingPicker, setShowFeelingPicker] = useState(false);
   const [showTagEditor, setShowTagEditor] = useState(false);
+  const [showLaunchpadPicker, setShowLaunchpadPicker] = useState(false);
+  const [selectedLaunchpadEvent, setSelectedLaunchpadEvent] = useState<LaunchpadEventOption | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -155,9 +182,14 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const me = meData?.me;
+  const launchpadEvents: LaunchpadEventOption[] = launchpadData?.myLaunchpadEvents ?? [];
   const prompt = useScrambledPrompt(content.length === 0);
-  const remaining = MAX_POST_CHARS - content.length;
-  const hasBody = content.trim().length > 0 || images.length > 0 || !!video || !!feeling;
+  const launchpadTextPreview = selectedLaunchpadEvent
+    ? `${content.trim() ? "\n\n" : `Launching ${selectedLaunchpadEvent.projectName}\n`}/launchpad/${selectedLaunchpadEvent.id}`
+    : "";
+  const feelingTextPreview = feeling ? `${content.trim() || selectedLaunchpadEvent ? "\n" : ""}-- feeling ${feeling.label}` : "";
+  const remaining = MAX_POST_CHARS - content.length - launchpadTextPreview.length - feelingTextPreview.length;
+  const hasBody = content.trim().length > 0 || images.length > 0 || !!video || !!feeling || !!selectedLaunchpadEvent;
   const overLimit = remaining < 0;
   const wrapperClass = variant === "timeline"
     ? "border-b bg-background"
@@ -296,11 +328,20 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
       const permanentUrls = images.length > 0 ? await uploadImagesToSupabase(images) : undefined;
       const permanentVideoUrl = video ? await uploadVideoToSupabase(video) : undefined;
       const text = content.trim();
-      const finalContent = feeling
-        ? `${text}${text ? "\n" : ""}-- feeling ${feeling.label}`
+      const launchpadUrl = selectedLaunchpadEvent
+        ? `${window.location.origin}/launchpad/${selectedLaunchpadEvent.id}`
+        : "";
+      const contentWithLaunchpad = selectedLaunchpadEvent
+        ? `${text || `Launching ${selectedLaunchpadEvent.projectName}`}${text ? "\n\n" : "\n"}${launchpadUrl}`
         : text;
+      const finalContent = feeling
+        ? `${contentWithLaunchpad}${contentWithLaunchpad ? "\n" : ""}-- feeling ${feeling.label}`
+        : contentWithLaunchpad;
+      const nextTags = selectedLaunchpadEvent
+        ? Array.from(new Set([...tags, "launchpad", "launch"]))
+        : tags;
 
-      await onPost(finalContent, permanentUrls, permanentVideoUrl, tags);
+      await onPost(finalContent, permanentUrls, permanentVideoUrl, nextTags);
       images.forEach((img) => URL.revokeObjectURL(img.preview));
       if (video) URL.revokeObjectURL(video.preview);
       setContent("");
@@ -309,6 +350,8 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
       setFeeling(null);
       setShowFeelingPicker(false);
       setShowTagEditor(false);
+      setShowLaunchpadPicker(false);
+      setSelectedLaunchpadEvent(null);
       setTags([]);
       setTagInput("");
       setPreviewUrl(null);
@@ -377,6 +420,38 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
                     <X className="h-3 w-3" />
                   </button>
                 ))}
+              </div>
+            )}
+
+            {selectedLaunchpadEvent && (
+              <div className="mt-3 rounded-lg border border-orange-500/30 bg-orange-500/10 p-3">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-orange-500 text-white">
+                    <Rocket className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-semibold">{selectedLaunchpadEvent.title}</p>
+                      <span className="shrink-0 rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase text-orange-600 dark:text-orange-300">
+                        Launchpad
+                      </span>
+                    </div>
+                    <p className="truncate text-xs font-medium text-muted-foreground">{selectedLaunchpadEvent.projectName}</p>
+                    {selectedLaunchpadEvent.projectTagline && (
+                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                        {selectedLaunchpadEvent.projectTagline}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedLaunchpadEvent(null)}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-background/70 hover:text-foreground"
+                    title="Remove launchpad event"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             )}
 
@@ -516,6 +591,79 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
               </div>
             )}
 
+            {showLaunchpadPicker && (
+              <div className="mt-3 rounded-lg border bg-card p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Launchpad event
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Share one of the events you created.
+                    </p>
+                  </div>
+                  {selectedLaunchpadEvent && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 rounded-full"
+                      onClick={() => setSelectedLaunchpadEvent(null)}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  {launchpadLoading ? (
+                    <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                      Loading your events...
+                    </div>
+                  ) : launchpadEvents.length === 0 ? (
+                    <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                      No launchpad events created yet.
+                    </div>
+                  ) : (
+                    launchpadEvents.map((event) => {
+                      const selected = selectedLaunchpadEvent?.id === event.id;
+                      return (
+                        <button
+                          key={event.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedLaunchpadEvent(event);
+                            setShowLaunchpadPicker(false);
+                          }}
+                          className={`flex w-full items-start gap-3 rounded-md border px-3 py-2 text-left transition-colors ${
+                            selected
+                              ? "border-orange-500 bg-orange-500/10"
+                              : "hover:border-orange-500/50 hover:bg-orange-500/5"
+                          }`}
+                        >
+                          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-orange-500/15 text-orange-600 dark:text-orange-300">
+                            <Rocket className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold">{event.title}</p>
+                            <p className="truncate text-xs text-muted-foreground">{event.projectName}</p>
+                            {event.projectTagline && (
+                              <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
+                                {event.projectTagline}
+                              </p>
+                            )}
+                          </div>
+                          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
+                            {event.interestedCount} joined
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+
             {uploadError && (
               <div className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                 {uploadError}
@@ -557,6 +705,18 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
                   className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-primary/10 sm:h-9 sm:w-9"
                 >
                   <Hash className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
+                </button>
+                <button
+                  type="button"
+                  title="Share a launchpad event"
+                  onClick={() => setShowLaunchpadPicker((value) => !value)}
+                  className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors sm:h-9 sm:w-9 ${
+                    selectedLaunchpadEvent
+                      ? "bg-orange-500/10 text-orange-600 dark:text-orange-300"
+                      : "hover:bg-primary/10"
+                  }`}
+                >
+                  <Rocket className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
                 </button>
                 <button type="button" title="Polls coming soon" disabled className="hidden h-8 w-8 cursor-not-allowed items-center justify-center rounded-md opacity-35 min-[380px]:flex sm:h-9 sm:w-9">
                   <List className="h-5 w-5" />
