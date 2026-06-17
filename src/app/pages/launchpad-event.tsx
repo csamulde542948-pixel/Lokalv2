@@ -427,7 +427,7 @@ export function LaunchpadEvent() {
               </TabsTrigger>
               <TabsTrigger value="participants" className="gap-1.5">
                 <Users className="w-3.5 h-3.5" />
-                Participants <span className="text-[10px] text-muted-foreground">({joined})</span>
+                {isHost ? "Participants" : "Joined"} <span className="text-[10px] text-muted-foreground">({joined})</span>
               </TabsTrigger>
               <TabsTrigger value="announcements" className="gap-1.5">
                 <Megaphone className="w-3.5 h-3.5" />
@@ -530,7 +530,17 @@ export function LaunchpadEvent() {
             <TabsContent value="participants" className="mt-5">
               <Card className="border-border/50">
                 <CardContent className="p-0">
-                  {participantsQuery.loading ? (
+                  {!isHost ? (
+                    <div className="p-10 text-center text-muted-foreground">
+                      <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center mx-auto mb-3">
+                        <Lock className="w-5 h-5 opacity-60" />
+                      </div>
+                      <p className="text-sm font-medium text-foreground">Participant roster is private</p>
+                      <p className="text-xs mt-1 max-w-sm mx-auto">
+                        Hosts can review joined users, notes, and contact emails from the chat dashboard.
+                      </p>
+                    </div>
+                  ) : participantsQuery.loading ? (
                     <div className="p-6 space-y-3">
                       {Array.from({ length: 4 }).map((_, i) => (
                         <Skeleton key={i} className="h-12 rounded-xl" />
@@ -645,7 +655,7 @@ export function LaunchpadEvent() {
                       onClick={() => navigate(`/launchpad/${id}/chat`)}
                     >
                       <MessageSquare className="w-4 h-4" />
-                      Open Chat
+                      Open Chat Dashboard
                     </Button>
                     <Button
                       variant="outline"
@@ -655,6 +665,9 @@ export function LaunchpadEvent() {
                       <TrendingUp className="w-4 h-4" />
                       Manage Event
                     </Button>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      The chat dashboard includes messages, joined users, broadcast updates, and host metrics.
+                    </p>
                   </div>
                 ) : event.interestedByMe ? (
                   <div className="space-y-2">

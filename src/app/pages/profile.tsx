@@ -17,6 +17,7 @@ import { getFaviconUrl } from "../features/social/roastMeta";
 import {
   MapPin, Link2, Calendar, Code2, Camera,
   Check, Edit, UserPlus, UserCheck, MoreHorizontal, Star, Image as ImageIcon, Loader2, X,
+  UserX,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { avatarSrc, DEFAULT_COVER } from "../../lib/defaults";
@@ -299,6 +300,30 @@ export function Profile() {
   const projects = projectsData?.userProjects ?? [];
 
   const displayName = profile?.displayName ?? profile?.name ?? user?.email ?? "";
+
+  if (!loading && isOtherUser && !profile) {
+    return (
+      <div className="min-h-screen bg-background px-4 py-16">
+        <div className="mx-auto flex max-w-md flex-col items-center text-center">
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full border bg-muted">
+            <UserX className="h-7 w-7 text-muted-foreground" strokeWidth={1.8} />
+          </div>
+          <h1 className="text-xl font-semibold">User not found</h1>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            We could not find a profile for @{username}. The username may have changed or the account may no longer exist.
+          </p>
+          <div className="mt-6 flex gap-2">
+            <Button variant="outline" onClick={() => navigate(-1)}>
+              Go back
+            </Button>
+            <Button onClick={() => navigate("/feed")}>
+              Open feed
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
