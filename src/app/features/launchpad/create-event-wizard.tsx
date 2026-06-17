@@ -92,7 +92,7 @@ const STEP_DESCRIPTIONS: Record<number, { title: string; sub: string }> = {
 };
 
 // Uniform content height — every step must fit inside this.
-const CONTENT_HEIGHT = "min-h-[360px] sm:min-h-[520px]";
+const CONTENT_HEIGHT = "min-h-[380px] sm:min-h-[560px]";
 const TITLE_LIMIT = 120;
 const DESCRIPTION_LIMIT = 1200;
 
@@ -235,7 +235,7 @@ export function CreateEventWizard({ open, onClose, onCreated }: CreateEventWizar
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
       <DialogContent
         showCloseButton={false}
-        className="max-w-5xl max-h-[calc(100dvh-0.75rem)] sm:max-h-[calc(100dvh-2rem)] gap-0 p-0 overflow-hidden rounded-lg border-border/70 bg-background shadow-2xl"
+        className="w-[calc(100vw-0.75rem)] max-w-7xl max-h-[calc(100dvh-0.75rem)] sm:max-h-[calc(100dvh-1.25rem)] gap-0 p-0 overflow-hidden rounded-lg border-border/70 bg-background shadow-2xl"
       >
         <div
           className="pointer-events-none absolute inset-0 opacity-50"
@@ -247,7 +247,7 @@ export function CreateEventWizard({ open, onClose, onCreated }: CreateEventWizar
         />
         {/* ── Header ── */}
         <DialogHeader className="relative px-4 sm:px-7 lg:px-8 pt-5 pb-5 border-b border-border/70 space-y-5 bg-background/92 backdrop-blur">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <DialogTitle className="flex items-center gap-2 text-base font-semibold">
               <div className="w-8 h-8 rounded-md bg-orange-500/10 border border-orange-500/30 flex items-center justify-center">
                 <Rocket className="w-4 h-4 text-primary" />
@@ -257,7 +257,7 @@ export function CreateEventWizard({ open, onClose, onCreated }: CreateEventWizar
                 Create launch event
               </span>
             </DialogTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between gap-2 lg:justify-end">
               <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/70">
                 [{String(step).padStart(2, "0")} / {String(WIZARD_STEPS.length).padStart(2, "0")}]
               </span>
@@ -274,7 +274,7 @@ export function CreateEventWizard({ open, onClose, onCreated }: CreateEventWizar
           </div>
 
           {/* Stepper */}
-          <div className="grid grid-cols-4 gap-px rounded-md overflow-hidden border border-border/70 bg-border/70">
+          <div className="grid grid-cols-2 gap-px rounded-md overflow-hidden border border-border/70 bg-border/70 sm:grid-cols-4">
             {WIZARD_STEPS.map((s) => {
               const done = step > s.id;
               const active = step === s.id;
@@ -302,16 +302,16 @@ export function CreateEventWizard({ open, onClose, onCreated }: CreateEventWizar
         </DialogHeader>
 
         {/* ── Step content (uniform height) ── */}
-        <div className={cn("relative px-4 sm:px-7 lg:px-8 py-6 overflow-y-auto", CONTENT_HEIGHT, "max-h-[calc(100dvh-238px)]")}>
+        <div className={cn("relative px-4 sm:px-7 lg:px-8 py-6 overflow-y-auto", CONTENT_HEIGHT, "max-h-[calc(100dvh-248px)]")}>
           {/* Step description */}
-          <div className="mb-6 flex items-start justify-between gap-4">
+          <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-[9px] font-mono uppercase tracking-[0.22em] text-muted-foreground mb-1">step_0{step}</p>
               <h3 className="text-lg font-semibold text-foreground">{stepDesc.title}</h3>
               <p className="text-sm text-muted-foreground mt-1">{stepDesc.sub}</p>
             </div>
             {selectedProject && step > 1 && (
-              <div className="hidden sm:flex items-center gap-2 border border-border/60 bg-background/80 rounded-md px-2.5 py-2 min-w-0 max-w-[220px]">
+              <div className="flex items-center gap-2 border border-border/60 bg-background/80 rounded-md px-2.5 py-2 min-w-0 lg:max-w-[280px]">
                 <div className="w-7 h-7 rounded-md overflow-hidden bg-muted flex items-center justify-center flex-shrink-0">
                   {selectedProject.iconUrl
                     ? <img src={selectedProject.iconUrl} alt="" className="w-full h-full object-cover" />
@@ -461,7 +461,7 @@ function StepProject({ loading, projects, selected, onSelect }: {
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[430px] overflow-y-auto pr-1">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[470px] overflow-y-auto pr-1">
       {projects.map((p: any) => {
         const isSelected = selected?.id === p.id;
         return (
@@ -470,7 +470,7 @@ function StepProject({ loading, projects, selected, onSelect }: {
             type="button"
             onClick={() => onSelect(p)}
             className={cn(
-              "flex items-center gap-4 p-4 rounded-md border text-left transition-all min-h-[88px] bg-background/75",
+              "flex items-center gap-4 p-4 rounded-md border text-left transition-all min-h-[96px] bg-background/75",
               isSelected
                 ? "border-orange-500/70 bg-orange-500/5 ring-1 ring-orange-500/30"
                 : "border-border/70 hover:border-orange-500/40 hover:bg-muted/30"
@@ -509,7 +509,7 @@ function StepType({ value, onChange }: {
   onChange: (v: LaunchpadEventType) => void;
 }) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[430px] overflow-y-auto pr-1">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 max-h-[470px] overflow-y-auto pr-1">
       {FORM_EVENT_TYPES.map((key) => {
         const c = eventTypeConfig[key];
         const Icon = c.icon;
@@ -520,7 +520,7 @@ function StepType({ value, onChange }: {
             type="button"
             onClick={() => onChange(key)}
             className={cn(
-              "relative flex items-start gap-4 p-4 rounded-md border text-left transition-all min-h-[142px] bg-background/75",
+              "relative flex items-start gap-4 p-4 rounded-md border text-left transition-all min-h-[190px] bg-background/75 xl:flex-col",
               isSelected
                 ? cn("border-current", c.bg, c.accent, "ring-1", c.ring)
                 : "border-border/70 hover:border-orange-500/40 hover:bg-muted/30"
@@ -585,7 +585,8 @@ function StepDetails({ eventType, cfg, title, setTitle, description, setDescript
   const deadlineError = !!deadline && deadline < todayInputValue();
 
   return (
-    <div className="space-y-5 max-h-[430px] overflow-y-auto pr-2">
+    <div className="grid gap-5 max-h-[470px] overflow-y-auto pr-2 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_400px]">
+      <div className="space-y-5">
       <Field
         label="Event name"
         required
@@ -596,7 +597,7 @@ function StepDetails({ eventType, cfg, title, setTitle, description, setDescript
           placeholder={placeholder}
           value={title}
           onChange={e => setTitle(e.target.value)}
-          className="h-10 rounded-md bg-background/80"
+          className="h-11 rounded-md bg-background/80"
           maxLength={TITLE_LIMIT}
         />
       </Field>
@@ -620,10 +621,10 @@ function StepDetails({ eventType, cfg, title, setTitle, description, setDescript
           placeholder="Describe what you're looking for…"
           value={description}
           onChange={e => setDescription(e.target.value)}
-          className="min-h-[130px] resize-none text-sm rounded-md bg-background/80"
+          className="min-h-[190px] resize-none text-sm rounded-md bg-background/80"
           maxLength={DESCRIPTION_LIMIT}
         />
-        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+        <div className="flex items-center justify-between gap-3 text-[10px] text-muted-foreground">
           <span>Explain the expected contribution and what happens after joining.</span>
           <span className="font-mono">{description.length}/{DESCRIPTION_LIMIT}</span>
         </div>
@@ -641,7 +642,7 @@ function StepDetails({ eventType, cfg, title, setTitle, description, setDescript
               placeholder="20"
               value={spotsTotal}
               onChange={e => setSpotsTotal(e.target.value)}
-              className={cn("h-10 rounded-md pl-9 bg-background/80", spotsError && "border-destructive")}
+              className={cn("h-11 rounded-md pl-9 bg-background/80", spotsError && "border-destructive")}
             />
           </div>
         </Field>
@@ -654,7 +655,7 @@ function StepDetails({ eventType, cfg, title, setTitle, description, setDescript
               min={todayInputValue()}
               value={deadline}
               onChange={e => setDeadline(e.target.value)}
-              className={cn("h-10 rounded-md pl-9 bg-background/80", deadlineError && "border-destructive")}
+              className={cn("h-11 rounded-md pl-9 bg-background/80", deadlineError && "border-destructive")}
             />
           </div>
         </Field>
@@ -669,10 +670,53 @@ function StepDetails({ eventType, cfg, title, setTitle, description, setDescript
             placeholder="https://yourproject.com"
             value={link}
             onChange={e => setLink(e.target.value)}
-            className={cn("h-10 rounded-md pl-9 bg-background/80", linkError && "border-destructive")}
+            className={cn("h-11 rounded-md pl-9 bg-background/80", linkError && "border-destructive")}
           />
         </div>
       </Field>
+      </div>
+
+      <aside className="rounded-lg border border-border/60 bg-background/75 overflow-hidden">
+        {selectedProject?.screenshotUrl ? (
+          <div className="h-40 border-b border-border/60 overflow-hidden bg-muted">
+            <img src={selectedProject.screenshotUrl} alt="" className="h-full w-full object-cover object-top" />
+          </div>
+        ) : (
+          <div className={cn("h-40 border-b border-border/60 bg-gradient-to-br flex items-center justify-center", cfg.gradient)}>
+            <cfg.icon className={cn("h-12 w-12 opacity-40", cfg.accent)} strokeWidth={1.4} />
+          </div>
+        )}
+        <div className={cn("border-b border-border/60 px-4 py-3", cfg.bg)}>
+          <div className="flex items-center gap-3">
+            <span className={cn("flex h-10 w-10 items-center justify-center rounded-md", cfg.solidBg)}>
+              <cfg.icon className="h-4 w-4 text-white" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[9px] font-mono uppercase tracking-[0.22em] text-muted-foreground">live preview</p>
+              <p className="truncate text-sm font-semibold">{title || placeholder}</p>
+            </div>
+          </div>
+        </div>
+        <div className="space-y-4 p-4">
+          <div>
+            <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground">Commitment</p>
+            <p className="mt-1 text-xs leading-relaxed text-foreground/80">{cfg.commitment}</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-md border border-border/60 bg-muted/30 p-3">
+              <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground">Spots</p>
+              <p className="mt-1 text-sm font-semibold">{spotsTotal || "Open"}</p>
+            </div>
+            <div className="rounded-md border border-border/60 bg-muted/30 p-3">
+              <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground">Deadline</p>
+              <p className="mt-1 text-sm font-semibold">{deadline || "None"}</p>
+            </div>
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            A clear title, specific ask, and deadline usually get better joiners than a generic announcement.
+          </p>
+        </div>
+      </aside>
     </div>
   );
 }
@@ -748,10 +792,10 @@ function StepReview({ project, eventType, title, description, spotsTotal, deadli
   if (link)       optionals.push({ label: "Link",         value: link, icon: Link2 });
 
   return (
-    <div className="space-y-4 max-h-[430px] overflow-y-auto pr-2">
+    <div className="grid gap-4 max-h-[470px] overflow-y-auto pr-2 lg:grid-cols-[minmax(0,1fr)_360px]">
       <div className="rounded-md border border-border/60 bg-background/75 overflow-hidden">
         {project?.screenshotUrl && (
-          <div className="h-24 border-b border-border/60 overflow-hidden bg-muted">
+          <div className="h-40 border-b border-border/60 overflow-hidden bg-muted">
             <img src={project.screenshotUrl} alt="" className="w-full h-full object-cover object-top" />
           </div>
         )}
@@ -781,24 +825,26 @@ function StepReview({ project, eventType, title, description, spotsTotal, deadli
         </div>
       </div>
 
-      {optionals.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {optionals.map(o => (
-            <div key={o.label} className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-sm border border-border/60 bg-background/75 text-foreground/80">
-              <o.icon className="w-3 h-3 text-muted-foreground" />
-              <span className="font-medium">{o.label}:</span>
-              <span className="text-muted-foreground truncate max-w-[180px]">{o.value}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="space-y-3">
+        {optionals.length > 0 && (
+          <div className="grid gap-2">
+            {optionals.map(o => (
+              <div key={o.label} className="flex items-center gap-2 text-[11px] px-3 py-2 rounded-md border border-border/60 bg-background/75 text-foreground/80">
+                <o.icon className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="font-medium">{o.label}:</span>
+                <span className="text-muted-foreground truncate">{o.value}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
-      <div className={cn("flex items-start gap-2 p-3 rounded-md border", cfg.bg, cfg.border)}>
-        <Sparkles className={cn("w-3.5 h-3.5 flex-shrink-0 mt-0.5", cfg.accent)} />
-        <p className="text-[11px] text-foreground/80 leading-relaxed">
-          Once launched, your event appears in the launchpad feed and on your profile.
-          You can edit details, post announcements, and close it anytime.
-        </p>
+        <div className={cn("flex items-start gap-2 p-3 rounded-md border", cfg.bg, cfg.border)}>
+          <Sparkles className={cn("w-3.5 h-3.5 flex-shrink-0 mt-0.5", cfg.accent)} />
+          <p className="text-[11px] text-foreground/80 leading-relaxed">
+            Once launched, your event appears in the launchpad feed and on your profile.
+            You can edit details, post announcements, and close it anytime.
+          </p>
+        </div>
       </div>
     </div>
   );
