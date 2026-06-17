@@ -4,7 +4,7 @@ import { Badge } from "./ui/badge";
 import { Skeleton } from "./ui/skeleton";
 import { Separator } from "./ui/separator";
 import {
-  TrendingUp, Users, GitFork, Star, Sparkles, Code2,
+  TrendingUp, Users, Star, Sparkles, Code2,
   Flame, Rocket, Zap, Trophy, Swords,
 } from "lucide-react";
 import { gql } from "@apollo/client/core";
@@ -14,13 +14,17 @@ import { useFollowToggle } from "../features/social/hooks/useFollowToggle";
 import { useAuth } from "../../contexts/AuthContext";
 import { avatarSrc } from "../../lib/defaults";
 
-const FEATURED_PROJECT_IDS = ["cmp5i563n00b9co7jpocajrtw"];
+const FEATURED_PROJECT_IDS = [
+  "cmp5i563n00b9co7jpocajrtw",
+  "cmq9qxfvj0002brtbp6ut0alu",
+];
 
 const FEATURED_PROJECT_FIELDS = gql`
   fragment FeaturedProjectFields on Project {
     id
     name
     tagline
+    iconUrl
     starsCount
     forksCount
     isFeatured
@@ -33,6 +37,9 @@ const FEATURED_PROJECT_FIELDS = gql`
 const GET_SIDEBAR_DATA = gql`
   query GetSidebarData {
     featuredProject0: project(id: "cmp5i563n00b9co7jpocajrtw") {
+      ...FeaturedProjectFields
+    }
+    featuredProject1: project(id: "cmq9qxfvj0002brtbp6ut0alu") {
       ...FeaturedProjectFields
     }
     leaderboard {
@@ -75,17 +82,11 @@ export interface RightSidebarProps {
 
 function ProjectSkeleton() {
   return (
-    <div className="p-2 space-y-2">
-      <div className="flex items-start gap-2.5">
-        <Skeleton className="w-9 h-9 rounded-lg flex-shrink-0" />
-        <div className="flex-1 space-y-1.5">
-          <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-2.5 w-32" />
-          <div className="flex gap-2">
-            <Skeleton className="h-2.5 w-8" />
-            <Skeleton className="h-2.5 w-8" />
-          </div>
-        </div>
+    <div className="flex items-center gap-2.5 rounded-lg px-1 py-1">
+      <Skeleton className="w-8 h-8 rounded-lg flex-shrink-0" />
+      <div className="flex-1 space-y-1">
+        <Skeleton className="h-3 w-28" />
+        <Skeleton className="h-2.5 w-20" />
       </div>
     </div>
   );
@@ -298,58 +299,31 @@ export function RightSidebar({ className = "", category = "home" }: RightSidebar
               ? [...Array(3)].map((_, i) => <ProjectSkeleton key={i} />)
               : featuredProjects.length === 0
               ? <p className="px-2 text-xs text-muted-foreground py-2">No featured projects yet</p>
-              : featuredProjects.slice(0, 4).map((project: any, index: number) => (
+              : featuredProjects.slice(0, FEATURED_PROJECT_IDS.length).map((project: any, index: number) => (
                 <Link
                   key={project.id}
                   to={`/project/${project.id}`}
-                  className={`p-2 hover:bg-muted/50 cursor-pointer transition-colors group rounded-lg ${index === 0 ? "bg-primary/5" : ""}`}
+                  className="flex items-center gap-2.5 rounded-lg px-1 py-1 transition-colors hover:bg-muted/50 group"
                 >
-                  <div className="flex items-start gap-2.5">
-                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${index === 0 ? "bg-primary" : "bg-muted"}`}>
-                      <Code2 className={`w-4 h-4 ${index === 0 ? "text-primary-foreground" : "text-muted-foreground"}`} strokeWidth={2} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2 mb-0.5">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 mb-0.5">
-                            {(project.isTrending || index === 0) && (
-                              <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse flex-shrink-0" />
-                            )}
-                            <span className="font-semibold text-xs text-foreground truncate group-hover:text-primary transition-colors">
-                              {project.name}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-muted-foreground line-clamp-1">
-                            {project.tagline}
-                          </p>
-                        </div>
-                        {(project.tags ?? []).length > 0 && (
-                          <Badge
-                            variant={index === 0 ? "default" : "outline"}
-                            className="text-[10px] h-4 px-1.5 rounded flex-shrink-0"
-                          >
-                            {project.tags[0].name}
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground mt-0.5">
-                        <span className="flex items-center gap-1">
-                          <Star className={`w-3 h-3 ${index === 0 ? "fill-primary text-primary" : ""}`} strokeWidth={2} />
-                          {project.starsCount?.toLocaleString() ?? 0}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <GitFork className="w-3 h-3" strokeWidth={2} />
-                          {project.forksCount?.toLocaleString() ?? 0}
-                        </span>
-                        {project.isTrending && (
-                          <span className="flex items-center gap-1 ml-auto">
-                            <TrendingUp className="w-3 h-3 text-green-500" strokeWidth={2} />
-                            <span className="text-green-500 font-medium text-[10px]">Trending</span>
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                  <Avatar className="w-8 h-8 rounded-lg flex-shrink-0 border border-border bg-muted">
+                    {project.iconUrl && <AvatarImage src={project.iconUrl} className="object-cover" />}
+                    <AvatarFallback className="rounded-lg text-[10px] bg-primary/10 text-primary">
+                      {project.name?.[0]?.toUpperCase() ?? <Code2 className="w-3.5 h-3.5" />}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold truncate group-hover:text-primary transition-colors">
+                      {project.name}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground truncate">
+                      {project.tagline || "Featured project"}
+                    </p>
                   </div>
+                  {project.isTrending ? (
+                    <TrendingUp className="w-3.5 h-3.5 text-green-500 flex-shrink-0" strokeWidth={2} />
+                  ) : (
+                    <Star className="w-3.5 h-3.5 text-primary flex-shrink-0" strokeWidth={2} />
+                  )}
                 </Link>
               ))
             }
