@@ -115,6 +115,54 @@ function timeShort(iso: string) {
   return format(new Date(iso), "MMM d, yyyy 'at' h:mm a");
 }
 
+function HeroMetric({
+  icon: Icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  tone?: Parameters<typeof deadlineToneClasses>[0];
+}) {
+  return (
+    <div className="rounded-xl border border-border/50 bg-background/65 px-3 py-2">
+      <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground">
+        <Icon className="h-3 w-3" />
+        {label}
+      </div>
+      <p className={cn("mt-1 truncate text-sm font-semibold", tone ? deadlineToneClasses(tone) : "text-foreground")}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function DetailTile({
+  label,
+  value,
+  icon: Icon,
+  className,
+}: {
+  label: string;
+  value: React.ReactNode;
+  icon: React.ElementType;
+  className?: string;
+}) {
+  return (
+    <div className={cn("rounded-xl border border-border/50 bg-muted/30 p-3", className)}>
+      <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground">
+        <Icon className="h-3 w-3" />
+        {label}
+      </div>
+      <div className="min-w-0 text-sm font-semibold text-foreground">
+        {value}
+      </div>
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function LaunchpadEvent() {
@@ -263,7 +311,7 @@ export function LaunchpadEvent() {
       {/* ── Banner hero ────────────────────────────────────────────── */}
       <div className={cn("relative z-10 overflow-hidden border-b border-border/50", cfg.bg)}>
         <div className={cn("absolute inset-0 bg-gradient-to-br opacity-50", cfg.gradient)} />
-        <div className="relative max-w-5xl mx-auto px-4 sm:px-6 pt-5 pb-8">
+        <div className="relative max-w-6xl mx-auto px-4 sm:px-6 pt-5 pb-8">
           {/* Top breadcrumb / actions row */}
           <div className="flex items-center justify-between gap-2 mb-6">
             <Button
@@ -298,43 +346,95 @@ export function LaunchpadEvent() {
           </div>
 
           {/* Project hero */}
-          <div className="flex flex-col sm:flex-row items-start gap-5">
-            <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden bg-background border-2 border-background shadow-lg flex items-center justify-center flex-shrink-0">
-              {event.iconUrl
-                ? <img src={event.iconUrl} alt={event.projectName} className="w-full h-full object-cover" />
-                : <cfg.icon className={cn("w-10 h-10", cfg.accent)} strokeWidth={1.5} />}
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-stretch">
+            <div className="min-w-0 rounded-2xl border border-border/50 bg-background/70 p-4 sm:p-5 backdrop-blur-sm">
+              <div className="flex flex-col sm:flex-row items-start gap-5">
+                <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden bg-background border-2 border-background shadow-lg flex items-center justify-center flex-shrink-0">
+                  {event.iconUrl
+                    ? <img src={event.iconUrl} alt={event.projectName} className="w-full h-full object-cover" />
+                    : <cfg.icon className={cn("w-10 h-10", cfg.accent)} strokeWidth={1.5} />}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-2">
+                    <Badge className={cn("gap-1.5 border", cfg.bg, cfg.accent, cfg.border)}>
+                      <cfg.icon className="w-3 h-3" strokeWidth={2.5} />
+                      {cfg.label}
+                    </Badge>
+                    <Badge variant={event.isOpen && !isFull && !isClosed ? "default" : "secondary"} className="bg-background/80 backdrop-blur-sm">
+                      {isFull ? "Full" : isClosed ? "Closed" : "Open"}
+                    </Badge>
+                    {isHost && (
+                      <Badge variant="outline" className="bg-background/80 backdrop-blur-sm">
+                        Host view
+                      </Badge>
+                    )}
+                  </div>
+
+                  <h1 className="text-2xl sm:text-4xl font-bold leading-tight tracking-tight">
+                    {event.title}
+                  </h1>
+                  {event.projectName && event.title !== event.projectName && (
+                    <p className="text-base text-foreground/75 mt-2 font-semibold">
+                      {event.projectName}
+                    </p>
+                  )}
+                  {event.projectTagline && (
+                    <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+                      {event.projectTagline}
+                    </p>
+                  )}
+
+                  <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <HeroMetric icon={Users} label="Joined" value={`${joined}${spotsTotal ? `/${spotsTotal}` : ""}`} />
+                    <HeroMetric icon={Calendar} label="Deadline" value={dl?.text ?? "No deadline"} tone={dl?.tone} />
+                    <HeroMetric icon={MessageSquare} label="Chat" value={canChat ? "Unlocked" : "Join first"} />
+                    <HeroMetric icon={Sparkles} label="Created" value={`${formatDistanceToNowStrict(new Date(event.createdAt))} ago`} />
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap mb-1.5">
-                <Badge className={cn("gap-1.5 border", cfg.bg, cfg.accent, cfg.border)}>
-                  <cfg.icon className="w-3 h-3" strokeWidth={2.5} />
-                  {cfg.label}
-                </Badge>
-                {isClosed && (
-                  <Badge variant="secondary" className="bg-background/80 backdrop-blur-sm">
-                    {isFull && !isClosed ? "Full" : !event.isOpen ? "Closed" : "Closed"}
-                  </Badge>
+            <div className="overflow-hidden rounded-2xl border border-border/50 bg-background/75 backdrop-blur-sm">
+              <div className="relative aspect-[16/10] bg-muted">
+                {event.screenshotUrl ? (
+                  <img
+                    src={event.screenshotUrl}
+                    alt={`${event.projectName} preview`}
+                    className="absolute inset-0 h-full w-full object-cover object-top"
+                  />
+                ) : (
+                  <div className={cn("absolute inset-0 bg-gradient-to-br", cfg.gradient)}>
+                    <cfg.icon className={cn("absolute left-1/2 top-1/2 h-16 w-16 -translate-x-1/2 -translate-y-1/2 opacity-35", cfg.accent)} strokeWidth={1.3} />
+                  </div>
                 )}
-                {isFull && !isClosed && (
-                  <Badge variant="secondary" className="bg-background/80 backdrop-blur-sm">
-                    Full
-                  </Badge>
-                )}
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background/95 to-transparent p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-muted-foreground">Launch preview</p>
+                      <p className="truncate text-sm font-semibold">{event.projectName || event.title}</p>
+                    </div>
+                    {event.link && (
+                      <a href={event.link} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                        <Button size="sm" variant="secondary" className="h-8 gap-1.5 rounded-md">
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          Visit
+                        </Button>
+                      </a>
+                    )}
+                  </div>
+                </div>
               </div>
-
-              <h1 className="text-2xl sm:text-3xl font-bold leading-tight tracking-tight">
-                {event.title}
-              </h1>
-              {event.projectName && event.title !== event.projectName && (
-                <p className="text-base text-foreground/70 mt-1 font-medium">
-                  {event.projectName}
-                </p>
-              )}
-              {event.projectTagline && (
-                <p className="text-sm text-muted-foreground mt-1.5 italic">
-                  {event.projectTagline}
-                </p>
+              {spotsTotal !== null && (
+                <div className="space-y-2 p-4">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Capacity</span>
+                    <span className={cn("font-semibold", pct === 100 ? "text-emerald-600" : cfg.accent)}>{pct}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                    <div className={cn("h-full rounded-full transition-all duration-500", cfg.bar)} style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -396,8 +496,8 @@ export function LaunchpadEvent() {
                 <Sparkles className="w-3.5 h-3.5 text-foreground/70" />
               </div>
               <div className="leading-tight">
-                <p className="text-xs text-muted-foreground">Created</p>
-                <p className="font-semibold">{formatDistanceToNowStrict(new Date(event.createdAt))} ago</p>
+                <p className="text-xs text-muted-foreground">Status</p>
+                <p className="font-semibold">{event.projectStatus || "Active"}</p>
               </div>
             </div>
           </div>
@@ -405,84 +505,90 @@ export function LaunchpadEvent() {
       </div>
 
       {/* ── Body ───────────────────────────────────────────────────── */}
-      <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+      <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-6">
         {/* ── Left column ─────────────────────────────────────────── */}
         <div className="min-w-0 space-y-6">
-          {/* Screenshot preview */}
-          {event.screenshotUrl && (
-            <div className="rounded-2xl overflow-hidden border border-border/50 bg-muted">
-              <img
-                src={event.screenshotUrl}
-                alt={`${event.projectName} preview`}
-                className="w-full h-auto object-cover max-h-[420px]"
-              />
-            </div>
-          )}
-
           {/* Tabs */}
           <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
-            <TabsList className="w-full sm:w-fit">
-              <TabsTrigger value="about" className="gap-1.5">
+            <TabsList className="grid h-auto w-full grid-cols-3 gap-1 rounded-xl border border-border/50 bg-background/75 p-1 backdrop-blur-sm">
+              <TabsTrigger value="about" className="h-10 min-w-0 gap-1.5 rounded-lg px-2 text-xs sm:text-sm">
                 <Rocket className="w-3.5 h-3.5" /> About
               </TabsTrigger>
-              <TabsTrigger value="participants" className="gap-1.5">
+              <TabsTrigger value="participants" className="h-10 min-w-0 gap-1.5 rounded-lg px-2 text-xs sm:text-sm">
                 <Users className="w-3.5 h-3.5" />
-                {isHost ? "Participants" : "Joined"} <span className="text-[10px] text-muted-foreground">({joined})</span>
+                <span className="truncate">{isHost ? "Participants" : "Joined"}</span>
+                <span className="text-[10px] text-muted-foreground">({joined})</span>
               </TabsTrigger>
-              <TabsTrigger value="announcements" className="gap-1.5">
+              <TabsTrigger value="announcements" className="h-10 min-w-0 gap-1.5 rounded-lg px-2 text-xs sm:text-sm">
                 <Megaphone className="w-3.5 h-3.5" />
-                Updates <span className="text-[10px] text-muted-foreground">({announcements.length})</span>
+                <span className="truncate">Updates</span>
+                <span className="text-[10px] text-muted-foreground">({announcements.length})</span>
               </TabsTrigger>
             </TabsList>
 
             {/* ── About tab ── */}
             <TabsContent value="about" className="space-y-6 mt-5">
-              <Card className="border-border/50">
-                <CardContent className="p-6">
-                  <h2 className="font-semibold text-base mb-3 flex items-center gap-2">
-                    <cfg.icon className={cn("w-4 h-4", cfg.accent)} />
-                    About this event
-                  </h2>
-                  <div className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap break-words">
+              <Card className="overflow-hidden border-border/50 bg-background/85 backdrop-blur-sm">
+                <CardContent className="p-0">
+                  <div className={cn("border-b border-border/50 px-5 py-4", cfg.bg)}>
+                    <h2 className="font-semibold text-base flex items-center gap-2">
+                      <cfg.icon className={cn("w-4 h-4", cfg.accent)} />
+                      Event brief
+                    </h2>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      What participants should know before joining.
+                    </p>
+                  </div>
+                  <div className="p-5 text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap break-words">
                     {event.description || "No description provided."}
                   </div>
                 </CardContent>
               </Card>
 
               {/* Project info card */}
-              {(event.projectCategory || event.projectStatus || event.projectTagline) && (
-                <Card className="border-border/50">
-                  <CardContent className="p-6 space-y-3">
-                    <h2 className="font-semibold text-base mb-2 flex items-center gap-2">
+              {(event.projectCategory || event.projectStatus || event.projectTagline || event.link) && (
+                <Card className="border-border/50 bg-background/85 backdrop-blur-sm">
+                  <CardContent className="p-5 space-y-4">
+                    <div>
+                      <h2 className="font-semibold text-base flex items-center gap-2">
                       <Hash className="w-4 h-4 text-muted-foreground" />
                       Project details
                     </h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Core project metadata and external launch links.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {event.projectCategory && (
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-0.5">Category</p>
-                          <p className="font-medium">{event.projectCategory}</p>
-                        </div>
+                        <DetailTile label="Category" icon={Hash} value={event.projectCategory} />
                       )}
                       {event.projectStatus && (
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-0.5">Status</p>
-                          <p className="font-medium capitalize">{event.projectStatus}</p>
-                        </div>
+                        <DetailTile label="Status" icon={Sparkles} value={<span className="capitalize">{event.projectStatus}</span>} />
+                      )}
+                      {event.projectTagline && (
+                        <DetailTile
+                          label="Tagline"
+                          icon={Rocket}
+                          className="sm:col-span-2"
+                          value={<span className="block truncate">{event.projectTagline}</span>}
+                        />
                       )}
                       {event.link && (
-                        <div className="sm:col-span-2">
-                          <p className="text-xs text-muted-foreground mb-0.5">Project link</p>
+                        <DetailTile
+                          label="Project link"
+                          icon={Globe}
+                          className="sm:col-span-2"
+                          value={(
                           <a
                             href={event.link}
                             target="_blank" rel="noopener noreferrer"
-                            className={cn("font-medium inline-flex items-center gap-1 hover:underline", cfg.accent)}
+                              className={cn("inline-flex max-w-full items-center gap-1 hover:underline", cfg.accent)}
                           >
-                            <Globe className="w-3.5 h-3.5" />
-                            {event.link}
-                            <ExternalLink className="w-3 h-3" />
+                              <span className="truncate">{event.link}</span>
+                              <ExternalLink className="w-3 h-3 flex-shrink-0" />
                           </a>
-                        </div>
+                          )}
+                        />
                       )}
                     </div>
                   </CardContent>
@@ -491,8 +597,8 @@ export function LaunchpadEvent() {
 
               {/* Tags */}
               {event.tags && event.tags.length > 0 && (
-                <div>
-                  <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                <div className="rounded-2xl border border-border/50 bg-background/75 p-5 backdrop-blur-sm">
+                  <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                     Tags
                   </h2>
                   <div className="flex flex-wrap gap-2">
@@ -509,7 +615,7 @@ export function LaunchpadEvent() {
               )}
 
               {/* Commitment prompt */}
-              <div className={cn("rounded-2xl border p-5", cfg.bg, cfg.border)}>
+              <div className={cn("rounded-2xl border p-5 backdrop-blur-sm", cfg.bg, cfg.border)}>
                 <div className="flex items-start gap-3">
                   <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0", cfg.solidBg)}>
                     <ClipboardCheck className="w-4 h-4 text-white" strokeWidth={2.5} />
@@ -622,8 +728,25 @@ export function LaunchpadEvent() {
         <div className="space-y-4">
           <div className="lg:sticky lg:top-20 space-y-4">
             {/* Action card */}
-            <Card className="border-border/50">
-              <CardContent className="p-5 space-y-4">
+            <Card className="overflow-hidden border-border/50 bg-background/85 backdrop-blur-sm">
+              <CardContent className="p-0">
+                <div className={cn("border-b border-border/50 px-5 py-4", cfg.bg)}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground">
+                        Event status
+                      </p>
+                      <p className="mt-1 text-lg font-bold">
+                        {isHost ? "Host view" : isFull ? "Full" : isClosed ? "Closed" : event.interestedByMe ? "You're joined" : "Open now"}
+                      </p>
+                    </div>
+                    <div className={cn("flex h-11 w-11 items-center justify-center rounded-xl", cfg.solidBg)}>
+                      {canChat ? <MessageSquare className="h-5 w-5 text-white" /> : <cfg.icon className="h-5 w-5 text-white" />}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4 p-5">
                 {/* Progress */}
                 {spotsTotal !== null && (
                   <div className="space-y-1.5">
@@ -725,6 +848,7 @@ export function LaunchpadEvent() {
                     <ExternalLink className="w-3 h-3" />
                   </a>
                 )}
+                </div>
               </CardContent>
             </Card>
 

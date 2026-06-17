@@ -408,11 +408,10 @@ export function Launchpad() {
         />
       </div>
 
-      <div className="relative z-10 container mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 max-w-7xl">
-        {/* ── Header ── */}
-        <section className="mb-6 border-y border-border/60 bg-background/68 backdrop-blur-sm">
-          <div className="grid lg:grid-cols-[minmax(0,1fr)_340px]">
-            <div className="p-5 sm:p-7 lg:border-r border-border/60">
+      {/* ── Header: full-bleed, flush with the page edges ── */}
+      <section className="relative z-10 border-b border-border/60 bg-background/72 backdrop-blur-sm">
+        <div className="mx-auto grid max-w-7xl lg:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="px-4 py-5 sm:px-6 sm:py-6 lg:border-r lg:border-border/60 lg:px-8">
               <div className="flex items-start gap-4">
                 <div className="w-11 h-11 rounded-md bg-orange-500/10 border border-orange-500/30 flex items-center justify-center flex-shrink-0">
                   <Rocket className="w-5 h-5 text-orange-500" strokeWidth={2} />
@@ -426,7 +425,7 @@ export function Launchpad() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-px bg-border/60 mt-6 border border-border/60 rounded-md overflow-hidden max-w-xl">
+              <div className="grid grid-cols-3 gap-px bg-border/60 mt-5 border border-border/60 rounded-md overflow-hidden max-w-xl">
                 {[
                   ["Live events", events.length],
                   ["You host", hostingCount],
@@ -440,7 +439,7 @@ export function Launchpad() {
               </div>
             </div>
 
-            <div className="p-5 sm:p-6 bg-background/45">
+            <div className="border-t border-border/60 bg-background/45 px-4 py-5 sm:px-6 lg:border-t-0 lg:px-6">
               {user ? (
                 <div className="h-full flex flex-col justify-between gap-6">
                   <div>
@@ -479,12 +478,14 @@ export function Launchpad() {
               )}
             </div>
           </div>
-        </section>
+      </section>
 
+      <div className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-5 sm:py-6">
         {/* ── Scope tabs + count ── */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
+        <div className="mb-4 rounded-lg border border-border/60 bg-background/68 p-3 backdrop-blur-sm">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className={cn(
-            "grid gap-px bg-border/60 border border-border/60 rounded-md overflow-hidden",
+            "grid gap-px bg-border/60 border border-border/60 rounded-md overflow-hidden w-full lg:w-auto",
             user ? "grid-cols-3" : "grid-cols-1"
           )}>
             {([
@@ -540,10 +541,11 @@ export function Launchpad() {
               })}
             </div>
           </div>
+          </div>
         </div>
 
         {/* ── Filters + search ── */}
-        <div className="flex flex-col sm:flex-row gap-3 mb-3 border border-border/60 bg-background/60 backdrop-blur-sm rounded-lg p-3">
+        <div className="flex flex-col sm:flex-row gap-3 mb-3 border border-border/60 bg-background/68 backdrop-blur-sm rounded-lg p-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
             <Input
