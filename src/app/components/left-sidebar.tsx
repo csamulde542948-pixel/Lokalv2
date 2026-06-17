@@ -120,7 +120,7 @@ const menuItems = [
   {
     icon: Rocket,
     label: "Launchpad",
-    badge: null,
+    badge: "New",
     path: "/launchpad",
   },
   {
@@ -177,19 +177,30 @@ export function LeftSidebar({ className = "" }: LeftSidebarProps) {
       <div className="space-y-1">
         {menuItems.map((item, index) => {
           const Icon = item.icon;
-          const isActive = location.pathname === item.path;
+          const isLaunchpad = item.path === "/launchpad";
+          const isActive = isLaunchpad ? location.pathname.startsWith(item.path) : location.pathname === item.path;
           
           return (
             <Link key={index} to={item.path}>
               <div
                 className={`flex items-center gap-3 px-3 py-2 rounded-md hover:bg-muted cursor-pointer transition-colors group ${
-                  isActive ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+                  isLaunchpad
+                    ? "bg-orange-500/10 text-orange-600 hover:bg-orange-500/15 dark:text-orange-400"
+                    : isActive
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 <Icon className="w-5 h-5" strokeWidth={2} />
                 <span className="flex-1 text-sm font-medium">{item.label}</span>
                 {item.badge && (
-                  <span className="text-xs font-semibold bg-primary text-primary-foreground px-2 py-0.5 rounded-full min-w-[1.25rem] text-center">
+                  <span
+                    className={`ml-auto text-xs font-semibold px-2 py-0.5 rounded-full min-w-[1.25rem] text-center ${
+                      isLaunchpad
+                        ? "bg-orange-500 text-white"
+                        : "bg-primary text-primary-foreground"
+                    }`}
+                  >
                     {item.badge}
                   </span>
                 )}
