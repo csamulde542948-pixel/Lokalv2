@@ -14,17 +14,34 @@ import { useFollowToggle } from "../features/social/hooks/useFollowToggle";
 import { useAuth } from "../../contexts/AuthContext";
 import { avatarSrc } from "../../lib/defaults";
 
+const FEATURED_PROJECT_IDS = ["cmp5i563n00b9co7jpocajrtw"];
+
+const FEATURED_PROJECT_FIELDS = gql`
+  fragment FeaturedProjectFields on Project {
+    id
+    name
+    tagline
+    starsCount
+    forksCount
+    isFeatured
+    isTrending
+    tags { name }
+    owner { id name username avatarUrl }
+  }
+`;
+
 const GET_SIDEBAR_DATA = gql`
   query GetSidebarData {
+    featuredProject0: project(id: "cmp5i563n00b9co7jpocajrtw") {
+      ...FeaturedProjectFields
+    }
     leaderboard {
       developers {
         rank xp
         profile { id name username avatarUrl }
       }
       featuredProjects {
-        id name tagline starsCount forksCount isFeatured isTrending
-        tags { name }
-        owner { id name username avatarUrl }
+        ...FeaturedProjectFields
       }
       shipper {
         rank projectsShipped postsCount
@@ -48,6 +65,7 @@ const GET_SIDEBAR_DATA = gql`
       }
     }
   }
+  ${FEATURED_PROJECT_FIELDS}
 `;
 
 export interface RightSidebarProps {
@@ -252,7 +270,15 @@ export function RightSidebar({ className = "", category = "home" }: RightSidebar
   });
 
   const lb               = (data as any)?.leaderboard;
-  const featuredProjects = lb?.featuredProjects  ?? [];
+  const pinnedFeaturedProjects = FEATURED_PROJECT_IDS
+    .map((_, index) => (data as any)?.[`featuredProject${index}`])
+    .filter(Boolean);
+  const featuredProjects = [
+    ...pinnedFeaturedProjects,
+    ...(lb?.featuredProjects ?? []),
+  ].filter((project, index, all) => (
+    project?.id && all.findIndex((p) => p?.id === project.id) === index
+  ));
   const developers       = lb?.developers        ?? [];
   const shipper          = lb?.shipper           ?? [];
   const roastSurvivor    = lb?.roastSurvivor     ?? [];
@@ -273,8 +299,9 @@ export function RightSidebar({ className = "", category = "home" }: RightSidebar
               : featuredProjects.length === 0
               ? <p className="px-2 text-xs text-muted-foreground py-2">No featured projects yet</p>
               : featuredProjects.slice(0, 4).map((project: any, index: number) => (
-                <div
+                <Link
                   key={project.id}
+                  to={`/project/${project.id}`}
                   className={`p-2 hover:bg-muted/50 cursor-pointer transition-colors group rounded-lg ${index === 0 ? "bg-primary/5" : ""}`}
                 >
                   <div className="flex items-start gap-2.5">
@@ -323,7 +350,7 @@ export function RightSidebar({ className = "", category = "home" }: RightSidebar
                       </div>
                     </div>
                   </div>
-                </div>
+                </Link>
               ))
             }
           </div>

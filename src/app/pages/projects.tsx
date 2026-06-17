@@ -30,6 +30,8 @@ import {
   X,
   CheckCircle2,
   Crown,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -52,6 +54,7 @@ import { adaptProjectAvatar } from "../../lib/defaults";
 
 const GET_PROJECTS_PAGE = gql`
   query GetProjectsPage($filter: ProjectFilter, $category: ProjectCategory, $search: String, $limit: Int, $offset: Int) {
+    projectCount(filter: $filter, category: $category, search: $search)
     projects(filter: $filter, category: $category, search: $search, limit: $limit, offset: $offset) {
       id
       name
@@ -156,18 +159,19 @@ export function Projects() {
   // URL-synced filter state — survives back/forward navigation
   const category = (searchParams.get("cat") as Category) ?? "ALL";
   const search = searchParams.get("q") ?? "";
+  const pageParam = Number(searchParams.get("page") ?? "1");
+  const currentPage = Number.isFinite(pageParam) && pageParam > 0 ? Math.floor(pageParam) : 1;
   const quick = new Set<QuickFilter>(
     (searchParams.get("f")?.split(",").filter(Boolean) ?? []) as QuickFilter[]
   );
 
   const [searchInput, setSearchInput] = useState(search);
-  const [loadedProjects, setLoadedProjects] = useState<any[]>([]);
-  const [hasMoreProjects, setHasMoreProjects] = useState(false);
 
   // Filter updates flush to URL (replace, not push — no history spam)
   const setCategory = (c: Category) => {
     const sp = new URLSearchParams(searchParams);
     if (c === "ALL") sp.delete("cat"); else sp.set("cat", c);
+    sp.delete("page");
     setSearchParams(sp, { replace: true });
   };
   const setQuick = (q: QuickFilter, on: boolean) => {
@@ -175,12 +179,20 @@ export function Projects() {
     if (on) next.add(q); else next.delete(q);
     const sp = new URLSearchParams(searchParams);
     if (next.size === 0) sp.delete("f"); else sp.set("f", [...next].join(","));
+    sp.delete("page");
     setSearchParams(sp, { replace: true });
   };
   const setSearch = (q: string) => {
     const sp = new URLSearchParams(searchParams);
     if (!q.trim()) sp.delete("q"); else sp.set("q", q);
+    sp.delete("page");
     setSearchParams(sp, { replace: true });
+  };
+  const setPage = (page: number) => {
+    const sp = new URLSearchParams(searchParams);
+    if (page <= 1) sp.delete("page"); else sp.set("page", String(page));
+    setSearchParams(sp);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   // Debounce search input → URL (200ms is the sweet spot for typing UX)
@@ -202,44 +214,25 @@ export function Projects() {
     filter,
     category: category === "ALL" ? null : category,
     search: search.trim() || null,
-    limit: PROJECT_PAGE_SIZE + 1,
-    offset: 0,
-  }), [filter, category, search]);
+    limit: PROJECT_PAGE_SIZE,
+    offset: (currentPage - 1) * PROJECT_PAGE_SIZE,
+  }), [filter, category, search, currentPage]);
 
-  const { data, loading, error, fetchMore } = useQuery(GET_PROJECTS_PAGE, {
+  const { data, loading, error } = useQuery(GET_PROJECTS_PAGE, {
     variables: queryVariables,
     fetchPolicy: "cache-and-network",
     notifyOnNetworkStatusChange: true,
   });
 
-  useEffect(() => {
-    setLoadedProjects([]);
-    setHasMoreProjects(false);
-  }, [queryVariables]);
+  const projects = data?.projects ?? [];
+  const totalProjectCount = data?.projectCount ?? projects.length;
+  const totalPages = Math.max(1, Math.ceil(totalProjectCount / PROJECT_PAGE_SIZE));
 
   useEffect(() => {
-    const page: any[] = data?.projects ?? [];
-    setLoadedProjects(page.slice(0, PROJECT_PAGE_SIZE));
-    setHasMoreProjects(page.length > PROJECT_PAGE_SIZE);
-  }, [data]);
-
-  async function loadMoreProjects() {
-    if (loading || !hasMoreProjects) return;
-    const result = await fetchMore({
-      variables: {
-        ...queryVariables,
-        offset: loadedProjects.length,
-      },
-    });
-    const nextPage: any[] = result.data?.projects ?? [];
-    setLoadedProjects((current) => [
-      ...current,
-      ...nextPage.slice(0, PROJECT_PAGE_SIZE),
-    ]);
-    setHasMoreProjects(nextPage.length > PROJECT_PAGE_SIZE);
-  }
-
-  const projects = loadedProjects;
+    if (!loading && totalProjectCount > 0 && currentPage > totalPages) {
+      setPage(totalPages);
+    }
+  }, [currentPage, loading, totalPages, totalProjectCount]);
   const trending = useMemo(
     () => projects.filter((p) => p.isTrending || p.isFeatured).slice(0, 6),
     [projects]
@@ -278,7 +271,7 @@ export function Projects() {
         <HeroHeader
           ref={headerRef}
           loading={loading}
-          projectCount={projects.length}
+          projectCount={totalProjectCount}
           searchInput={searchInput}
           onSearchChange={setSearchInput}
           user={user}
@@ -322,8 +315,9 @@ export function Projects() {
                 error={error}
                 projects={rest}
                 totalShown={projects.length}
-                hasMore={hasMoreProjects}
-                onLoadMore={loadMoreProjects}
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setPage}
               />
             </div>
           </div>
@@ -809,15 +803,17 @@ function ProjectGrid({
   error,
   projects,
   totalShown,
-  hasMore,
-  onLoadMore,
+  currentPage,
+  totalPages,
+  onPageChange,
 }: {
   loading: boolean;
   error: any;
   projects: any[];
   totalShown: number;
-  hasMore: boolean;
-  onLoadMore: () => void;
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
 }) {
   if (error) {
     return (
@@ -845,22 +841,12 @@ function ProjectGrid({
   if (projects.length === 0 && totalShown > 0) {
     return (
       <section className="px-4 sm:px-6 mt-2">
-        {hasMore && (
-          <div className="mt-8 flex justify-center">
-            <button
-              onClick={onLoadMore}
-              disabled={loading}
-              className="text-xs font-mono text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 px-4 py-2 rounded border border-border hover:border-primary/40 disabled:opacity-50 disabled:cursor-wait"
-            >
-              {loading ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Plus className="w-3.5 h-3.5" />
-              )}
-              load more
-            </button>
-          </div>
-        )}
+        <ProjectPagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          loading={loading}
+          onPageChange={onPageChange}
+        />
       </section>
     );
   }
@@ -884,24 +870,136 @@ function ProjectGrid({
         ))}
       </div>
 
-      {hasMore && (
-        <div className="mt-8 flex justify-center">
-          <button
-            onClick={onLoadMore}
-            disabled={loading}
-            className="text-xs font-mono text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 px-4 py-2 rounded border border-border hover:border-primary/40 disabled:opacity-50 disabled:cursor-wait"
-          >
-            {loading ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Plus className="w-3.5 h-3.5" />
-            )}
-            load more
-          </button>
-        </div>
-      )}
+      <ProjectPagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        loading={loading}
+        onPageChange={onPageChange}
+      />
     </section>
   );
+}
+
+function ProjectPagination({
+  currentPage,
+  totalPages,
+  loading,
+  onPageChange,
+}: {
+  currentPage: number;
+  totalPages: number;
+  loading: boolean;
+  onPageChange: (page: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+
+  const pageItems = getPaginationItems(currentPage, totalPages);
+
+  return (
+    <nav
+      aria-label="Project pages"
+      className="mt-8 flex flex-wrap items-center justify-center gap-1.5"
+    >
+      <PaginationButton
+        ariaLabel="Previous page"
+        disabled={loading || currentPage <= 1}
+        onClick={() => onPageChange(currentPage - 1)}
+      >
+        <ChevronLeft className="w-3.5 h-3.5" />
+      </PaginationButton>
+
+      {pageItems.map((item, index) =>
+        item === "ellipsis" ? (
+          <span
+            key={`ellipsis-${index}`}
+            className="px-1.5 text-xs font-mono text-muted-foreground/60"
+          >
+            ...
+          </span>
+        ) : (
+          <PaginationButton
+            key={item}
+            active={item === currentPage}
+            disabled={loading}
+            onClick={() => onPageChange(item)}
+          >
+            {item}
+          </PaginationButton>
+        )
+      )}
+
+      <PaginationButton
+        ariaLabel="Next page"
+        disabled={loading || currentPage >= totalPages}
+        onClick={() => onPageChange(currentPage + 1)}
+      >
+        <ChevronRight className="w-3.5 h-3.5" />
+      </PaginationButton>
+    </nav>
+  );
+}
+
+function PaginationButton({
+  active = false,
+  disabled = false,
+  ariaLabel,
+  onClick,
+  children,
+}: {
+  active?: boolean;
+  disabled?: boolean;
+  ariaLabel?: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      aria-current={active ? "page" : undefined}
+      disabled={disabled || active}
+      onClick={onClick}
+      className={`inline-flex h-8 min-w-8 items-center justify-center rounded border px-2 text-xs font-mono transition-colors disabled:cursor-default ${
+        active
+          ? "border-primary/50 bg-primary/15 text-primary"
+          : "border-border bg-card/70 text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-50"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function getPaginationItems(currentPage: number, totalPages: number) {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const pages = new Set<number>([1, totalPages, currentPage]);
+  if (currentPage > 1) pages.add(currentPage - 1);
+  if (currentPage < totalPages) pages.add(currentPage + 1);
+  if (currentPage <= 3) {
+    pages.add(2);
+    pages.add(3);
+    pages.add(4);
+  }
+  if (currentPage >= totalPages - 2) {
+    pages.add(totalPages - 1);
+    pages.add(totalPages - 2);
+    pages.add(totalPages - 3);
+  }
+
+  const sortedPages = [...pages]
+    .filter((page) => page >= 1 && page <= totalPages)
+    .sort((a, b) => a - b);
+
+  return sortedPages.flatMap((page, index) => {
+    const previous = sortedPages[index - 1];
+    if (previous && page - previous > 1) {
+      return ["ellipsis" as const, page];
+    }
+    return [page];
+  });
 }
 
 function ProjectCard({ project: p }: { project: any }) {

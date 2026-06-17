@@ -864,6 +864,11 @@ export const typeDefs = gql`
       category: ProjectCategory
       search: String
     ): [Project!]!
+    projectCount(
+      filter: ProjectFilter
+      category: ProjectCategory
+      search: String
+    ): Int!
     userProjects(userId: ID!): [Project!]!
     project(id: ID!): Project
     featuredProjects(limit: Int): [Project!]!

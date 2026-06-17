@@ -78,6 +78,33 @@ function normalizeCreateProjectInput(input: any) {
   };
 }
 
+function buildProjectWhere({
+  filter,
+  category,
+  search,
+}: {
+  filter?: string;
+  category?: string;
+  search?: string;
+}) {
+  const where: any = { visibility: "PUBLIC" };
+
+  if (filter === "FEATURED") where.isFeatured = true;
+  if (filter === "TRENDING") where.isTrending = true;
+  if (filter === "GITHUB") where.type = "GITHUB";
+  if (filter === "PERSONAL") where.type = "PERSONAL";
+  if (category) where.category = category;
+  if (search) {
+    where.OR = [
+      { name: { contains: search, mode: "insensitive" } },
+      { description: { contains: search, mode: "insensitive" } },
+      { tagline: { contains: search, mode: "insensitive" } },
+    ];
+  }
+
+  return where;
+}
+
 export const projectResolvers = {
   Query: {
     projects: async (
@@ -91,20 +118,7 @@ export const projectResolvers = {
       }: { limit?: number; offset?: number; filter?: string; category?: string; search?: string },
       { prisma }: GraphQLContext
     ) => {
-      const where: any = { visibility: "PUBLIC" };
-
-      if (filter === "FEATURED") where.isFeatured = true;
-      if (filter === "TRENDING") where.isTrending = true;
-      if (filter === "GITHUB") where.type = "GITHUB";
-      if (filter === "PERSONAL") where.type = "PERSONAL";
-      if (category) where.category = category;
-      if (search) {
-        where.OR = [
-          { name: { contains: search, mode: "insensitive" } },
-          { description: { contains: search, mode: "insensitive" } },
-          { tagline: { contains: search, mode: "insensitive" } },
-        ];
-      }
+      const where = buildProjectWhere({ filter, category, search });
 
       return prisma.project.findMany({
         where,
@@ -115,6 +129,20 @@ export const projectResolvers = {
           author: { include: { rank: true } },
           tags: { include: { tag: true } },
         },
+      });
+    },
+
+    projectCount: async (
+      _: unknown,
+      {
+        filter,
+        category,
+        search,
+      }: { filter?: string; category?: string; search?: string },
+      { prisma }: GraphQLContext
+    ) => {
+      return prisma.project.count({
+        where: buildProjectWhere({ filter, category, search }),
       });
     },
 
