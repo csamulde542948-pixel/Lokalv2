@@ -31,6 +31,18 @@ export function extractFirstUrl(text: string): string | null {
   return match ? cleanMatchedUrl(match[0]) : null;
 }
 
+function internalLaunchpadPath(url: string) {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.replace(/^www\./, "").replace(/^app\./, "");
+    return hostname === "lokalhost.club" && parsed.pathname.startsWith("/launchpad/")
+      ? parsed.pathname
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export function LinkedPostText({
   text,
   className,
@@ -88,7 +100,16 @@ export function LinkedPostText({
   return (
     <p className={className}>
       {parts.map((part, index) =>
-        part.url ? (
+        part.url && internalLaunchpadPath(part.url) ? (
+          <Link
+            key={`${part.url}-${index}`}
+            to={internalLaunchpadPath(part.url)!}
+            className="text-sky-500 hover:underline"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {part.value}
+          </Link>
+        ) : part.url ? (
           <a
             key={`${part.url}-${index}`}
             href={part.url}

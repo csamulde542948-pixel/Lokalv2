@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { LaunchpadEventPostCard, extractLaunchpadEventId, stripLaunchpadEventLinks } from "./LaunchpadEventPostCard";
 import { LinkPreviewCard, extractFirstUrl } from "./LinkPreviewCard";
 import { LinkedPostText } from "./LinkedPostText";
 import { MediaGrid } from "./MediaGrid";
@@ -25,7 +26,8 @@ export function PostContentBody({
   videoUrl,
 }: PostContentBodyProps) {
   const [contentExpanded, setContentExpanded] = useState(false);
-  const clean = content.replace(/\[shared:[^\]]+\]/g, "").trim();
+  const launchpadEventId = extractLaunchpadEventId(content);
+  const clean = stripLaunchpadEventLinks(content.replace(/\[shared:[^\]]+\]/g, "").trim());
   const mediaImages = images && images.length > 0 ? images : image ? [image] : [];
   const detectedUrl = mediaImages.length === 0 ? extractFirstUrl(content) : null;
   const collapseLimit = 150;
@@ -65,7 +67,12 @@ export function PostContentBody({
         </div>
       )}
 
-      {detectedUrl && <LinkPreviewCard url={detectedUrl} />}
+      {launchpadEventId && (
+        <div className="px-4 pb-3">
+          <LaunchpadEventPostCard eventId={launchpadEventId} />
+        </div>
+      )}
+      {detectedUrl && !launchpadEventId && <LinkPreviewCard url={detectedUrl} />}
       {mediaImages.length > 0 && <MediaGrid imgs={mediaImages} />}
       {videoUrl && mediaImages.length === 0 && (
         <div className="px-4 pb-3">

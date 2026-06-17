@@ -15,6 +15,7 @@ import {
 import { useAuth } from "../../../../contexts/AuthContext";
 import { extractRoastProjectMeta } from "../roastMeta";
 import { timeAgo } from "../time";
+import { LaunchpadEventPostCard, extractLaunchpadEventId, stripLaunchpadEventLinks } from "./LaunchpadEventPostCard";
 import { LinkPreviewCard, extractFirstUrl } from "./LinkPreviewCard";
 import { LinkedPostText } from "./LinkedPostText";
 import { ReactorListDialog } from "./ReactorListDialog";
@@ -433,12 +434,14 @@ export function TimelinePost({
     (image) => image && !failedImages.has(image),
   );
   const linkUrl = extractFirstUrl(post.content);
+  const launchpadEventId = extractLaunchpadEventId(post.content);
+  const displaySourceContent = launchpadEventId ? stripLaunchpadEventLinks(post.content) : post.content;
   const contentLimit = 150;
   const maxLines = 10;
   const shouldTruncate =
-    post.content.length > contentLimit || post.content.split("\n").length > maxLines;
+    displaySourceContent.length > contentLimit || displaySourceContent.split("\n").length > maxLines;
   const visibleContent =
-    !expanded && shouldTruncate ? truncateContent(post.content, contentLimit, maxLines) : post.content;
+    !expanded && shouldTruncate ? truncateContent(displaySourceContent, contentLimit, maxLines) : displaySourceContent;
   const postSurfaceClass = isRoastPost
     ? "relative roast-feed-flame-card ring-1 ring-inset ring-red-500/25 hover:bg-red-500/[0.04]"
     : "hover:bg-muted/25";
@@ -550,7 +553,7 @@ export function TimelinePost({
             )}
           </div>
 
-          {post.content && (
+          {displaySourceContent && (
             <div className="mt-1">
               {isRoastPost ? (
                 <p className="whitespace-pre-wrap break-words text-[15px] leading-6 text-foreground/95">
@@ -577,7 +580,15 @@ export function TimelinePost({
             </div>
           )}
 
-          {!isRoastPost && linkUrl && (
+          {!isRoastPost && launchpadEventId && (
+            <LaunchpadEventPostCard
+              eventId={launchpadEventId}
+              className="mt-3"
+              stopPropagation
+            />
+          )}
+
+          {!isRoastPost && linkUrl && !launchpadEventId && (
             <LinkPreviewCard
               url={linkUrl}
               withOuterSpacing={false}

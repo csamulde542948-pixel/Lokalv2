@@ -184,8 +184,11 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
   const me = meData?.me;
   const launchpadEvents: LaunchpadEventOption[] = launchpadData?.myLaunchpadEvents ?? [];
   const prompt = useScrambledPrompt(content.length === 0);
+  const selectedLaunchpadUrl = selectedLaunchpadEvent
+    ? `https://lokalhost.club/launchpad/${selectedLaunchpadEvent.id}`
+    : "";
   const launchpadTextPreview = selectedLaunchpadEvent
-    ? `${content.trim() ? "\n\n" : `Launching ${selectedLaunchpadEvent.projectName}\n`}/launchpad/${selectedLaunchpadEvent.id}`
+    ? `${content.trim() ? "\n\n" : `Launching ${selectedLaunchpadEvent.projectName}\n`}${selectedLaunchpadUrl}`
     : "";
   const feelingTextPreview = feeling ? `${content.trim() || selectedLaunchpadEvent ? "\n" : ""}-- feeling ${feeling.label}` : "";
   const remaining = MAX_POST_CHARS - content.length - launchpadTextPreview.length - feelingTextPreview.length;
@@ -328,11 +331,8 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
       const permanentUrls = images.length > 0 ? await uploadImagesToSupabase(images) : undefined;
       const permanentVideoUrl = video ? await uploadVideoToSupabase(video) : undefined;
       const text = content.trim();
-      const launchpadUrl = selectedLaunchpadEvent
-        ? `${window.location.origin}/launchpad/${selectedLaunchpadEvent.id}`
-        : "";
       const contentWithLaunchpad = selectedLaunchpadEvent
-        ? `${text || `Launching ${selectedLaunchpadEvent.projectName}`}${text ? "\n\n" : "\n"}${launchpadUrl}`
+        ? `${text || `Launching ${selectedLaunchpadEvent.projectName}`}${text ? "\n\n" : "\n"}${selectedLaunchpadUrl}`
         : text;
       const finalContent = feeling
         ? `${contentWithLaunchpad}${contentWithLaunchpad ? "\n" : ""}-- feeling ${feeling.label}`
