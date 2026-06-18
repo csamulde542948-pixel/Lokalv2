@@ -97,6 +97,14 @@ const UPDATE_PROFILE = gql`
   }
 `;
 
+const CREATE_POST_MUTATION = gql`
+  mutation CreateProfilePost($input: CreatePostInput!) {
+    createPost(input: $input) {
+      id
+    }
+  }
+`;
+
 // Helpers
 
 function getProjectIconUrl(project: any): string | null {
@@ -242,6 +250,7 @@ export function Profile() {
 
   const [followUser] = useMutation(FOLLOW_USER);
   const [unfollowUser] = useMutation(UNFOLLOW_USER);
+  const [createPostMutation] = useMutation(CREATE_POST_MUTATION);
   const isOwnProfile = !!user && !!profile?.id && user.id === profile.id;
 
   async function handleFollowToggle() {
@@ -300,6 +309,22 @@ export function Profile() {
   const projects = projectsData?.userProjects ?? [];
 
   const displayName = profile?.displayName ?? profile?.name ?? user?.email ?? "";
+
+  async function handleNewPost(content: string, images?: string[], videoUrl?: string, tags?: string[]) {
+    await createPostMutation({
+      variables: {
+        input: {
+          content,
+          imageUrl: images?.[0],
+          imageUrls: images ?? [],
+          videoUrl,
+          tags: tags ?? [],
+        },
+      },
+    });
+    await refetchPosts();
+    if (!isOtherUser) await refetchMe();
+  }
 
   if (!loading && isOtherUser && !profile) {
     return (
@@ -929,7 +954,7 @@ export function Profile() {
               <div className="overflow-hidden rounded-lg border bg-background">
                 {!isOtherUser && (
                   <section className="border-b">
-                    <CreatePost onPost={() => refetchPosts()} variant="timeline" />
+                    <CreatePost onPost={handleNewPost} variant="timeline" />
                   </section>
                 )}
                 {postsLoading ? (
