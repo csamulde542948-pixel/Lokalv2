@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Link } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useMutation } from "@apollo/client/react";
-import { Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Flame, MessageSquare, MoreHorizontal, Pin, PinOff, Repeat2, Trash2, UserCheck, UserPlus, X } from "lucide-react";
+import { BarChart3, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Flame, MessageSquare, MoreHorizontal, Pin, PinOff, Repeat2, Trash2, UserCheck, UserPlus, X } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "../../../components/ui/avatar";
 import { Button } from "../../../components/ui/button";
 import {
@@ -109,6 +109,7 @@ export interface TimelinePostData {
   likesCount: number;
   commentsCount: number;
   sharesCount: number;
+  viewsCount?: number | null;
   likedByMe: boolean;
   myReaction: string | null;
   createdAt: string;
@@ -131,6 +132,17 @@ function truncateContent(content: string, limit: number, maxLines: number) {
   const lineLimited = lines.length > maxLines ? lines.slice(0, maxLines).join("\n") : content;
   const candidate = lineLimited.length > limit ? lineLimited.slice(0, limit).trimEnd() : lineLimited;
   return candidate.length < content.length ? `${candidate}...` : candidate;
+}
+
+function formatCompactCount(value?: number | null) {
+  const count = Math.max(0, Number(value ?? 0));
+  if (count < 1000) return String(count);
+  if (count < 1_000_000) {
+    const compact = count / 1000;
+    return `${compact >= 10 ? Math.round(compact) : Number(compact.toFixed(1))}K`;
+  }
+  const compact = count / 1_000_000;
+  return `${compact >= 10 ? Math.round(compact) : Number(compact.toFixed(1))}M`;
 }
 
 function RoastProjectFallback({
@@ -612,7 +624,7 @@ export function TimelinePost({
             />
           )}
 
-          <div className="mt-3 grid max-w-lg grid-cols-4 text-muted-foreground">
+          <div className="mt-3 grid max-w-lg grid-cols-5 text-muted-foreground">
             <button
               type="button"
               onClick={(event) => {
@@ -687,6 +699,15 @@ export function TimelinePost({
               )}
               <span className="hidden sm:inline">{bookmarked ? "Saved" : "Bookmark"}</span>
             </button>
+
+            <div
+              className="inline-flex h-9 items-center gap-2 text-sm"
+              title={`${Math.max(0, Number(post.viewsCount ?? 0)).toLocaleString()} views`}
+              aria-label={`${Math.max(0, Number(post.viewsCount ?? 0)).toLocaleString()} views`}
+            >
+              <BarChart3 className="h-4 w-4" />
+              <span className="tabular-nums">{formatCompactCount(post.viewsCount)}</span>
+            </div>
           </div>
 
         </div>

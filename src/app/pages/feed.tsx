@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { ImageIcon, Loader2 } from "lucide-react";
+import { ImageIcon, Loader2, X } from "lucide-react";
+import { toast } from "sonner";
 import { CreatePost } from "../components/create-post";
 import { LeftSidebar } from "../components/left-sidebar";
 import { RightSidebar } from "../components/right-sidebar";
 import { Button } from "../components/ui/button";
 import { Skeleton } from "../components/ui/skeleton";
+import { useAuth } from "../../contexts/AuthContext";
 import { CommentModal } from "../features/social/components/CommentModal";
 import { TimelinePost, type TimelinePostData } from "../features/social/components/TimelinePost";
 
@@ -29,6 +31,7 @@ const GET_SOCIAL_FEED = gql`
       likesCount
       commentsCount
       sharesCount
+      viewsCount
       likedByMe
       myReaction
       createdAt
@@ -59,6 +62,7 @@ const GET_SOCIAL_FEED = gql`
         likesCount
         commentsCount
         sharesCount
+        viewsCount
         likedByMe
         myReaction
         createdAt
@@ -83,6 +87,15 @@ const CREATE_POST_MUTATION = gql`
   mutation CreateFeedPostV2($input: CreatePostInput!) {
     createPost(input: $input) {
       id
+    }
+  }
+`;
+
+const GET_FEED_ME = gql`
+  query GetFeedMe {
+    me {
+      id
+      postsCount
     }
   }
 `;
@@ -150,6 +163,7 @@ function FeedSkeletonPost() {
 }
 
 export function Feed() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState<FeedTab>("FOR_YOU");
   const [pinnedPost, setPinnedPost] = useState<TimelinePostData | null>(null);
@@ -158,6 +172,11 @@ export function Feed() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [commentPost, setCommentPost] = useState<TimelinePostData | null>(null);
+  const [composerFocusSignal, setComposerFocusSignal] = useState(0);
+  const [firstPostNudgeDismissed, setFirstPostNudgeDismissed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.sessionStorage.getItem("lokal:first-post-nudge-dismissed") === "true";
+  });
 
   const { data, loading, error, refetch, fetchMore } = useQuery<SocialFeedData>(GET_SOCIAL_FEED, {
     variables: { tab, limit: 10, cursor: null, recommId: null },
@@ -166,6 +185,10 @@ export function Feed() {
   });
 
   const [createPostMutation] = useMutation(CREATE_POST_MUTATION);
+  const { data: meData, refetch: refetchMe } = useQuery(GET_FEED_ME, {
+    skip: !user,
+    fetchPolicy: "cache-and-network",
+  });
 
   useEffect(() => {
     setPinnedPost(null);
@@ -199,6 +222,8 @@ export function Feed() {
       },
     });
     await refetch({ tab, limit: 10, cursor: null, recommId: null });
+    await refetchMe().catch(() => null);
+    toast.success("Posted. Give another builder feedback to keep the feed moving.");
   }
 
   async function handleLoadMore() {
@@ -228,6 +253,7 @@ export function Feed() {
 
   const visiblePosts = pinnedPost ? posts.filter((post) => post.id !== pinnedPost.id) : posts;
   const totalVisiblePosts = visiblePosts.length + (pinnedPost ? 1 : 0);
+  const showFirstPostNudge = !!user && !!meData?.me && meData.me.postsCount === 0 && !firstPostNudgeDismissed;
 
   return (
     <div className="min-h-screen bg-background">
@@ -237,8 +263,40 @@ export function Feed() {
         <div className="mx-auto min-h-screen max-w-[640px] border-x bg-background">
           <FeedTabs value={tab} onChange={setTab} />
 
+          {showFirstPostNudge && (
+            <section className="border-b bg-primary/5 px-4 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="text-sm font-semibold text-foreground">Welcome to Lokalhost.</h2>
+                  <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                    Post your project, idea, bug, or roast request so people know you exist.
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="mt-3 rounded-full"
+                    onClick={() => setComposerFocusSignal((value) => value + 1)}
+                  >
+                    Write first post
+                  </Button>
+                </div>
+                <button
+                  type="button"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+                  aria-label="Dismiss welcome prompt"
+                  onClick={() => {
+                    setFirstPostNudgeDismissed(true);
+                    window.sessionStorage.setItem("lokal:first-post-nudge-dismissed", "true");
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </section>
+          )}
+
           <section className="bg-background">
-            <CreatePost onPost={handleNewPost} variant="timeline" />
+            <CreatePost onPost={handleNewPost} variant="timeline" focusSignal={composerFocusSignal} />
           </section>
 
           {loading && posts.length === 0 && (
@@ -270,8 +328,8 @@ export function Feed() {
               <h2 className="mt-4 text-lg font-semibold">Nothing here yet</h2>
               <p className="mt-2 text-sm text-muted-foreground">
                 {tab === "FOR_YOU"
-                  ? "We need a little more signal before recommendations fill in."
-                  : "Follow a few builders and this tab will start to move."}
+                  ? "The feed gets better when builders post. Start with a build update, bug, or feedback ask."
+                  : "Follow builders or post your own update so people can find you."}
               </p>
             </div>
           )}

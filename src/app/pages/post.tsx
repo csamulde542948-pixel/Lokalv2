@@ -28,6 +28,7 @@ const GET_POST_PAGE = gql`
       likesCount
       commentsCount
       sharesCount
+      viewsCount
       likedByMe
       myReaction
       createdAt

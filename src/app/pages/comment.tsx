@@ -70,6 +70,7 @@ const GET_COMMENT_PAGE = gql`
         likesCount
         commentsCount
         sharesCount
+        viewsCount
         likedByMe
         myReaction
         createdAt

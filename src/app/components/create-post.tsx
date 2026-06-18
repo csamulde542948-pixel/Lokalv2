@@ -35,11 +35,11 @@ const MAX_VIDEO_BYTES = 25 * 1024 * 1024;
 const MAX_TAGS = 10;
 
 const PROMPTS = [
-  "What are you building?",
-  "What's happening?",
-  "Shipping something new?",
-  "Share a tiny win.",
-  "Debugging anything interesting?",
+  "What did you build, break, ship, or overthink today?",
+  "Drop your build update. Bugs, launches, wins, disasters all accepted.",
+  "Need feedback? Post the link and ask one sharp question.",
+  "What shipped this week?",
+  "What are you stuck on?",
 ];
 
 const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#@$%";
@@ -99,6 +99,7 @@ const GET_MY_LAUNCHPAD_EVENTS = gql`
 interface CreatePostProps {
   onPost: (content: string, images?: string[], videoUrl?: string, tags?: string[]) => void | Promise<void>;
   variant?: "card" | "timeline";
+  focusSignal?: number;
 }
 
 function formatBytes(bytes: number) {
@@ -151,7 +152,7 @@ function useScrambledPrompt(enabled: boolean) {
   return display;
 }
 
-export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
+export function CreatePost({ onPost, variant = "card", focusSignal = 0 }: CreatePostProps) {
   const { user } = useAuth();
   const { data: meData } = useQuery(GET_ME_AVATAR, {
     skip: !user,
@@ -181,6 +182,7 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const me = meData?.me;
   const launchpadEvents: LaunchpadEventOption[] = launchpadData?.myLaunchpadEvents ?? [];
   const prompt = useScrambledPrompt(content.length === 0);
@@ -229,6 +231,11 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
       .finally(() => setOgLoading(false));
     return () => ctrl.abort();
   }, [previewUrl, dismissedUrl]);
+
+  useEffect(() => {
+    if (focusSignal <= 0) return;
+    textareaRef.current?.focus();
+  }, [focusSignal]);
 
   function setError(message: string) {
     setUploadError(message);
@@ -388,6 +395,7 @@ export function CreatePost({ onPost, variant = "card" }: CreatePostProps) {
                 </div>
               )}
               <Textarea
+                ref={textareaRef}
                 aria-label="Create post"
                 value={content}
                 maxLength={MAX_POST_CHARS}

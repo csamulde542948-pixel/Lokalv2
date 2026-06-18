@@ -310,6 +310,7 @@ export const ALL_FRAGMENTS = gql`
     videoUrl
     projectName
     postType
+    viewsCount
     tags { ...TagFields }
     createdAt
     author { ...AuthorFields }
@@ -327,6 +328,7 @@ export const ALL_FRAGMENTS = gql`
     likesCount
     commentsCount
     sharesCount
+    viewsCount
     likedByMe
     myReaction
     postType
