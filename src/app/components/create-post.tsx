@@ -100,6 +100,8 @@ interface CreatePostProps {
   onPost: (content: string, images?: string[], videoUrl?: string, tags?: string[]) => void | Promise<void>;
   variant?: "card" | "timeline";
   focusSignal?: number;
+  draftContent?: string;
+  draftSignal?: number;
 }
 
 function formatBytes(bytes: number) {
@@ -152,7 +154,13 @@ function useScrambledPrompt(enabled: boolean) {
   return display;
 }
 
-export function CreatePost({ onPost, variant = "card", focusSignal = 0 }: CreatePostProps) {
+export function CreatePost({
+  onPost,
+  variant = "card",
+  focusSignal = 0,
+  draftContent = "",
+  draftSignal = 0,
+}: CreatePostProps) {
   const { user } = useAuth();
   const { data: meData } = useQuery(GET_ME_AVATAR, {
     skip: !user,
@@ -236,6 +244,12 @@ export function CreatePost({ onPost, variant = "card", focusSignal = 0 }: Create
     if (focusSignal <= 0) return;
     textareaRef.current?.focus();
   }, [focusSignal]);
+
+  useEffect(() => {
+    if (draftSignal <= 0) return;
+    setContent(draftContent);
+    textareaRef.current?.focus();
+  }, [draftContent, draftSignal]);
 
   function setError(message: string) {
     setUploadError(message);

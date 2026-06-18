@@ -2,12 +2,19 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { gql } from "@apollo/client/core";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { ImageIcon, Loader2, X } from "lucide-react";
+import { ImageIcon, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { CreatePost } from "../components/create-post";
 import { LeftSidebar } from "../components/left-sidebar";
 import { RightSidebar } from "../components/right-sidebar";
 import { Button } from "../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog";
 import { Skeleton } from "../components/ui/skeleton";
 import { useAuth } from "../../contexts/AuthContext";
 import { CommentModal } from "../features/social/components/CommentModal";
@@ -100,6 +107,13 @@ const GET_FEED_ME = gql`
   }
 `;
 
+const FIRST_POST_STARTERS = [
+  "Hi, I'm new to the club. How's everyone doing?",
+  "First post here. What are you all building this week?",
+  "New around here. Drop what you're shipping, I want to see what the club is building.",
+  "Quick hello to the club. I'm here to check out builds and give feedback.",
+];
+
 type FeedTab = "FOR_YOU" | "FOLLOWING";
 
 interface SocialFeedData {
@@ -172,7 +186,8 @@ export function Feed() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [commentPost, setCommentPost] = useState<TimelinePostData | null>(null);
-  const [composerFocusSignal, setComposerFocusSignal] = useState(0);
+  const [starterDraft, setStarterDraft] = useState("");
+  const [starterDraftSignal, setStarterDraftSignal] = useState(0);
   const [firstPostNudgeDismissed, setFirstPostNudgeDismissed] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.sessionStorage.getItem("lokal:first-post-nudge-dismissed") === "true";
@@ -226,6 +241,16 @@ export function Feed() {
     toast.success("Posted. Give another builder feedback to keep the feed moving.");
   }
 
+  function dismissFirstPostNudge() {
+    setFirstPostNudgeDismissed(true);
+    window.sessionStorage.setItem("lokal:first-post-nudge-dismissed", "true");
+  }
+
+  async function handleFirstPost(content: string, images?: string[], videoUrl?: string, tags?: string[]) {
+    await handleNewPost(content, images, videoUrl, tags);
+    dismissFirstPostNudge();
+  }
+
   async function handleLoadMore() {
     const response = await fetchMore({
       variables: {
@@ -263,40 +288,49 @@ export function Feed() {
         <div className="mx-auto min-h-screen max-w-[640px] border-x bg-background">
           <FeedTabs value={tab} onChange={setTab} />
 
-          {showFirstPostNudge && (
-            <section className="border-b bg-primary/5 px-4 py-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="text-sm font-semibold text-foreground">Welcome to Lokalhost.</h2>
-                  <p className="mt-1 text-sm leading-5 text-muted-foreground">
-                    Post your project, idea, bug, or roast request so people know you exist.
-                  </p>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="mt-3 rounded-full"
-                    onClick={() => setComposerFocusSignal((value) => value + 1)}
-                  >
-                    Write first post
-                  </Button>
+          <Dialog
+            open={showFirstPostNudge}
+            onOpenChange={(open) => {
+              if (!open) dismissFirstPostNudge();
+            }}
+          >
+            <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto p-0 sm:max-w-2xl">
+              <div className="px-4 pb-4 pt-5 sm:px-5">
+                <DialogHeader className="pr-8">
+                  <DialogTitle>Welcome to Lokalhost.</DialogTitle>
+                  <DialogDescription>
+                    Say hi to the club with a simple first post. Keep it light; you can share the big build later.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {FIRST_POST_STARTERS.map((starter) => (
+                    <button
+                      key={starter}
+                      type="button"
+                      className="rounded-full border px-3 py-1.5 text-left text-xs font-medium text-muted-foreground transition-colors hover:border-primary hover:bg-primary/10 hover:text-primary"
+                      onClick={() => {
+                        setStarterDraft(starter);
+                        setStarterDraftSignal((value) => value + 1);
+                      }}
+                    >
+                      {starter}
+                    </button>
+                  ))}
                 </div>
-                <button
-                  type="button"
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
-                  aria-label="Dismiss welcome prompt"
-                  onClick={() => {
-                    setFirstPostNudgeDismissed(true);
-                    window.sessionStorage.setItem("lokal:first-post-nudge-dismissed", "true");
-                  }}
-                >
-                  <X className="h-4 w-4" />
-                </button>
               </div>
-            </section>
-          )}
+
+              <CreatePost
+                onPost={handleFirstPost}
+                variant="timeline"
+                draftContent={starterDraft}
+                draftSignal={starterDraftSignal}
+              />
+            </DialogContent>
+          </Dialog>
 
           <section className="bg-background">
-            <CreatePost onPost={handleNewPost} variant="timeline" focusSignal={composerFocusSignal} />
+            <CreatePost onPost={handleNewPost} variant="timeline" />
           </section>
 
           {loading && posts.length === 0 && (
