@@ -19,6 +19,7 @@ import {
   Users,
 } from "lucide-react";
 import { BrandLogo } from "../components/brand-logo";
+import { useAuth } from "../../contexts/AuthContext";
 
 const surfaceRows = [
   { label: "feed", title: "Progress log", text: "Post what changed, what broke, and what you want reviewed." },
@@ -173,6 +174,7 @@ function SurfaceIcon({ name }: { name: string }) {
 
 export function Landing() {
   const navigate = useNavigate();
+  const { user, loading } = useAuth();
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -186,12 +188,14 @@ export function Landing() {
           </nav>
           <div className="flex items-center gap-2">
             <ThemeToggleButton />
-            <Link
-              to="/login"
-              className="hidden h-10 items-center justify-center rounded-md border border-border bg-card px-4 text-xs font-semibold uppercase tracking-[0.12em] transition hover:border-primary/60 hover:text-primary sm:inline-flex"
-            >
-              Login
-            </Link>
+            {!loading && (
+              <Link
+                to={user ? "/profile" : "/login"}
+                className="hidden h-10 items-center justify-center rounded-md border border-border bg-card px-4 text-xs font-semibold uppercase tracking-[0.12em] transition hover:border-primary/60 hover:text-primary sm:inline-flex"
+              >
+                {user ? "Profile" : "Login"}
+              </Link>
+            )}
             <Link
               to="/feed"
               className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold uppercase tracking-[0.12em] text-primary-foreground transition hover:opacity-90"
