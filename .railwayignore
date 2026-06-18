@@ -1,0 +1,11 @@
+node_modules/
+backend/node_modules/
+dist/
+backend/dist/
+.git/
+.venv/
+.vercel/
+.gstack/
+videos/
+*.log
+backend/*.log
