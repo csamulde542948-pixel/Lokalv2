@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { sanitizeInput } from "../middleware/security";
+import { createNotification } from "../lib/notifications";
 
 type PrismaLike = PrismaClient | any;
 
@@ -67,6 +68,24 @@ function compact(value: unknown, maxLength = 500) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
+}
+
+function usernameForMention(profile: any) {
+  const username = String(profile?.username ?? "")
+    .replace(/^@/, "")
+    .replace(/[^a-zA-Z0-9_]/g, "")
+    .slice(0, 50);
+  return username || null;
+}
+
+function ensureCallerMention(content: string, callerUsername: string | null) {
+  if (!callerUsername) return content;
+  const mention = `@${callerUsername}`;
+  const trimmed = content.trim();
+  if (new RegExp(`(^|\\s)@${callerUsername}(?=$|\\s|[,.!?;:])`, "i").test(trimmed)) {
+    return trimmed;
+  }
+  return `${mention} ${trimmed}`;
 }
 
 function detectContextType(args: {
@@ -255,6 +274,7 @@ async function createBotComment(args: {
   postId: string;
   botProfileId: string;
   content: string;
+  callerId: string;
   triggerComment?: any | null;
 }) {
   const flatParentId = args.triggerComment
@@ -272,7 +292,7 @@ async function createBotComment(args: {
         rootPostId: args.postId,
         depth,
         feedVisibility: "THREAD_ONLY",
-        mentions: [],
+        mentions: [args.callerId],
       },
     });
 
@@ -343,6 +363,7 @@ export async function processLokalBotMention(args: TriggerArgs) {
   const { post, triggerComment, comments } = context;
   if (post.isDeleted || post.visibility !== "public" || post.moderationStatus !== "approved") return;
   if (triggerComment && triggerComment.authorId === botProfile.id) return;
+  const caller = triggerComment?.author ?? post.author;
 
   const contextType = detectContextType({
     post,
@@ -379,8 +400,19 @@ export async function processLokalBotMention(args: TriggerArgs) {
     prisma: args.prisma,
     postId: args.postId,
     botProfileId: botProfile.id,
-    content: sanitizeInput(answer),
+    callerId: args.authorId,
+    content: sanitizeInput(ensureCallerMention(answer, usernameForMention(caller))),
     triggerComment,
+  });
+  await createNotification(args.prisma, {
+    recipientId: args.authorId,
+    actorId: botProfile.id,
+    type: "MENTION",
+    postId: args.postId,
+    entityId: botComment.id,
+    message: `replied to your @${config.handle} mention`,
+  }).catch((error) => {
+    console.error("[lokal-bot] Failed to notify mention caller:", error);
   });
 
   await args.prisma.userActionEvent.create({
