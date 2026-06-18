@@ -352,6 +352,109 @@ async function isUrlReachable(url: string): Promise<boolean> {
   }
 }
 
+function extractHtmlMeta(html: string, key: string): string | undefined {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const patterns = [
+    new RegExp(`<meta[^>]+(?:name|property)=["']${escaped}["'][^>]+content=["']([^"']+)["'][^>]*>`, "i"),
+    new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']${escaped}["'][^>]*>`, "i"),
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match?.[1]) return decodeHtmlEntities(match[1].trim());
+  }
+  return undefined;
+}
+
+function extractHtmlLink(html: string, relPattern: RegExp): string | undefined {
+  const linkTags = html.match(/<link\b[^>]*>/gi) ?? [];
+  for (const tag of linkTags) {
+    const rel = tag.match(/\brel=["']([^"']+)["']/i)?.[1] ?? "";
+    if (!relPattern.test(rel)) continue;
+    const href = tag.match(/\bhref=["']([^"']+)["']/i)?.[1];
+    if (href) return decodeHtmlEntities(href.trim());
+  }
+  return undefined;
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function absolutizeUrl(baseUrl: string, maybeUrl: string | undefined): string | undefined {
+  if (!maybeUrl) return undefined;
+  try {
+    return new URL(maybeUrl, baseUrl).toString();
+  } catch {
+    return maybeUrl;
+  }
+}
+
+function htmlToReadableText(html: string): string {
+  return decodeHtmlEntities(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  ).slice(0, 4500);
+}
+
+async function scrapeWithDirectHtmlFallback(url: string): Promise<FirecrawlScrapeResult> {
+  const res = await fetch(url, {
+    method: "GET",
+    redirect: "follow",
+    headers: {
+      "User-Agent": "Mozilla/5.0 (compatible; LokalBrandAnalyzer/1.0)",
+      Accept: "text/html,application/xhtml+xml",
+    },
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!res.ok) {
+    throw new Error(`Website fetch failed: ${res.status} ${res.statusText}`);
+  }
+
+  const html = await res.text();
+  const title = decodeHtmlEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.trim() ?? "");
+  const favicon = absolutizeUrl(url, extractHtmlLink(html, /\b(icon|shortcut icon|apple-touch-icon)\b/i));
+  const ogImage = absolutizeUrl(url, extractHtmlMeta(html, "og:image") ?? extractHtmlMeta(html, "twitter:image"));
+  const metadata: FirecrawlMetadata = {
+    title: title || undefined,
+    description: extractHtmlMeta(html, "description"),
+    ogTitle: extractHtmlMeta(html, "og:title"),
+    ogDescription: extractHtmlMeta(html, "og:description"),
+    ogImage,
+    favicon,
+    keywords: extractHtmlMeta(html, "keywords"),
+    author: extractHtmlMeta(html, "author"),
+    language: html.match(/<html[^>]+lang=["']([^"']+)["']/i)?.[1],
+    themeColor: extractHtmlMeta(html, "theme-color"),
+    sourceURL: url,
+  };
+
+  return {
+    markdown: htmlToReadableText(html),
+    screenshotUrl: null,
+    metadata,
+    branding: null,
+  };
+}
+
+async function fallbackForBrandingFailure(url: string, reason: string): Promise<FirecrawlScrapeResult> {
+  console.warn(`[brand-analysis] Firecrawl branding capture failed (${reason}); falling back to direct HTML fetch`);
+  return scrapeWithDirectHtmlFallback(url).catch((error: any) => {
+    throw new Error(
+      `Brand analyzer could not read enough public page content. Firecrawl branding capture failed and direct fetch failed: ${error?.message ?? error}`
+    );
+  });
+}
+
 async function scrapeWithFirecrawlInner(
   url: string,
   apiKey: string,
@@ -412,9 +515,7 @@ async function scrapeWithFirecrawlInner(
       if (!attempt2 || !attempt2.ok) {
         console.warn("[roast] Firecrawl markdown-only retry also failed");
         if (options.includeBranding) {
-          throw new Error(
-            "Website crawl failed: Firecrawl could not extract this page. It may block automated access, require login, or be temporarily unavailable."
-          );
+          return fallbackForBrandingFailure(url, "timeout fallback failed");
         }
         console.warn("[roast] proceeding with URL-only context");
         return { markdown: "", screenshotUrl: null, metadata: {}, branding: null };
@@ -501,9 +602,7 @@ async function scrapeWithFirecrawlInner(
       // Both attempts failed — still produce a roast with minimal context
       console.warn("[roast] Firecrawl attempt 2 also failed");
       if (options.includeBranding) {
-        throw new Error(
-          "Website crawl failed: Firecrawl could not extract this page. It may block automated access, require login, or be temporarily unavailable."
-        );
+        return fallbackForBrandingFailure(url, "408 markdown fallback failed");
       }
       console.warn("[roast] proceeding with URL-only context");
       return { markdown: "", screenshotUrl: null, metadata: {}, branding: null };
@@ -543,9 +642,16 @@ async function scrapeWithFirecrawlInner(
       // Site is up but Firecrawl is blocked (Cloudflare, hCaptcha, login wall, etc.)
       // Generating a roast with no page context would just be AI hallucination — don't do it.
       console.warn(`[roast] Firecrawl SCRAPE_ALL_ENGINES_FAILED for ${url} — site is live but unscrapable (bot protection / auth wall)`);
+      if (options.includeBranding) {
+        return fallbackForBrandingFailure(url, "all Firecrawl engines failed");
+      }
       throw new Error(
         "We can't scrape that website — it's likely protected by Cloudflare, requires login, or blocks automated access. Try a publicly accessible landing page instead."
       );
+    }
+
+    if (options.includeBranding && [408, 500, 502, 503, 504].includes(attempt1.status)) {
+      return fallbackForBrandingFailure(url, `Firecrawl ${attempt1.status}`);
     }
 
     throw new Error(`Firecrawl scrape failed: ${attempt1.status} ${errText}`);

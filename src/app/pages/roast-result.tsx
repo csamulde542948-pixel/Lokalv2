@@ -605,20 +605,37 @@ function formatToolError(err: any): ToolErrorState {
     };
   }
 
+  if (msgLower.includes("capacity") || msgLower.includes("queue timed out") || msgLower.includes("timed out")) {
+    return {
+      kind: "provider",
+      title: "ANALYZER BUSY",
+      message: msg || "The analyzer could not finish the request in time.",
+      detail: "The site may still be supported. Please retry in a moment.",
+    };
+  }
+
+  if (msgLower.includes("protected by cloudflare") || msgLower.includes("requires login") || msgLower.includes("blocks automated access")) {
+    return {
+      kind: "crawl",
+      title: "SITE ACCESS BLOCKED",
+      message: msg || "We could not access enough public page content to analyze this site.",
+      detail: "Try a public landing page without login, bot protection, or anti-crawling restrictions.",
+    };
+  }
+
   if (
     msgLower.includes("firecrawl") ||
     msgLower.includes("crawl") ||
     msgLower.includes("scrape") ||
-    msgLower.includes("protected by cloudflare") ||
-    msgLower.includes("requires login") ||
-    msgLower.includes("blocks automated access") ||
-    msgLower.includes("website appears to be down")
+    msgLower.includes("website appears to be down") ||
+    msgLower.includes("website fetch failed") ||
+    msgLower.includes("could not read enough public page content")
   ) {
     return {
       kind: "crawl",
-      title: "SITE NOT SUPPORTED",
-      message: "We apologize for the inconvenience, but we do not support this site.",
-      detail: "Try a public landing page without login, bot protection, or anti-crawling restrictions.",
+      title: "COULD NOT READ SITE",
+      message: msg || "The analyzer could not read enough public page content.",
+      detail: "This can be temporary. Check that the URL is public and retry.",
     };
   }
 
