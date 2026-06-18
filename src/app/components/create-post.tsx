@@ -102,6 +102,7 @@ interface CreatePostProps {
   focusSignal?: number;
   draftContent?: string;
   draftSignal?: number;
+  onGenerateDraft?: () => void;
 }
 
 function formatBytes(bytes: number) {
@@ -160,6 +161,7 @@ export function CreatePost({
   focusSignal = 0,
   draftContent = "",
   draftSignal = 0,
+  onGenerateDraft,
 }: CreatePostProps) {
   const { user } = useAuth();
   const { data: meData } = useQuery(GET_ME_AVATAR, {
@@ -694,6 +696,16 @@ export function CreatePost({
 
             <div className="mt-2 flex items-center justify-between gap-2 sm:mt-3">
               <div className="flex min-w-0 items-center gap-0.5 text-primary sm:gap-1">
+                {onGenerateDraft && (
+                  <button
+                    type="button"
+                    title="Generate another first post idea"
+                    onClick={onGenerateDraft}
+                    className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-primary/10 sm:h-9 sm:w-9"
+                  >
+                    <Sparkles className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
+                  </button>
+                )}
                 <button
                   type="button"
                   title={`Add images (${MAX_IMAGES} max, 5MB each)`}

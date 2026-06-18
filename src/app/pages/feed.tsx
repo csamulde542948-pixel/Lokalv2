@@ -110,8 +110,10 @@ const GET_FEED_ME = gql`
 const FIRST_POST_STARTERS = [
   "Hi, I'm new to the club. How's everyone doing?",
   "First post here. What are you all building this week?",
+  "First post here. I might share a project soon, but for now I just wanted to say hi to the club.",
   "New around here. Drop what you're shipping, I want to see what the club is building.",
   "Quick hello to the club. I'm here to check out builds and give feedback.",
+  "Thinking of sharing a project here. What kind of feedback is most useful from this club?",
 ];
 
 type FeedTab = "FOR_YOU" | "FOLLOWING";
@@ -186,8 +188,9 @@ export function Feed() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [commentPost, setCommentPost] = useState<TimelinePostData | null>(null);
-  const [starterDraft, setStarterDraft] = useState("");
-  const [starterDraftSignal, setStarterDraftSignal] = useState(0);
+  const [starterIndex, setStarterIndex] = useState(0);
+  const [starterDraft, setStarterDraft] = useState(FIRST_POST_STARTERS[0]);
+  const [starterDraftSignal, setStarterDraftSignal] = useState(1);
   const [firstPostNudgeDismissed, setFirstPostNudgeDismissed] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.sessionStorage.getItem("lokal:first-post-nudge-dismissed") === "true";
@@ -246,6 +249,13 @@ export function Feed() {
     window.sessionStorage.setItem("lokal:first-post-nudge-dismissed", "true");
   }
 
+  function generateFirstPostDraft() {
+    const nextIndex = (starterIndex + 1) % FIRST_POST_STARTERS.length;
+    setStarterIndex(nextIndex);
+    setStarterDraft(FIRST_POST_STARTERS[nextIndex]);
+    setStarterDraftSignal((value) => value + 1);
+  }
+
   async function handleFirstPost(content: string, images?: string[], videoUrl?: string, tags?: string[]) {
     await handleNewPost(content, images, videoUrl, tags);
     dismissFirstPostNudge();
@@ -295,29 +305,13 @@ export function Feed() {
             }}
           >
             <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto p-0 sm:max-w-2xl">
-              <div className="px-4 pb-4 pt-5 sm:px-5">
+              <div className="px-4 pb-2 pt-5 sm:px-5">
                 <DialogHeader className="pr-8">
                   <DialogTitle>Welcome to Lokalhost.</DialogTitle>
                   <DialogDescription>
-                    Say hi to the club with a simple first post. Keep it light; you can share the big build later.
+                    Say hi, ask what people are building, or share your project as your first post. Use the sparkle button if you want another idea.
                   </DialogDescription>
                 </DialogHeader>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {FIRST_POST_STARTERS.map((starter) => (
-                    <button
-                      key={starter}
-                      type="button"
-                      className="rounded-full border px-3 py-1.5 text-left text-xs font-medium text-muted-foreground transition-colors hover:border-primary hover:bg-primary/10 hover:text-primary"
-                      onClick={() => {
-                        setStarterDraft(starter);
-                        setStarterDraftSignal((value) => value + 1);
-                      }}
-                    >
-                      {starter}
-                    </button>
-                  ))}
-                </div>
               </div>
 
               <CreatePost
@@ -325,6 +319,7 @@ export function Feed() {
                 variant="timeline"
                 draftContent={starterDraft}
                 draftSignal={starterDraftSignal}
+                onGenerateDraft={generateFirstPostDraft}
               />
             </DialogContent>
           </Dialog>
