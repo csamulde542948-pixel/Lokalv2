@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { FileText, AlertTriangle, Shield, Bot, Scale, Flag, ChevronRight, ArrowLeft } from "lucide-react";
+import { FileText, AlertTriangle, Shield, Bot, Scale, Flag, ArrowLeft } from "lucide-react";
 import { BrandLogo } from "../components/brand-logo";
 
 const TOC = [
@@ -39,10 +39,10 @@ function PolicyNav({
             {title}
           </span>
           <Link
-            to="/pricing"
+            to="/"
             className="text-xs font-semibold font-mono bg-primary text-primary-foreground px-3 py-1.5 rounded-md hover:bg-primary/90 transition-colors flex items-center gap-1"
           >
-            Pricing <ChevronRight className="w-3 h-3" />
+            Home
           </Link>
         </div>
       </div>
@@ -59,10 +59,10 @@ export function Terms() {
       <div className="border-b bg-card">
         <div className="max-w-5xl mx-auto px-4 py-10">
           <Link
-            to="/pricing"
+            to="/"
             className="inline-flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors mb-5"
           >
-            <ArrowLeft className="w-3 h-3" /> Back to Pricing
+            <ArrowLeft className="w-3 h-3" /> Back to Home
           </Link>
           <div className="flex items-start gap-4">
             <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
@@ -110,9 +110,6 @@ export function Terms() {
                 </Link>
                 <Link to="/refund-policy" className="block text-xs text-primary hover:underline font-mono">
                   → Refund Policy
-                </Link>
-                <Link to="/pricing" className="block text-xs text-primary hover:underline font-mono">
-                  → Pricing
                 </Link>
               </div>
             </div>
@@ -450,7 +447,6 @@ export function Terms() {
             { to: "/refund-policy", label: "Refund Policy" },
             { to: "/cookie-policy", label: "Cookie Policy" },
             { to: "/acceptable-use", label: "Acceptable Use" },
-            { to: "/pricing", label: "Pricing" },
           ].map(({ to, label }) => (
             <Link
               key={to}

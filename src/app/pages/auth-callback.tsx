@@ -89,7 +89,7 @@ export function AuthCallback() {
         recordLoginAttempt(data.session.user.email, true, provider).catch(() => {});
       }
 
-      const redirectTo = sessionStorage.getItem("lokal:auth_redirect") || "/";
+      const redirectTo = sessionStorage.getItem("lokal:auth_redirect") || "/feed";
       sessionStorage.removeItem("lokal:auth_redirect");
       navigate(redirectTo, { replace: true });
     }

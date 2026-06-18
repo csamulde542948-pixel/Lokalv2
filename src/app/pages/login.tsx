@@ -21,10 +21,10 @@ export function Login() {
   const fromLocation = (location.state as {
     from?: { pathname?: string; search?: string; hash?: string };
   } | null)?.from;
-  const fromPath = `${fromLocation?.pathname ?? "/"}${fromLocation?.search ?? ""}${fromLocation?.hash ?? ""}`;
+  const fromPath = `${fromLocation?.pathname ?? "/feed"}${fromLocation?.search ?? ""}${fromLocation?.hash ?? ""}`;
 
   const saveOAuthRedirect = () => {
-    if (fromPath && fromPath !== "/") {
+    if (fromPath && fromPath !== "/feed") {
       sessionStorage.setItem("lokal:auth_redirect", fromPath);
     }
   };

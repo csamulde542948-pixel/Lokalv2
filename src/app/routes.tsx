@@ -59,7 +59,6 @@ const Terms         = lazyRoute(() => import("./pages/terms").then(m => ({ defau
 const Privacy       = lazyRoute(() => import("./pages/privacy").then(m => ({ default: m.Privacy })));
 const CookiePolicy  = lazyRoute(() => import("./pages/cookie-policy").then(m => ({ default: m.CookiePolicy })));
 const AcceptableUse = lazyRoute(() => import("./pages/acceptable-use").then(m => ({ default: m.AcceptableUse })));
-const Pricing       = lazyRoute(() => import("./pages/pricing").then(m => ({ default: m.Pricing })));
 const RefundPolicy  = lazyRoute(() => import("./pages/refund-policy").then(m => ({ default: m.RefundPolicy })));
 const AuthCallback  = lazyRoute(() => import("./pages/auth-callback").then(m => ({ default: m.AuthCallback })));
 const NotFound      = lazyRoute(() => import("./pages/not-found").then(m => ({ default: m.NotFound })));
@@ -128,7 +127,7 @@ function withSuspense(Component: LazyExoticComponent<ComponentType<any>>) {
 const routes = [
   // Public landing page (no auth, no app layout)
   {
-    path: "/landing",
+    path: "/",
     Component: withSuspense(Landing),
   },
   {
@@ -160,10 +159,6 @@ const routes = [
   {
     path: "/acceptable-use",
     Component: withSuspense(AcceptableUse),
-  },
-  {
-    path: "/pricing",
-    Component: withSuspense(Pricing),
   },
   {
     path: "/refund-policy",
@@ -200,7 +195,7 @@ const routes = [
         path: "/",
         Component: Layout,
         children: [
-          { index: true, Component: withSuspense(Feed) },
+          { path: "feed", Component: withSuspense(Feed) },
           { path: "post/:id", Component: withSuspense(PostPage) },
           { path: "comment/:id", Component: withSuspense(CommentPage) },
           { path: "leaderboard", Component: withSuspense(Leaderboard) },

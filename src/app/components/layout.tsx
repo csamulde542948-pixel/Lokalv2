@@ -141,8 +141,8 @@ export function Layout() {
   };
 
   const isActive = (path: string) => {
-    if (path === "/") {
-      return location.pathname === "/";
+    if (path === "/feed") {
+      return location.pathname === "/feed";
     }
     return location.pathname.startsWith(path);
   };
@@ -163,8 +163,8 @@ export function Layout() {
           <div className="flex items-center justify-between h-16">
             {/* Left: Logo & Search */}
             <div className="flex items-center gap-4 flex-1">
-              <BrandLogo className="hidden md:flex" />
-              <BrandLogo showText={false} className="md:hidden" />
+              <BrandLogo className="hidden md:flex" linkTo="/feed" />
+              <BrandLogo showText={false} className="md:hidden" linkTo="/feed" />
               
               <div ref={searchRef} className="relative max-w-md w-full hidden sm:block">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" strokeWidth={2} />
@@ -277,9 +277,9 @@ export function Layout() {
             {/* Center: Navigation — hidden on mobile, shown on lg+ */}
             <nav className="hidden lg:flex items-center gap-1 px-4">
               <Link
-                to="/"
+                to="/feed"
                 className={`flex items-center justify-center w-24 h-16 border-b-[3px] transition-colors relative group ${
-                  isActive("/")
+                  isActive("/feed")
                     ? "border-primary text-primary"
                     : "border-transparent text-muted-foreground hover:bg-muted/50 rounded-lg"
                 }`}
@@ -453,15 +453,15 @@ export function Layout() {
               <div className="space-y-1 mb-4">
                 <p className="px-3 text-xs font-semibold text-muted-foreground mb-2">NAVIGATION</p>
                 <Link
-                  to="/"
+                  to="/feed"
                   onClick={() => setShowMobileMenu(false)}
                   className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
-                    isActive("/")
+                    isActive("/feed")
                       ? "bg-primary/10 text-primary font-medium"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   }`}
                 >
-                  {isActive("/") ? (
+                  {isActive("/feed") ? (
                     <HomeSolid className="w-5 h-5" />
                   ) : (
                     <HomeSolid className="w-5 h-5" />
@@ -604,10 +604,10 @@ export function Layout() {
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-card border-t safe-area-bottom">
         <div className="flex items-center justify-around h-14">
           <Link
-            to="/"
+            to="/feed"
             onClick={() => setShowMobileMenu(false)}
             className={`flex flex-col items-center justify-center flex-1 h-full gap-0.5 transition-colors ${
-              isActive("/") ? "text-primary" : "text-muted-foreground"
+              isActive("/feed") ? "text-primary" : "text-muted-foreground"
             }`}
           >
             <HomeSolid className="w-5 h-5" />

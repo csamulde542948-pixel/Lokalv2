@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { Shield, Database, Eye, Trash2, Globe, Lock, ArrowLeft, ChevronRight } from "lucide-react";
+import { Shield, Database, Eye, Trash2, Globe, Lock, ArrowLeft } from "lucide-react";
 import { BrandLogo } from "../components/brand-logo";
 
 // ─── Standalone Policy Shell ────────────────────────────────────────────────────
@@ -21,10 +21,10 @@ function PolicyNav({
             {title}
           </span>
           <Link
-            to="/pricing"
+            to="/"
             className="text-xs font-semibold font-mono bg-primary text-primary-foreground px-3 py-1.5 rounded-md hover:bg-primary/90 transition-colors flex items-center gap-1"
           >
-            Pricing <ChevronRight className="w-3 h-3" />
+            Home
           </Link>
         </div>
       </div>
@@ -58,10 +58,10 @@ export function Privacy() {
       <div className="border-b bg-card">
         <div className="max-w-5xl mx-auto px-4 py-10">
           <Link
-            to="/pricing"
+            to="/"
             className="inline-flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors mb-5"
           >
-            <ArrowLeft className="w-3 h-3" /> Back to Pricing
+            <ArrowLeft className="w-3 h-3" /> Back to Home
           </Link>
           <div className="flex items-start gap-4">
             <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
@@ -446,7 +446,6 @@ export function Privacy() {
             { to: "/refund-policy", label: "Refund Policy" },
             { to: "/cookie-policy", label: "Cookie Policy" },
             { to: "/acceptable-use", label: "Acceptable Use" },
-            { to: "/pricing", label: "Pricing" },
           ].map(({ to, label }) => (
             <Link
               key={to}

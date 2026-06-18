@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { RotateCcw, ArrowLeft, ChevronRight, CheckCircle2, XCircle, Clock, Mail, CreditCard, AlertCircle } from "lucide-react";
+import { RotateCcw, ArrowLeft, CheckCircle2, XCircle, Clock, Mail, CreditCard, AlertCircle } from "lucide-react";
 import { BrandLogo } from "../components/brand-logo";
 
 const TOC = [
@@ -26,10 +26,10 @@ function PolicyNav() {
             Refund Policy
           </span>
           <Link
-            to="/pricing"
+            to="/"
             className="text-xs font-semibold font-mono bg-primary text-primary-foreground px-3 py-1.5 rounded-md hover:bg-primary/90 transition-colors flex items-center gap-1"
           >
-            Pricing <ChevronRight className="w-3 h-3" />
+            Home
           </Link>
         </div>
       </div>
@@ -46,10 +46,10 @@ export function RefundPolicy() {
       <div className="border-b bg-card">
         <div className="max-w-5xl mx-auto px-4 py-10">
           <Link
-            to="/pricing"
+            to="/"
             className="inline-flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors mb-5"
           >
-            <ArrowLeft className="w-3 h-3" /> Back to Pricing
+            <ArrowLeft className="w-3 h-3" /> Back to Home
           </Link>
           <div className="flex items-start gap-4">
             <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
@@ -92,7 +92,6 @@ export function RefundPolicy() {
               <div className="pt-4 px-2 space-y-1.5 border-t mt-4">
                 <Link to="/terms" className="block text-xs text-primary hover:underline font-mono">→ Terms of Service</Link>
                 <Link to="/privacy" className="block text-xs text-primary hover:underline font-mono">→ Privacy Policy</Link>
-                <Link to="/pricing" className="block text-xs text-primary hover:underline font-mono">→ Pricing</Link>
               </div>
             </div>
           </aside>
@@ -312,7 +311,6 @@ export function RefundPolicy() {
               <Link to="/terms" className="text-primary hover:underline">Terms of Service →</Link>
               <Link to="/privacy" className="text-primary hover:underline">Privacy Policy →</Link>
               <Link to="/acceptable-use" className="text-primary hover:underline">Acceptable Use →</Link>
-              <Link to="/pricing" className="text-primary hover:underline">Pricing →</Link>
             </div>
 
           </article>
@@ -325,7 +323,6 @@ export function RefundPolicy() {
             { to: "/privacy", label: "Privacy Policy" },
             { to: "/cookie-policy", label: "Cookie Policy" },
             { to: "/acceptable-use", label: "Acceptable Use" },
-            { to: "/pricing", label: "Pricing" },
           ].map(({ to, label }) => (
             <Link
               key={to}
