@@ -196,7 +196,7 @@ export function Landing() {
               to="/feed"
               className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold uppercase tracking-[0.12em] text-primary-foreground transition hover:opacity-90"
             >
-              Join
+              Go to App
               <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
