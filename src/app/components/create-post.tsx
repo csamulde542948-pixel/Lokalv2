@@ -406,7 +406,7 @@ export function CreatePost({
           <div className="min-w-0 flex-1">
             <div className="relative">
               {content.length === 0 && (
-                <div className="pointer-events-none absolute left-0 top-0.5 text-lg text-muted-foreground sm:top-1 sm:text-xl">
+                <div className="pointer-events-none absolute left-0 right-0 top-0.5 whitespace-normal break-words text-base leading-6 text-muted-foreground sm:top-1 sm:text-xl sm:leading-7">
                   {prompt}
                 </div>
               )}
@@ -416,7 +416,7 @@ export function CreatePost({
                 value={content}
                 maxLength={MAX_POST_CHARS}
                 onChange={(e) => setContent(e.target.value)}
-                className="min-h-[48px] resize-none border-0 bg-transparent p-0 text-lg leading-6 shadow-none outline-none focus-visible:ring-0 sm:min-h-[72px] sm:text-xl sm:leading-7"
+                className="min-h-[48px] resize-none border-0 bg-transparent p-0 text-base leading-6 shadow-none outline-none focus-visible:ring-0 sm:min-h-[72px] sm:text-xl sm:leading-7"
               />
             </div>
 

@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import { gql } from "@apollo/client/core";
-import { useQuery, useMutation } from "@apollo/client/react";
+import { useApolloClient, useQuery, useMutation } from "@apollo/client/react";
 import { toast } from "sonner";
 import { format, formatDistanceToNow } from "date-fns";
 import {
@@ -17,9 +17,7 @@ import {
   ExternalLink,
   Lock,
   Megaphone,
-  MessageCircle,
   MessageSquare,
-  MoreHorizontal,
   RefreshCw,
   Search,
   Send,
@@ -41,7 +39,6 @@ import {
   deadlineToneClasses,
   eventTypeConfig,
   type LaunchpadEventType,
-  useLayoutBottomOffset,
 } from "../features/launchpad";
 
 const GET_EVENT = gql`
@@ -115,7 +112,6 @@ const CREATE_ANNOUNCEMENT = gql`
   }
 `;
 
-const POLL_INTERVAL_MS = 4000;
 const MAX_BODY = 2000;
 
 interface ChatAuthor {
@@ -203,12 +199,11 @@ function exportParticipants(participants: Participant[]) {
 export function LaunchpadChat() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const apollo = useApolloClient();
   const { user } = useAuth();
-  const bottomOffset = useLayoutBottomOffset();
   const [draft, setDraft] = useState("");
   const [announcementDraft, setAnnouncementDraft] = useState("");
   const [participantSearch, setParticipantSearch] = useState("");
-  const [isPollingPaused, setIsPollingPaused] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const eventQuery = useQuery<{ launchpadEvent: EventSummary }>(GET_EVENT, {
@@ -219,41 +214,88 @@ export function LaunchpadChat() {
   const event = eventQuery.data?.launchpadEvent ?? null;
   const isHost = !!(user && event && event.author.id === user.id);
   const canAccess = !!user && !!event && (isHost || event.interestedByMe);
+  const messageVariables = useMemo(() => ({ eventId: id, limit: 200, offset: 0 }), [id]);
+  const eventVariables = useMemo(() => ({ eventId: id }), [id]);
 
   const messagesQuery = useQuery<{ launchpadEventMessages: ChatMessage[] }>(GET_MESSAGES, {
-    variables: { eventId: id, limit: 200, offset: 0 },
+    variables: messageVariables,
     skip: !id || !canAccess,
-    pollInterval: isPollingPaused ? 0 : POLL_INTERVAL_MS,
+    fetchPolicy: "cache-and-network",
+    nextFetchPolicy: "cache-first",
   });
 
   const participantsQuery = useQuery<{ launchpadEventParticipants: Participant[] }>(GET_PARTICIPANTS, {
-    variables: { eventId: id },
+    variables: eventVariables,
     skip: !id || !isHost,
     fetchPolicy: "cache-and-network",
   });
 
   const statsQuery = useQuery<{ launchpadEventStats: EventStats }>(GET_STATS, {
-    variables: { eventId: id },
+    variables: eventVariables,
     skip: !id || !isHost,
     fetchPolicy: "cache-and-network",
   });
 
   const announcementsQuery = useQuery<{ launchpadAnnouncements: any[] }>(GET_ANNOUNCEMENTS, {
-    variables: { eventId: id },
+    variables: eventVariables,
     skip: !id || !canAccess,
     fetchPolicy: "cache-and-network",
   });
 
   const [sendMessage, { loading: sending }] = useMutation(SEND_MESSAGE, {
-    refetchQueries: [{ query: GET_MESSAGES, variables: { eventId: id, limit: 200, offset: 0 } }],
+    update(cache, { data }) {
+      const sent = data?.sendLaunchpadMessage;
+      if (!sent || !id) return;
+      const existing = cache.readQuery<{ launchpadEventMessages: ChatMessage[] }>({
+        query: GET_MESSAGES,
+        variables: { eventId: id, limit: 200, offset: 0 },
+      });
+      if (!existing) return;
+      if (existing.launchpadEventMessages.some((m) => m.id === sent.id)) return;
+      cache.writeQuery({
+        query: GET_MESSAGES,
+        variables: { eventId: id, limit: 200, offset: 0 },
+        data: { launchpadEventMessages: [...existing.launchpadEventMessages, sent] },
+      });
+    },
   });
 
   const [deleteMessage] = useMutation(DELETE_MESSAGE, {
-    refetchQueries: [{ query: GET_MESSAGES, variables: { eventId: id, limit: 200, offset: 0 } }],
+    update(cache, _result, { variables }) {
+      if (!id || !variables?.id) return;
+      const existing = cache.readQuery<{ launchpadEventMessages: ChatMessage[] }>({
+        query: GET_MESSAGES,
+        variables: { eventId: id, limit: 200, offset: 0 },
+      });
+      if (!existing) return;
+      cache.writeQuery({
+        query: GET_MESSAGES,
+        variables: { eventId: id, limit: 200, offset: 0 },
+        data: {
+          launchpadEventMessages: existing.launchpadEventMessages.map((m) =>
+            m.id === variables.id ? { ...m, isDeleted: true, body: "" } : m
+          ),
+        },
+      });
+    },
   });
 
   const [createAnnouncement, { loading: announcing }] = useMutation(CREATE_ANNOUNCEMENT, {
-    refetchQueries: [{ query: GET_ANNOUNCEMENTS, variables: { eventId: id } }],
+    update(cache, { data }) {
+      const announcement = data?.createLaunchpadAnnouncement;
+      if (!announcement || !id) return;
+      const existing = cache.readQuery<{ launchpadAnnouncements: any[] }>({
+        query: GET_ANNOUNCEMENTS,
+        variables: { eventId: id },
+      });
+      if (!existing) return;
+      if (existing.launchpadAnnouncements.some((a) => a.id === announcement.id)) return;
+      cache.writeQuery({
+        query: GET_ANNOUNCEMENTS,
+        variables: { eventId: id },
+        data: { launchpadAnnouncements: [announcement, ...existing.launchpadAnnouncements] },
+      });
+    },
   });
 
   const messages = messagesQuery.data?.launchpadEventMessages ?? [];
@@ -278,11 +320,29 @@ export function LaunchpadChat() {
   }, [messages.length]);
 
   useEffect(() => {
-    if (!sending) return;
-    setIsPollingPaused(true);
-    const t = setTimeout(() => setIsPollingPaused(false), POLL_INTERVAL_MS + 500);
-    return () => clearTimeout(t);
-  }, [sending]);
+    if (!id || !canAccess) return;
+    const refreshWhenActive = () => {
+      if (document.visibilityState !== "visible") return;
+      void messagesQuery.refetch();
+      void announcementsQuery.refetch();
+      if (isHost) {
+        void participantsQuery.refetch();
+        void statsQuery.refetch();
+      }
+    };
+    window.addEventListener("focus", refreshWhenActive);
+    document.addEventListener("visibilitychange", refreshWhenActive);
+    return () => {
+      window.removeEventListener("focus", refreshWhenActive);
+      document.removeEventListener("visibilitychange", refreshWhenActive);
+    };
+  }, [id, canAccess, isHost, messagesQuery, announcementsQuery, participantsQuery, statsQuery]);
+
+  function handleRefresh() {
+    void apollo.refetchQueries({
+      include: [GET_MESSAGES, GET_ANNOUNCEMENTS, ...(isHost ? [GET_PARTICIPANTS, GET_STATS] : [])],
+    });
+  }
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
@@ -345,146 +405,92 @@ export function LaunchpadChat() {
   const dl = deadlineLabel(event.deadline);
 
   return (
-    <div className="relative h-[calc(100dvh-8rem)] lg:h-[calc(100dvh-7rem)] min-h-0 bg-muted/20 text-foreground overflow-hidden flex flex-col">
-      <div
-        className="fixed inset-x-0 top-0 pointer-events-none z-0"
-        style={{ bottom: `${bottomOffset}px` }}
-      >
-        <div className="absolute inset-0 bg-background" />
-        <div
-          className="absolute inset-0 opacity-70"
-          style={{
-            backgroundImage:
-              "linear-gradient(hsl(var(--border) / 0.35) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border) / 0.35) 1px, transparent 1px)",
-            backgroundSize: "44px 44px",
-          }}
+    <div className="flex h-[calc(100dvh-4rem-3.5rem)] min-h-0 overflow-hidden border-t bg-background lg:h-[calc(100dvh-4rem-3rem)]">
+      <aside className="hidden w-80 min-h-0 flex-col border-r bg-card lg:flex lg:flex-shrink-0">
+        <EventInbox event={event} cfg={cfg} latestMessage={latestMessage} onRefresh={handleRefresh} refreshing={messagesQuery.loading} />
+        <div className="border-t p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-semibold text-muted-foreground">Participants</p>
+            <Badge variant="secondary" className="rounded-full">{stats?.totalJoined ?? event.interestedCount}</Badge>
+          </div>
+          {isHost ? (
+            <ParticipantRail participants={participants.slice(0, 8)} loading={participantsQuery.loading} />
+          ) : (
+            <HostMiniCard event={event} />
+          )}
+        </div>
+      </aside>
+
+      <section className="min-h-0 flex-1 flex flex-col">
+        <ChatThreadHeader
+          event={event}
+          cfg={cfg}
+          isHost={isHost}
+          messagesCount={messages.length}
+          participantsCount={stats?.totalJoined ?? event.interestedCount}
+          onBack={() => navigate(`/launchpad/${id}`)}
+          onManage={isHost ? () => navigate(`/launchpad/${id}/manage`) : undefined}
         />
-      </div>
 
-      <div className="relative z-10 flex-shrink-0 border-b border-border/60 bg-background/92 backdrop-blur-md">
-        <div className="px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <Button variant="ghost" size="sm" onClick={() => navigate(`/launchpad/${id}`)} className="h-8 px-2 gap-1.5 rounded-md">
-              <ArrowLeft className="w-4 h-4" />
-              <span className="hidden sm:inline">Event</span>
-            </Button>
-            <div className="h-7 w-px bg-border/70" />
-            <Avatar className="w-8 h-8 rounded-md">
-              {event.iconUrl && <AvatarImage src={event.iconUrl} />}
-              <AvatarFallback className={cn("rounded-md", cfg.bg, cfg.accent)}>
-                <cfg.icon className="w-4 h-4" />
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <h1 className="font-semibold text-sm truncate">{event.projectName || event.title}</h1>
-                {isHost && <Badge className="hidden sm:inline-flex h-5 rounded-sm bg-emerald-500/10 text-emerald-600 border-emerald-500/25">Host</Badge>}
-              </div>
-              <p className="text-[11px] text-muted-foreground truncate">{event.title}</p>
+        <div className="flex-1 overflow-y-auto px-3 sm:px-5 py-4 bg-muted/20">
+          {messagesQuery.loading && messages.length === 0 ? (
+            <div className="space-y-4">
+              {Array.from({ length: 7 }).map((_, i) => <MessageSkeleton key={i} mine={i % 3 === 0} />)}
             </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Badge variant={event.isOpen ? "default" : "secondary"} className="rounded-sm">
-              {event.isOpen ? "Open" : "Closed"}
-            </Badge>
-            {isHost && (
-              <Button variant="outline" size="sm" onClick={() => navigate(`/launchpad/${id}/manage`)} className="h-8 gap-1.5 rounded-md">
-                <Settings className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Manage</span>
-              </Button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <main className="relative z-10 flex-1 min-h-0 p-3 sm:p-4 lg:p-5">
-        <div className="mx-auto max-w-[1500px] h-full min-h-0 grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)_340px] gap-3 lg:gap-4">
-          <aside className="hidden min-h-0 lg:flex flex-col rounded-lg border border-border/60 bg-background/88 backdrop-blur-sm overflow-hidden">
-            <EventInbox event={event} cfg={cfg} latestMessage={latestMessage} />
-            <div className="border-t border-border/60 p-3">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground">Joined users</p>
-                <span className="text-xs text-muted-foreground">{event.interestedCount}</span>
-              </div>
-              {isHost ? (
-                <ParticipantRail participants={participants.slice(0, 8)} loading={participantsQuery.loading} />
-              ) : (
-                <HostMiniCard event={event} />
-              )}
-            </div>
-          </aside>
-
-          <section className="min-h-0 rounded-lg border border-border/60 bg-background/90 backdrop-blur-sm overflow-hidden flex flex-col">
-            <ChatThreadHeader
-              event={event}
-              cfg={cfg}
-              isHost={isHost}
-              messagesCount={messages.length}
-              participantsCount={stats?.totalJoined ?? event.interestedCount}
-            />
-
-            <div className="flex-1 overflow-y-auto px-3 sm:px-5 py-4 bg-muted/20">
-              {messagesQuery.loading && messages.length === 0 ? (
-                <div className="space-y-4">
-                  {Array.from({ length: 7 }).map((_, i) => <MessageSkeleton key={i} mine={i % 3 === 0} />)}
-                </div>
-              ) : messages.length === 0 ? (
-                <EmptyThread event={event} />
-              ) : (
-                <div className="space-y-5">
-                  {grouped.map((group) => (
-                    <div key={group.day} className="space-y-2">
-                      <DayDivider day={group.day} />
-                      {group.messages.map((m) => (
-                        <MessageBubble
-                          key={m.id}
-                          message={m}
-                          isMine={m.author.id === user.id}
-                          isHost={isHost}
-                          hostId={event.author.id}
-                          onDelete={() => handleDelete(m.id)}
-                        />
-                      ))}
-                    </div>
+          ) : messages.length === 0 ? (
+            <EmptyThread event={event} />
+          ) : (
+            <div className="space-y-5">
+              {grouped.map((group) => (
+                <div key={group.day} className="space-y-2">
+                  <DayDivider day={group.day} />
+                  {group.messages.map((m) => (
+                    <MessageBubble
+                      key={m.id}
+                      message={m}
+                      isMine={m.author.id === user.id}
+                      isHost={isHost}
+                      hostId={event.author.id}
+                      onDelete={() => handleDelete(m.id)}
+                    />
                   ))}
-                  <div ref={messagesEndRef} />
                 </div>
-              )}
+              ))}
+              <div ref={messagesEndRef} />
             </div>
-
-            <Composer
-              event={event}
-              draft={draft}
-              setDraft={setDraft}
-              sending={sending}
-              onSubmit={handleSend}
-            />
-          </section>
-
-          <aside className="hidden lg:block min-h-0 rounded-lg border border-border/60 bg-background/88 backdrop-blur-sm overflow-hidden">
-            {isHost ? (
-              <HostDashboard
-                event={event}
-                stats={stats}
-                statsLoading={statsQuery.loading}
-                participants={filteredParticipants}
-                allParticipants={participants}
-                participantSearch={participantSearch}
-                setParticipantSearch={setParticipantSearch}
-                announcements={announcements}
-                announcementDraft={announcementDraft}
-                setAnnouncementDraft={setAnnouncementDraft}
-                announcing={announcing}
-                onSendAnnouncement={handleAnnouncement}
-                onExport={() => exportParticipants(participants)}
-              />
-            ) : (
-              <ParticipantDashboard event={event} cfg={cfg} deadlineText={dl?.text} />
-            )}
-          </aside>
+          )}
         </div>
-      </main>
+
+        <Composer
+          event={event}
+          draft={draft}
+          setDraft={setDraft}
+          sending={sending}
+          onSubmit={handleSend}
+        />
+      </section>
+
+      <aside className="hidden w-96 min-h-0 border-l bg-card xl:block">
+        {isHost ? (
+          <HostDashboard
+            event={event}
+            stats={stats}
+            statsLoading={statsQuery.loading}
+            participants={filteredParticipants}
+            allParticipants={participants}
+            participantSearch={participantSearch}
+            setParticipantSearch={setParticipantSearch}
+            announcements={announcements}
+            announcementDraft={announcementDraft}
+            setAnnouncementDraft={setAnnouncementDraft}
+            announcing={announcing}
+            onSendAnnouncement={handleAnnouncement}
+            onExport={() => exportParticipants(participants)}
+          />
+        ) : (
+          <ParticipantDashboard event={event} cfg={cfg} deadlineText={dl?.text} />
+        )}
+      </aside>
     </div>
   );
 }
@@ -533,20 +539,35 @@ function ChatAccessGate({ event, eventId, signedIn }: { event: EventSummary; eve
   );
 }
 
-function EventInbox({ event, cfg, latestMessage }: { event: EventSummary; cfg: any; latestMessage?: ChatMessage }) {
+function EventInbox({
+  event,
+  cfg,
+  latestMessage,
+  onRefresh,
+  refreshing,
+}: {
+  event: EventSummary;
+  cfg: any;
+  latestMessage?: ChatMessage;
+  onRefresh: () => void;
+  refreshing: boolean;
+}) {
   return (
-    <div className="p-3">
+    <div className="p-4">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="font-semibold">Launch chats</h2>
-        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-md">
-          <MoreHorizontal className="w-4 h-4" />
+        <div>
+          <h1 className="text-xl font-bold">Launchpad</h1>
+          <p className="text-xs text-muted-foreground">Event chat</p>
+        </div>
+        <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full" onClick={onRefresh} title="Refresh chat">
+          <RefreshCw className={cn("w-4 h-4", refreshing && "animate-spin")} />
         </Button>
       </div>
-      <div className="rounded-md border border-primary/30 bg-primary/5 p-3">
+      <div className="rounded-none border-l-4 border-l-primary bg-muted/55 p-3">
         <div className="flex items-start gap-3">
-          <Avatar className="w-10 h-10 rounded-md">
+          <Avatar className="w-12 h-12 border-2 border-border">
             {event.iconUrl && <AvatarImage src={event.iconUrl} />}
-            <AvatarFallback className={cn("rounded-md", cfg.bg, cfg.accent)}>
+            <AvatarFallback className={cn(cfg.bg, cfg.accent)}>
               <cfg.icon className="w-4 h-4" />
             </AvatarFallback>
           </Avatar>
@@ -611,18 +632,31 @@ function ChatThreadHeader({
   isHost,
   messagesCount,
   participantsCount,
+  onBack,
+  onManage,
 }: {
   event: EventSummary;
   cfg: any;
   isHost: boolean;
   messagesCount: number;
   participantsCount: number;
+  onBack: () => void;
+  onManage?: () => void;
 }) {
   return (
-    <div className="border-b border-border/60 bg-background px-4 py-3">
+    <div className="px-3 sm:px-4 py-3 border-b bg-card flex items-center justify-between flex-shrink-0">
       <div className="flex items-center justify-between gap-3">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 rounded-full shrink-0"
+          onClick={onBack}
+          title="Back to event"
+        >
+          <ArrowLeft className="w-5 h-5" />
+        </Button>
         <div className="flex items-center gap-3 min-w-0">
-          <Avatar className="w-10 h-10 rounded-full">
+          <Avatar className="w-9 h-9 sm:w-10 sm:h-10 border-2 border-border">
             {event.iconUrl && <AvatarImage src={event.iconUrl} />}
             <AvatarFallback className={cn(cfg.bg, cfg.accent)}>
               <cfg.icon className="w-4 h-4" />
@@ -643,11 +677,18 @@ function ChatThreadHeader({
             <Users className="w-3 h-3" />
             {participantsCount}
           </Badge>
-          <Badge variant="outline" className="rounded-sm gap-1">
-            <MessageCircle className="w-3 h-3" />
-            Live
-          </Badge>
         </div>
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        <Badge variant={event.isOpen ? "default" : "secondary"} className="hidden rounded-full sm:inline-flex">
+          {event.isOpen ? "Open" : "Closed"}
+        </Badge>
+        {onManage && (
+          <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full" onClick={onManage} title="Manage event">
+            <Settings className="w-5 h-5" />
+          </Button>
+        )}
+        {isHost && <ShieldCheck className="hidden w-4 h-4 text-emerald-500 sm:block" />}
       </div>
     </div>
   );
@@ -758,8 +799,8 @@ function HostDashboard({
       <div className="p-4 border-b border-border/60">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-muted-foreground">Host dashboard</p>
-            <h2 className="font-semibold mt-1">Event control room</h2>
+            <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-muted-foreground">Host tools</p>
+            <h2 className="font-semibold mt-1">Participants and updates</h2>
           </div>
           <ShieldCheck className="w-5 h-5 text-emerald-500" />
         </div>
@@ -769,7 +810,7 @@ function HostDashboard({
         <div className="grid grid-cols-2 gap-2">
           <DashStat label="Joined" value={statsLoading ? "-" : joined} icon={Users} />
           <DashStat label="Fill rate" value={spots ? `${fill}%` : "Open"} icon={BarChart3} />
-          <DashStat label="Messages" value={announcements.length} icon={Megaphone} />
+          <DashStat label="Updates" value={announcements.length} icon={Megaphone} />
           <DashStat label="Status" value={event.isOpen ? "Open" : "Closed"} icon={CheckCircle2} />
         </div>
 
