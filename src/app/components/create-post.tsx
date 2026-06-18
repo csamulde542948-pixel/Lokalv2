@@ -36,7 +36,7 @@ const MAX_TAGS = 10;
 
 const PROMPTS = [
   "What did you build, break, ship, or overthink today?",
-  "Drop your build update. Bugs, launches, wins, disasters all accepted.",
+  "Drop a build update. Bugs, wins, launches.",
   "Need feedback? Post the link and ask one sharp question.",
   "What shipped this week?",
   "What are you stuck on?",
