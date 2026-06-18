@@ -142,13 +142,13 @@ function AnimatedCategoryCounter({ total, favicons }: { total: number; favicons:
 
   return (
     <div
-      className="flex items-center gap-2 font-mono text-sm text-muted-foreground/60 w-fit mx-auto"
+      className="flex w-full max-w-full flex-col items-center gap-1.5 font-mono text-sm text-muted-foreground/60 sm:w-fit sm:flex-row sm:gap-2"
       aria-live="polite"
       aria-atomic="true"
     >
       {/* Stacked favicon circles */}
       {favicons.length > 0 && (
-        <div className="flex items-center -space-x-1.5 mr-1.5">
+        <div className="flex items-center -space-x-1.5 sm:mr-1.5">
           {favicons.map((f, i) => (
             <div
               key={i}
@@ -168,11 +168,13 @@ function AnimatedCategoryCounter({ total, favicons }: { total: number; favicons:
           </span>
         </div>
       )}
-      <span className="text-orange-400 font-bold tabular-nums">{fmt(total)}+</span>
-      <span className={`${colorClass} font-semibold normal-case tracking-wider`}>
-        {display}
-      </span>
-      <span>roasted & analyzed</span>
+      <div className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 text-center sm:flex-nowrap sm:text-left">
+        <span className="text-orange-400 font-bold tabular-nums">{fmt(total)}+</span>
+        <span className={`${colorClass} font-semibold normal-case tracking-wider`}>
+          {display}
+        </span>
+        <span>roasted & analyzed</span>
+      </div>
     </div>
   );
 }
