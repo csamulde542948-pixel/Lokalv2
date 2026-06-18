@@ -10,6 +10,7 @@ import {
   schedulePostActivityRefresh,
   schedulePostIntelligence,
 } from "../../services/postIntelligence.service";
+import { scheduleLokalBotMentionReply } from "../../services/lokalBot.service";
 import { sanitizeInput } from "../../middleware/security";
 import {
   assertCommentRateLimit,
@@ -1125,6 +1126,13 @@ export const feedResolvers = {
       }).catch(console.error);
 
       schedulePostIntelligence(prisma, post.id);
+      scheduleLokalBotMentionReply({
+        prisma,
+        triggerKind: "post",
+        postId: post.id,
+        content: safeContent,
+        authorId: user.id,
+      });
 
       const duplicateContentCount = safeContent
         ? await prisma.post.count({
@@ -1461,6 +1469,14 @@ export const feedResolvers = {
       awardXp(comment.post.authorId, "RECEIVE_COMMENT", user.id, clientIp).catch(console.error);
       // Check Mentor role (20+ comments on others' posts)
       checkAndAwardRoles(user.id).catch(console.error);
+      scheduleLokalBotMentionReply({
+        prisma,
+        triggerKind: "comment",
+        postId: input.postId,
+        commentId: comment.id,
+        content: safeContent,
+        authorId: user.id,
+      });
 
       // Notify
       if (comment.post.authorId !== user.id) {
@@ -1536,6 +1552,14 @@ export const feedResolvers = {
         data: { commentsCount: { increment: 1 }, lastActivityAt: new Date() },
       });
       schedulePostActivityRefresh(prisma, input.postId);
+      scheduleLokalBotMentionReply({
+        prisma,
+        triggerKind: "comment",
+        postId: input.postId,
+        commentId: reply.id,
+        content: safeContent,
+        authorId: user.id,
+      });
 
       // Notify the parent comment author
       if (parent.authorId !== user.id) {
