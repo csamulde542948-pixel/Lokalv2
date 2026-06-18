@@ -361,18 +361,18 @@ export function Landing() {
         </section>
       </main>
 
-      <footer className="border-t border-border bg-card py-8 text-card-foreground">
-        <div className="mx-auto flex max-w-[1480px] flex-col gap-6 px-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+      <footer className="border-t border-border bg-card py-4 text-card-foreground">
+        <div className="mx-auto flex max-w-[1480px] flex-col gap-3 px-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <BrandLogo size="sm" showText={false} asLink={false} />
             <div>
-              <p className="text-sm font-bold">lokalhost.club</p>
+              <p className="text-xs font-bold">lokalhost.club</p>
               <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
                 public beta / builders welcome
               </p>
             </div>
           </div>
-          <nav className="flex flex-wrap gap-x-4 gap-y-2 text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+          <nav className="flex flex-wrap gap-x-3 gap-y-1.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
             <Link to="/terms" className="hover:text-foreground">Terms</Link>
             <Link to="/privacy" className="hover:text-foreground">Privacy</Link>
             <Link to="/cookie-policy" className="hover:text-foreground">Cookies</Link>
