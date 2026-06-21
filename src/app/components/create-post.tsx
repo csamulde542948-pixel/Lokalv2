@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bug,
+  Bot,
   Code2,
   Coffee,
   ExternalLink,
@@ -27,6 +28,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { uploadPublicFile } from "../../lib/signed-storage-upload";
 import { avatarSrc } from "../../lib/defaults";
 import { BACKEND_URL } from "../../lib/env";
+import { NGEK_MENTION } from "../features/social/lokalBot";
 
 const MAX_POST_CHARS = 2500;
 const MAX_IMAGES = 4;
@@ -328,6 +330,24 @@ export function CreatePost({
     setTags((current) => [...current, tag]);
     setTagInput("");
     setUploadError(null);
+  }
+
+  function insertNgekMention() {
+    const textarea = textareaRef.current;
+    const cursor = textarea?.selectionStart ?? content.length;
+    const before = content.slice(0, cursor);
+    const after = content.slice(cursor);
+    const needsLeadingSpace = before.length > 0 && !/\s$/.test(before);
+    const needsTrailingSpace = after.length > 0 && !/^\s/.test(after);
+    const mentionText = `${needsLeadingSpace ? " " : ""}${NGEK_MENTION}${needsTrailingSpace ? " " : " "}`;
+    const nextContent = `${before}${mentionText}${after}`;
+    const nextCursor = before.length + mentionText.length;
+
+    setContent(nextContent);
+    setTimeout(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(nextCursor, nextCursor);
+    }, 10);
   }
 
   async function uploadImagesToSupabase(items: MediaImage[]): Promise<string[]> {
@@ -751,6 +771,19 @@ export function CreatePost({
                   }`}
                 >
                   <Rocket className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
+                </button>
+                <button
+                  type="button"
+                  title="Ask @ngek"
+                  onClick={insertNgekMention}
+                  className={`flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-semibold transition-colors sm:h-9 sm:px-2.5 ${
+                    content.toLowerCase().includes(NGEK_MENTION)
+                      ? "bg-primary/10 text-primary"
+                      : "hover:bg-primary/10"
+                  }`}
+                >
+                  <Bot className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
+                  <span className="hidden min-[430px]:inline">@ngek</span>
                 </button>
                 <button type="button" title="Polls coming soon" disabled className="hidden h-8 w-8 cursor-not-allowed items-center justify-center rounded-md opacity-35 min-[380px]:flex sm:h-9 sm:w-9">
                   <List className="h-5 w-5" />

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import { Link } from "react-router";
-import { AtSign, Send, Loader2 } from "lucide-react";
+import { AtSign, Bot, Send, Loader2 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "../../../components/ui/avatar";
 import { avatarSrc } from "../../../../lib/defaults";
+import { NGEK_BOT, NGEK_MENTION } from "../lokalBot";
 
 export interface MentionUser {
   id: string;
@@ -51,6 +52,14 @@ export function CommentInput({
   const [mentionQuery, setMentionQuery]   = useState<string | null>(null);
   const [mentionAnchor, setMentionAnchor] = useState(0);
   const [trackedMentions, setTrackedMentions] = useState<MentionUser[]>([]);
+  const availableMentions = useMemo(() => {
+    const seen = new Set<string>();
+    return [NGEK_BOT, ...mentionUsers].filter((mention) => {
+      if (seen.has(mention.id)) return false;
+      seen.add(mention.id);
+      return true;
+    });
+  }, [mentionUsers]);
 
   useEffect(() => {
     setText(initialText);
@@ -71,9 +80,9 @@ export function CommentInput({
     }
   }
 
-  function insertMention(mu: MentionUser) {
+  function insertMention(mu: MentionUser, anchor = mentionAnchor) {
     const cursor  = taRef.current?.selectionStart ?? text.length;
-    const before  = text.slice(0, mentionAnchor);
+    const before  = text.slice(0, anchor);
     const after   = text.slice(cursor);
     const newText = `${before}@${mu.username} ${after}`;
     setText(newText);
@@ -93,8 +102,34 @@ export function CommentInput({
     }, 10);
   }
 
+  function insertNgekMention() {
+    const cursor = taRef.current?.selectionStart ?? text.length;
+    const before = text.slice(0, cursor);
+    const after = text.slice(cursor);
+    const needsLeadingSpace = before.length > 0 && !/\s$/.test(before);
+    const needsTrailingSpace = after.length > 0 && !/^\s/.test(after);
+    const mentionText = `${needsLeadingSpace ? " " : ""}${NGEK_MENTION}${needsTrailingSpace ? " " : " "}`;
+    const newText = `${before}${mentionText}${after}`;
+    const nextCursor = before.length + mentionText.length;
+
+    setText(newText);
+    setMentionQuery(null);
+    setTrackedMentions((prev) => {
+      if (prev.find((m) => m.id === NGEK_BOT.id)) return prev;
+      return [...prev, NGEK_BOT];
+    });
+    setTimeout(() => {
+      if (taRef.current) {
+        taRef.current.focus();
+        taRef.current.setSelectionRange(nextCursor, nextCursor);
+        taRef.current.style.height = "auto";
+        taRef.current.style.height = `${taRef.current.scrollHeight}px`;
+      }
+    }, 10);
+  }
+
   const filteredMentions = mentionQuery !== null
-    ? mentionUsers
+    ? availableMentions
         .filter(
           (mu) =>
             mu.username.toLowerCase().includes(mentionQuery) ||
@@ -190,6 +225,18 @@ export function CommentInput({
           />
 
           <div className="flex items-center gap-0.5 flex-shrink-0 mb-0.5">
+            {!text.trim() && (
+              <button
+                type="button"
+                title="Ask @ngek"
+                disabled={submitting}
+                onClick={insertNgekMention}
+                className="flex h-7 items-center gap-1 rounded-full px-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-background/60 hover:text-foreground disabled:opacity-40"
+              >
+                <Bot className="w-4 h-4" strokeWidth={2} />
+                <span>@ngek</span>
+              </button>
+            )}
             {/* @ Mention button */}
             <button
               title="Mention someone"
